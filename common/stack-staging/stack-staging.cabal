@@ -1,0 +1,113 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 227f23c5ca6629ef7670d263a1793729dd997b9a92338054efea26f8f4c90f7f
+
+name:           stack-staging
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/stack-staging#readme>
+homepage:       https://github.com/githubuser/stack-staging#readme
+bug-reports:    https://github.com/githubuser/stack-staging/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2020 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/stack-staging
+
+library
+  exposed-modules:
+      Lib
+  other-modules:
+      Paths_stack_staging
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , bson
+    , bson-mapping
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , mongoDB
+    , mtl
+    , optparse-applicative
+    , pipes-mongodb
+    , pretty-show
+    , process
+    , text
+    , time
+    , typed-process
+    , unix
+    , unliftio
+  default-language: Haskell2010
+
+executable stack-staging-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_stack_staging
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bson
+    , bson-mapping
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , mongoDB
+    , mtl
+    , optparse-applicative
+    , pipes-mongodb
+    , pretty-show
+    , process
+    , stack-staging
+    , text
+    , time
+    , typed-process
+    , unix
+    , unliftio
+  default-language: Haskell2010
+
+test-suite stack-staging-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_stack_staging
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , bson
+    , bson-mapping
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , mongoDB
+    , mtl
+    , optparse-applicative
+    , pipes-mongodb
+    , pretty-show
+    , process
+    , stack-staging
+    , text
+    , time
+    , typed-process
+    , unix
+    , unliftio
+  default-language: Haskell2010

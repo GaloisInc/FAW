@@ -1,0 +1,198 @@
+# Local imports
+import mongo_queue_helper
+
+# System imports
+import click
+import functools
+import logging
+import pyjson5
+import re
+import schema
+
+QUEUE_PROCESSING_TIMEOUT = 60
+"""Max seconds a parser might be active.  This should be several standard
+deviations out.
+"""
+
+@functools.wraps(click.option)
+def click_option(*args, **kwargs):
+    defaults = {'show_default': True}
+    defaults.update(kwargs)
+    return click.option(*args, **defaults)
+
+
+@click.command()
+@click_option('-s', '--db-src', help="Source collection, with raw invocations",
+        default='localhost:27017/littlegovdocs/rawinvocations')
+@click_option('-q', '--db-queue', help="Queue collection (temporary)",
+        default='localhost:27017/littlegovdocs/rawinvocations_queue')
+@click_option('-d', '--db-dst', help="Dest collection, with parsed invocations",
+        default='localhost:27017/littlegovdocs/invocationsparsed')
+@click_option('-p', '--processes', default=0, help="Number of processes to "
+        "spin up, or 0 for number of cores.")
+@click_option('-t', '--threads', default=2, help="Number of threads per "
+        "process.  For keeping consumer busy during network traffic.")
+@click_option('--clean/--no-clean', default=False, help="Clean queue first, "
+        "so all items are re-tried.")
+@click_option('--live-mode/--no-live-mode', default=False,
+        help="Live mode useful for large datasets; script will continuously "
+        "scan for changes after initial finish.")
+@click_option('--run-one', default=None, type=str, help="Specify to run only "
+        "one document.")
+@click_option('--config', required=True, help="Path to config specifying how "
+        "parsers should be handled.")
+def main(live_mode, processes, threads, clean, db_src, db_queue, db_dst,
+        run_one, config):
+    """
+    Consumer for the queue of raw invocation data.
+    """
+    logging.basicConfig(level=logging.DEBUG)
+    parsers_config = config_load(config)
+    mongo_queue_helper.run(live_mode=live_mode, processes=processes,
+            threads=threads, clean=clean, db_src=db_src, db_queue=db_queue,
+            processing_timeout=QUEUE_PROCESSING_TIMEOUT,
+            handle_clean_callback=functools.partial(handle_clean, db_dst=db_dst),
+            handle_queue_callback=functools.partial(handle_doc,
+                fname_rewrite=None, db_dst=db_dst,
+                parsers_config=parsers_config),
+            run_one=run_one)
+
+
+def config_load(config):
+    """Loads the given config file, and puts it in the expected schema.
+    """
+    app_config = pyjson5.load(open(config))
+    return config_schema(app_config['parsers'])
+
+
+def config_schema(config):
+    """Takes a 'parsers' node from config, and applies the expected schema.
+    """
+    s = schema
+    regex_counter_stream_handler_type = s.Or({str: {
+        s.Optional('nameGroup', default=0): s.Or(int, str),
+        s.Optional('nameReplace', default={}): s.Or({str: str}, {}),
+        s.Optional('countGroup', default=0): s.Or(int, str),
+        s.Optional('countReplace', default={}): s.Or({str: str}, {}),
+        s.Optional('countAsMissing', default=[]): [str],
+    }}, {})
+    sch = s.Schema({
+            s.And(str, lambda x: '_' not in x): {
+                s.Optional('disabled', default=False): True,
+                'exec': [str],
+                s.Optional('timeoutScale', default=1): int,
+                'version': s.Or(str, float),
+                'parse': s.Or(
+                    # Run an external program with the stdout+stderr, which
+                    # should output a json encoding
+                    {'type': 'program', 'exec': [str]},
+
+                    # Run a custom, limited program to get counts.
+                    {'type': 'regex-counter',
+                        s.Optional('stdstar', default={}): regex_counter_stream_handler_type,
+                        s.Optional('stdout', default={}): regex_counter_stream_handler_type,
+                        s.Optional('stderr', default={}): regex_counter_stream_handler_type,
+                    },
+                ),
+            },
+    })
+    return sch.validate(config)
+
+
+def handle_clean(conn_resolver, db_dst):
+    conn_resolver(db_dst).drop()
+
+
+def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
+    """Parse this document."""
+    conn_dst = conn_resolver(db_dst)
+
+    inv_name = doc['invoker']['invName']
+    cfg = parsers_config[inv_name]
+
+    try:
+        inv_version = doc['invoker']['version']
+        if cfg['version'] != inv_version:
+            raise ValueError(f'Expected version {cfg["version"]}; parser ran as '
+                    f'version {inv_version}')
+
+        parse_cfg = cfg['parse']
+        parse_fts = {}
+        def clean_stream(s):
+            s = re.sub(r'/home/pdf-files/[a-zA-Z0-9_./-]+', '', s)
+            return s
+        doc_stdout = clean_stream(doc['result']['stdoutRes'])
+        doc_stderr = clean_stream(doc['result']['stderrRes'])
+        if parse_cfg['type'] == 'regex-counter':
+            parse_cfg_both = parse_cfg['stdstar']
+            for sname, s, r in [('stdout', doc_stdout, parse_cfg['stdout']),
+                    ('stderr', doc_stderr, parse_cfg['stderr'])]:
+                for line in s.split('\n'):
+                    if not line.strip():
+                        continue
+
+                    items = list(r.items()) + list(parse_cfg_both.items())
+
+                    for r_regex, r_result in items:
+                        m = re.search(r_regex, line)
+                        if m is None:
+                            continue
+
+                        def text_from_spec(spec, replace):
+                            if isinstance(spec, int):
+                                r = m.group(spec)
+                                if r is None:
+                                    r = ''
+                            else:
+                                assert isinstance(spec, str), spec
+                                r = m.expand(spec)
+
+                            for kk, vv in replace.items():
+                                r = re.sub(kk, vv, r)
+
+                            # Don't include extraneous spaces, rather than
+                            # placing that burden on the regex writer.
+                            return r.strip()
+                        name = text_from_spec(r_result['nameGroup'],
+                                r_result['nameReplace'])
+                        count = text_from_spec(r_result['countGroup'],
+                                r_result['countReplace'])
+
+                        count_val = count.lower().strip()
+                        if count_val and count_val not in r_result['countAsMissing']:
+                            parse_fts[name] = parse_fts.get(name, 0) + 1
+
+                        break
+                    else:
+                        placeholder = f'<<workbench: unhandled {sname}>> '
+                        placeholder += re.sub('[0-9]', '', line.strip())
+                        parse_fts[placeholder] = (
+                                parse_fts.get(placeholder, 0) + 1)
+        elif parse_cfg['type'] == 'program':
+            # Validate exec, ensure the <stdinType> gets used.
+            raise NotImplementedError('Stream stdout / stderr to program')
+        else:
+            raise NotImplementedError(parse_cfg['type'])
+
+        d = {
+                '_id': doc['_id'],
+                'file': fname_rewrite or doc['file'],
+                'parser': doc['invoker']['invName'],
+                'result': parse_fts,
+        }
+        if doc['result'].get('_cons', '').lower() in ('timeout',
+                'runtimeerror'):
+            d['result']['<<workbench: Exit code missing>>'] = 1
+            d['exitcode'] = 'missing'
+        else:
+            d['result'][f"<<workbench: Exit code {int(doc['result']['exitcode'])}>>"] = 1
+            d['exitcode'] = int(doc['result']['exitcode'])
+
+        conn_dst.replace_one({'_id': d['_id']}, d, upsert=True)
+    except:
+        raise ValueError(f'While parsing {inv_name} for {doc["file"]}')
+
+
+if __name__ == '__main__':
+    main()
+

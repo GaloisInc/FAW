@@ -1,0 +1,8 @@
+# Requirements for pdf-etl-parse
+
+click
+pyjson5
+pymongo
+pytest
+schema
+

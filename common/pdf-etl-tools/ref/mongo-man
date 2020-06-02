@@ -1,0 +1,16 @@
+* ---- https://docs.mongodb.com/v4.0/ ----
+** mongo shell
+
+You can switch to non-existing databases. When you first store data in the database, such as by creating a collection, MongoDB creates the database.
+
+** https://docs.mongodb.com/v4.0/tutorial/getting-started/
+
+# Query Documents
+
+  Ugh: lots of confusing syntactic sugar!
+
+** https://docs.mongodb.com/v4.0/core/databases-and-collections/
+
+Starting in MongoDB 3.2, however, you can enforce document validation rules for
+a collection during update and insert operations. See Schema Validation for
+details.

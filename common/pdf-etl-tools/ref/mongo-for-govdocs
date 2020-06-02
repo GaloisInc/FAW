@@ -1,0 +1,121 @@
+                 Cheat Sheet for Mongo 'govdocs' Database
+
+* file:mongo-shell  # mongo-shell in general
+* document schemas
+
+rawinvocation :: [Invocation]  -- converted to BSON, of course
+
+* idioms, first steps
+
+$ ssh lochness.dev.galois.com
+$ mongo
+
+show dbs
+use govdocs
+show collections
+
+# these collections subsumed by 'rawinvocations'
+  pdfid
+  qpdf
+
+db.pdfid.find()
+db.qpdf.find()
+
+db.rawinvocations.find()   # page through the whole thing!
+
+* counting invocations in mongo:
+
+db.rawinvocations.find({'invoker.invName': "pdfinfo" }).count();
+db.rawinvocations.find({'invoker.invName': "pdfinfo-meta" }).count();
+db.rawinvocations.find({'invoker.invName': "pdfinfo-struct" }).count();
+db.rawinvocations.find({'invoker.invName': "pdftocairo-pdf" }).count();
+db.rawinvocations.find({'invoker.invName': "pdftops" }).count();
+db.rawinvocations.find({'invoker.invName': "qpdf-check" }).count();
+db.rawinvocations.find({'invoker.invName': "pdfid" }).count();
+db.rawinvocations.find({'invoker.invName': "caradoc-stats" }).count();
+db.rawinvocations.find({'invoker.invName': "mutool-convert-pdf" }).count();
+db.rawinvocations.find({'invoker.invName': "mutool-clean" }).count();
+
+* idioms
+
+db.rawinvocations.find({"result.stdoutRes": /ERROR: DATA-TRUNCATED$/}).count();
+db.rawinvocations.find({"result.stderrRes": /ERROR: DATA-TRUNCATED$/}).count();
+
+* idioms (in mongo shell), specific to govdocs database on lochness
+
+db.rawinvocations.getIndexes()
+  # confirm if we've create an unique index for the collection
+
+db.rawinvocations.find().count()
+
+db.rawinvocations.find({"result._cons": "RuntimeError"}).count()
+db.rawinvocations.find({"result._cons": "Timeout"}).count()
+db.rawinvocations.find({"result._cons": "GoodResult"}).count()
+db.rawinvocations.find({"result._cons": "GoodResult","result.exitcode": 0}).count()
+
+# find bad exitcodes
+db.rawinvocations.find({'invoker.invName': "pdftocairo-pdf", "result._cons": "GoodResult","result.exitcode": {$gte:1}}
+                      ,{_id:0, 'invoker.invName': 1, file: 1, 'result.exitcode': 1})
+
+db.rawinvocations.find({"file": "/media/data/raw/govdocs/038902.pdf"})
+
+db.rawinvocations.find({"invoker.invName": "pdfinfo"},{_id: 0, file: 1})
+
+# combine last two::
+db.rawinvocations.find({"file": "../test/data/736151.pdf"
+                       , "invoker.invName": "pdftocairo-pdf"})
+
+db.rawinvocations.find({"file": "/media/data/raw/govdocs/000020.pdf"}
+                      ,{"result.exitcode": 1})
+
+db.rawinvocations.find({"result._cons": "Timeout"}).count()
+
+# Newish / hackathon
+
+db.rawinvocations.find(
+   {"file": "/home/pdf-files/117_fdf0f5ed51c75943c5cec0c08f9350e51da99c215210dac3b2f77ae93ff1ae89.pdf"}
+  ,{_id:0, file: 1, 'result.exitcode': 1, 'invoker.invName': 1})
+
+db.rawinvocations.find(
+   {"file": "/home/pdf-files/117_fdf0f5ed51c75943c5cec0c08f9350e51da99c215210dac3b2f77ae93ff1ae89.pdf"}
+  ,{_id:0, 'result.exitcode': 1, 'invoker.invName': 1})
+
+db.rawinvocations.find({'invoker.invName': "pdftocairo-pdf"}
+                      ,{_id:0, file: 1, 'result.timeElapsed': 1})
+db.rawinvocations.find({},{_id:0, 'invoker.invName': 1, file: 1, 'result.timeElapsed': 1})
+db.rawinvocations.find({'result.timeElapsed': {$gte: 60}}
+                      ,{_id:0, file: 1, 'result.timeElapsed': 1,
+                      'invoker.invName': 1})
+db.rawinvocations.find({'result.timeElapsed': {$gte: 4}}
+                      ,{_id:0, file: 1, 'result.timeElapsed': 1,
+                      'invoker.invName': 1})
+
+# caradoc:
+
+db.rawinvocations.find({'invoker.invName': "caradoc-strict","result._cons": "GoodResult","result.exitcode": 0}).count();
+
+
+* ---- coding ----
+* mongodb hs package
+
+- https://hackage.haskell.org/package/mongoDB
+- https://github.com/mongodb-haskell/mongodb
+  - some good doc wrt mongodb & haskell & pkg; more more than comes w/ hs pkg
+  - https://github.com/mongodb-haskell/mongodb/blob/master/doc/Article1.md
+
+
+* ---- old ----
+* idioms [on older 'db']
+#+BEGIN_SRC
+
+> db.qpdf.find({file: "/media/data/raw/govdocs/000009.pdf"})
+{ "_id" : ObjectId("5d652912c3990a0a91b6deda"), "file" : "/media/data/raw/govdocs/000009.pdf", "is_linearized" : true, "is_encrypted" : false, "has_encoding_errors" : true, "warnings" : [ "end of first page section (/E) mismatch: /E = 3724925; computed = 3724894..3724895", "object count mismatch for page 0: hint table = 50; computed = 47" ], "other" : [ "R = 2", "P = -44", "User password =", "extract for accessibility: allowed", "extract for any purpose: allowed", "print low resolution: allowed", "print high resolution: allowed", "modify document assembly: not allowed", "modify forms: not allowed", "modify annotations: not allowed", "modify other: not allowed", "modify anything: not allowed", "ERROR: no xref table entry for 68 0", "ERROR: page length mismatch for page 0: hint table = 3722956; computed length = 3723236 (offset = 1939)", "" ] }
+>
+> db.qpdf.find({"has_encoding_errors" : true}).count()
+231232
+> db.qpdf.find().count()
+231232
+
+> db.rawinvocations.deleteMany({})
+
+#+END_SRC
