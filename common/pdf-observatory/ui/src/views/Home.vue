@@ -334,6 +334,7 @@ export enum DbView {
 export type PdfGroups = {[message: string]: Array<string>};
 
 export class LoadingStatus {
+  config_mtime: number = 0;
   files_done: number = 0;
   files_max: number = 0;
   files_err: number = 0;
