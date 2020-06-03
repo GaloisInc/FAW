@@ -179,12 +179,12 @@ async def init_check_pdfs(retry_errors=False):
         oargs = '--timeout 7200 --retry-errors'
     try:
         proc = await asyncio.create_subprocess_shell(
-                f'python3 queue_client.py '
+                f'python3 ../pdf-observatory/queue_client.py '
                     f'--mongo-db {app_mongodb} --pdf-dir {app_pdf_dir} '
                     f'--config {shlex.quote(os.path.abspath(app_config_path))} '
                     f'{oargs} '
                     ,
-                cwd=os.path.join(etl_path, 'pdf-observatory'),
+                cwd=os.path.join(etl_path, 'dist'),
         )
         await proc.communicate()
         if await proc.wait() != 0:
@@ -233,7 +233,7 @@ class Client(vuespa.Client):
                 cmd = [c if c != '<outputFile>' else file_out.name for c in cmd]
                 proc = await asyncio.create_subprocess_shell(
                         ' '.join([shlex.quote(c) for c in cmd]),
-                        cwd=os.path.join(etl_path, 'pdf-observatory'),
+                        cwd=os.path.join(etl_path, 'dist'),
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                 )
@@ -288,7 +288,7 @@ class Client(vuespa.Client):
                 cmd = [template_vals.get(c, lambda: c)() for c in cmd]
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'pdf-observatory'),
+                        cwd=os.path.join(etl_path, 'dist'),
                         stdin=asyncio.subprocess.PIPE,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,

@@ -324,6 +324,7 @@ def _check_image(development, config_data):
     assert config_data is not None, 'required --config?'
 
     dockerfile = []
+    dockerfile_middle = []
     dockerfile_final = []
 
     stages_written = set()
@@ -387,9 +388,60 @@ def _check_image(development, config_data):
         },
     }
 
-    # The final stage must always have the distribution folder available as
-    # /home/dist.
-    dockerfile_final.append(f'COPY "{CONFIG_FOLDER}" /home/dist')
+    # Important! User changes should trigger as little rebuild as possible.
+    # One way to accomplish this is by affected dockerfile_middle and dockerfile_final
+    # with system code as early as possible.
+    if development:
+        # Development extensions... add not-compiled code directories.
+        dockerfile_final.append(r'''
+            # Install npm globally, so it's available for debug mode
+            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+            ''')
+    else:
+        # Production extensions...
+        dockerfile_middle.append(r'''
+            FROM base AS ui-builder
+            # Install npm locally, only for the build.
+            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+
+            COPY ./common/pdf-observatory/ui /home/pdf-observatory/ui
+
+            RUN cd /home/pdf-observatory/ui \
+                && npm install \
+                && npm run build
+            ''')
+
+    # Always install observatory component dependencies
+    dockerfile_final.append(r'''
+            COPY ./common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
+            RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
+
+            COPY ./common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
+            RUN pip3 install -r /home/pdf-observatory/requirements.txt
+    ''')
+    if development:
+        dockerfile_final.append(r'''
+            # Add not-compiled code directories
+            COPY ./common/pdf-etl-parse /home/pdf-etl-parse
+            #COPY ./common/pdf-observatory /home/pdf-observatory
+            ''')
+
+        # The CONFIG_FOLDER will be mounted as dist at runtime.
+    else:
+        dockerfile_final.append(rf'''
+            # Add not-compiled code directories; omit "ui" for observatory
+            COPY ./common/pdf-etl-parse /home/pdf-etl-parse
+            COPY ./common/pdf-observatory/*.py /home/pdf-observatory/
+            COPY ./common/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
+            COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
+
+            # The final stage must always have the distribution folder available as
+            # /home/dist; do this after copying the base material and building the
+            # base UI, so user changes trigger those rebuilds infrequently.
+            COPY {shlex.quote(CONFIG_FOLDER)} /home/dist
+
+            ENV OBS_PRODUCTION "--production"
+            ''')
 
     for stage, stage_def in {**config_data['build']['stages'],
             **stages_hardcoded}.items():
@@ -414,51 +466,9 @@ def _check_image(development, config_data):
                 v = k
             dockerfile_final.append(f'COPY --from={stage} {k} {v}')
 
-    # Always install observatory component dependencies
-    dockerfile_final.append(r'''
-            COPY ./common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
-            RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
-
-            COPY ./common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
-            RUN pip3 install -r /home/pdf-observatory/requirements.txt
-    ''')
-
-    if development:
-        # Development extensions... add not-compiled code directories.
-        dockerfile_final.append(r'''
-            # Install npm globally, so it's available for debug mode
-            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
-
-            # Add not-compiled code directories
-            COPY ./common/pdf-etl-parse /home/pdf-etl-parse
-            #COPY ./common/pdf-observatory /home/pdf-observatory
-            ''')
-    else:
-        # Production extensions...
-        dockerfile.append(r'''
-            FROM base AS ui-builder
-            # Install npm locally, only for the build.
-            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
-
-            COPY ./common/pdf-observatory /home/pdf-observatory
-
-            RUN cd /home/pdf-observatory/ui \
-                && npm install \
-                && npm run build
-            ''')
-        dockerfile_final.append(r'''
-            # Add not-compiled code directories; omit "ui" for observatory
-            COPY ./common/pdf-etl-parse /home/pdf-etl-parse
-            COPY ./common/pdf-observatory/*.py /home/pdf-observatory/
-            COPY ./common/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
-            COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
-
-            ENV OBS_PRODUCTION "--production"
-            ''')
-
     # Regardless, there's some glue code to create the final image.
-    dockerfile_middle = [
-            r'''
+    dockerfile_middle.append(r'''
+
             FROM base
 
             ## s6 overlay for running mongod and observatory side by side
@@ -492,8 +502,7 @@ def _check_image(development, config_data):
             ENV DB observatory-default-data
             ENV OBS_PRODUCTION ""
             ENTRYPOINT ["/init"]
-            ''',
-    ]
+            ''')
 
     config_json = _export_config_json(config_data)
     # Shell execution limit
