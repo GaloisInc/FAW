@@ -15,7 +15,9 @@ To get started, run:
     pip3 install -r requirements.txt
     python3 workbench.py pdf /path/to/pdf/folder
 
-Then point your browser at http://localhost:8123
+The first invocation will take a long time (up to an hour or two). After that,
+it will be quite fast. Once it's loaded, point your browser at
+http://localhost:8123
 
 While developing a distribution, consider using `--development` to use Vue's
 live reload functionality and to mount the distribution's folder into
