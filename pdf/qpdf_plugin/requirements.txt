@@ -1,0 +1,3 @@
+# This file gets loaded based on the plugin's configuration in config.json5; 
+# changes to it require restarting the workbench.
+pypugjs

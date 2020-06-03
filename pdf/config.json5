@@ -8,6 +8,12 @@
     // so that the entire deployment might be specified in a single location.
     // Dockerfile is necessary because many external plugins have their own
     // requirements, etc.
+    //
+    // Everything in this file except 'build' is live-reloaded when used with
+    // the --development flag. This applies mostly to plugins, but can also
+    // apply to 'parsers' when the DB is reset through the UI (use on small
+    // collections of files only).
+
 
     // The name of the docker image to be produced.
     name: 'galois-workbench-pdf',
@@ -242,7 +248,7 @@
         },
 
         'pdfid': {
-            exec: ['python', '../dist/lib/pdfid_v0_2_5/pdfid.py',
+            exec: ['python', 'lib/pdfid_v0_2_5/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
             timeoutScale: 18,
@@ -482,8 +488,11 @@ outputs:  \n\
 
     decision_views: {
         /** Example decision process which documents API.
+
+            See also build -> stages -> final, where the requirements for this
+            plugin get installed.
             */
-        example: {
+        qpdf_plugin: {
             // How this decider shows in the UI
             label: "Example - Allow QPDF Exit Code 0",
             // How this decider gets executed. 'program' is only option
@@ -559,25 +568,7 @@ outputs:  \n\
                     than may be passed over a URL (as POST body).
 
                 */
-            exec: ['python', '-c', "\
-import json, os, re, sys \n\
-with open(sys.argv[1], 'w') as html: \n\
-    v1, v2 = 'valid', 'rejected' \n\
-    flip = 'flip' \n\
-    if json.loads(sys.argv[3]).get('flip'): \n\
-        v1, v2 = v2, v1 \n\
-        flip = '' \n\
-    html.write('<html><body>') \n\
-    html.write('<p><a onclick=\"req = new XMLHttpRequest(); req.open(\\'get\\', \\'' + sys.argv[2] + 'redecide?flip=' + flip + '\\', true); req.send()\">Currently QPDF must say ' + v1 + '; click to flip decisions</a></p>') \n\
-    for l in sys.stdin: \n\
-        f = json.loads(l) \n\
-        # Clickable link which redirects workbench to view this file \n\
-        html.write('<p><a onclick=\"req = new XMLHttpRequest(); req.open(\\'get\\', \\'' + sys.argv[2] + 'showFile?id=' + f['_id'] + '\\', true); req.send()\">File ' + f['_id'] + '</a></p>') \n\
-        print(json.dumps({ \n\
-            'testfile': f['_id'], \n\
-            'status': v1 if 'qpdf-check_<<workbench: Exit code 0>>' in f else v2, \n\
-        })) \n\
-", "<outputHtml>", "<workbenchApiUrl>", "<jsonArguments>"],
+            exec: ['python3', 'qpdf_plugin/main.py', "<outputHtml>", "<workbenchApiUrl>", "<jsonArguments>"],
             /** Standard input passed to the program specified by `exec`. This is
                 provided as a convenience, to prevent decision programs from
                 needing to interact with mongo.
@@ -731,6 +722,10 @@ with open(sys.argv[1], 'w') as html: \n\
             // to rebuild all of the other workbench internals.
             final: {
                 commands: [
+                    // Note that {dist} gets replaced in Dockerfile commands with
+                    // the directory containing `config.json5`
+                    'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
+                    'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
                     'RUN pip3 install polyfile',
                 ],
             },

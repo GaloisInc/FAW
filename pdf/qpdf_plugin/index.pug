@@ -1,0 +1,23 @@
+!!! 5
+html
+  head
+    style(type="text/css").
+      a {
+        color: #00f;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+  body
+    p
+      a(
+          onclick="req=new XMLHttpRequest(); \
+            req.open('get', '"+api_url+"redecide?flip="+flip+"', true); \
+            req.send();"
+        ) Currently QPDF must say #{v1}; click to flip decisions
+    each v in files
+      p
+        a(
+            onclick="req=new XMLHttpRequest(); \
+              req.open('get', '"+api_url+"showFile?id="+v['id']+"', true); \
+              req.send();"
+          ) File #{v['id']}

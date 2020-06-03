@@ -443,15 +443,20 @@ def _check_image(development, config_data):
             ENV OBS_PRODUCTION "--production"
             ''')
 
+    dist_name = os.path.basename(os.path.relpath(CONFIG_FOLDER))
+
     for stage, stage_def in {**config_data['build']['stages'],
             **stages_hardcoded}.items():
         if not stages_written and stage != 'base':
             raise ValueError(f'First stage must be "base", not {stage}')
 
+        stage_commands = stage_def.get('commands', [])
+        stage_commands = [s.replace('{dist}', dist_name) for s in stage_commands]
+
         if stage == 'final':
             assert stage_def.get('from') is None
             assert stage_def.get('copy_output') is None
-            dockerfile_final.extend(stage_def.get('commands', []))
+            dockerfile_final.extend(stage_commands)
             continue
 
         base = stage_def.get('from', 'base')
@@ -460,7 +465,7 @@ def _check_image(development, config_data):
 
         stages_written.add(stage)
         dockerfile.append(f'FROM {base} AS {stage}')
-        dockerfile.extend(stage_def.get('commands', []))
+        dockerfile.extend(stage_commands)
         for k, v in stage_def.get('copy_output', {}).items():
             if v is True:
                 v = k
