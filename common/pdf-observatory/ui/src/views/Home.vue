@@ -147,7 +147,7 @@
                 span(style="white-space: pre-wrap") Reference decisions -!{' '}
                 Stats(:pdfs="pdfsReference" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
               v-list-item-group()
-                v-list-item(v-for="p of pdfsReference.slice(0, pdfsToShowMax)" :key="p.testfile")
+                v-list-item(v-for="p of pdfsToShowReference" :key="p.testfile")
                   v-list-item-content
                     v-list-item-title
                       //- checkmark(:status="p.status")
@@ -373,15 +373,16 @@ export default Vue.extend({
       holdReferences: true,
       initReferences: false,
       loadingStatus: new LoadingStatus(),
-      pdfs: [] as PdfDecision[],
-      pdfsDslLast: [] as PdfDecision[], // Specifically decisions calculated with DSL.
-      pdfsReference: [] as PdfDecision[],
+      pdfs: [] as readonly PdfDecision[],
+      pdfsDslLast: [] as readonly PdfDecision[], // Specifically decisions calculated with DSL.
+      pdfsReference: [] as readonly PdfDecision[],
       pdfsReferenceFile: null as Blob | null,
       pdfsReferenceFileError: "",
       // Selected PDF or null
       pdfsSearched: null as PdfDecision | null | undefined,
       // PDFs to show in UI
-      pdfsToShow: [] as PdfDecision[],
+      pdfsToShow: [] as readonly PdfDecision[],
+      pdfsToShowReference: [] as readonly PdfDecision[],
       // Number of PDFs to show in lists -- performance issue when too large.
       pdfsToShowMax: 20,
       pdfGroups: {} as PdfGroups,
@@ -804,7 +805,7 @@ export default Vue.extend({
     makeBaseline() {
       this.holdReferences = !this.holdReferences;
       if (this.holdReferences) {
-        this.pdfsReference = this.pdfs.slice();
+        this.pdfsReference = this.pdfs;
       }
     },
     pluginDecisionView(pluginKey: string, jsonArgs: {[key: string]: any}) {
@@ -836,7 +837,7 @@ export default Vue.extend({
               this.vuespaUrl, jsonArgs, refDecs);
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
-          this.pdfs = r.decisions;
+          this.pdfs = Object.freeze(r.decisions);
         }
         catch (e) {
           if (this.pluginDecIframeLoading !== loadKey) return;
@@ -1011,8 +1012,9 @@ export default Vue.extend({
         }
       }
 
-      this.pdfs = newPdfs;
-      this.pdfsDslLast = newPdfs;
+      // Object.freeze() important for efficiency with large datasets
+      this.pdfs = Object.freeze(newPdfs);
+      this.pdfsDslLast = Object.freeze(newPdfs);
       this.reprocessPost();
     },
     reprocessPost() {
@@ -1022,7 +1024,7 @@ export default Vue.extend({
       // First time the page has been processed?
       if (!this.initReferences) {
         this.initReferences = true;
-        this.pdfsReference = this.pdfs.slice();
+        this.pdfsReference = this.pdfs;
       }
     },
     async reset() {
@@ -1096,24 +1098,19 @@ export default Vue.extend({
           p.changed = d !== p[dca];
         }
       }
-      const dcaMap = this.decisionAspectSelectedOrdering;
-      sortByReject(this.pdfs, this.pdfs.map(
-          x => `${x.changed ? 'a' : 'b'},${dcaMap[x[dca]]},${x.testfile}`));
-
-      const fileOrder = new Map<string, number>(this.pdfs.map((x, i) => [x.testfile, i]));
-      const fileOrderGet = (x: string) => {
-        const v = fileOrder.get(x);
-        if (v === undefined) return 1e20;
-        return v;
-      };
-      this.pdfsReference.sort((a, b) => fileOrderGet(a.testfile) - fileOrderGet(b.testfile));
 
       // Update display list
       this.updatePdfsToShow();
     },
     updatePdfsToShow() {
       if (!this.pdfsSearched) {
-        this.pdfsToShow = this.pdfs.slice(0, this.pdfsToShowMax);
+        const pdfsToSort = this.pdfs.slice();
+        const dca = this.decisionAspectSelected;
+        const dcaMap = this.decisionAspectSelectedOrdering;
+        sortByReject(pdfsToSort, pdfsToSort.map(
+            x => `${x.changed ? 'a' : 'b'},${dcaMap[x[dca]]},${x.testfile}`));
+
+        this.pdfsToShow = Object.freeze(pdfsToSort.slice(0, this.pdfsToShowMax));
       } else {
         // Find matching testfile in most recent PDFs
         let p: null | PdfDecision = null;
@@ -1132,6 +1129,18 @@ export default Vue.extend({
           this.pdfsSearched = p;
         }
       }
+
+      const refIds: {[key: string]: number} = {};
+      for (let i = 0, m = this.pdfsToShow.length; i < m; i++) {
+        refIds[this.pdfsToShow[i].testfile] = i;
+      }
+      const pdfsToShowReference = this.pdfsToShow.slice();
+      for (const pp of this.pdfsReference) {
+        const u = refIds[pp.testfile];
+        if (u === undefined) continue;
+        pdfsToShowReference[u] = pp;
+      }
+      this.pdfsToShowReference = Object.freeze(pdfsToShowReference);
     },
     uploadPdfsReference() {
       const file = this.pdfsReferenceFile;
@@ -1150,7 +1159,7 @@ export default Vue.extend({
             if (objs) {
               // Add more checks here?
               // (testfile names match and objs is of type PdfReference[])
-              this.pdfsReference = objs;
+              this.pdfsReference = Object.freeze(objs);
             } else this.pdfsReferenceFileError = "JSON does not match required format.";
           } else this.pdfsReferenceFileError = "Unable to read file contents.";
         };
