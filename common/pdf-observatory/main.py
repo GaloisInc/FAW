@@ -310,6 +310,7 @@ class Client(vuespa.Client):
                 async def read_err(s):
                     async for line in s:
                         line = line.decode('utf-8')
+                        print(f'{plugin_key}: {line}', file=sys.stderr, end='')
                         stderr.append(line)
                 async def write_in(s):
                     try:

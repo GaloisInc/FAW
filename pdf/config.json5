@@ -586,10 +586,18 @@ outputs:  \n\
             execStdin: '<statsbyfile>',
         },
 
+        vue_plugin: {
+            label: 'Fancy Vue plugin',
+            type: 'program',
+            exec: ['python3', 'vue_plugin/main.py', '<outputHtml>',
+                '<workbenchApiUrl>', '<jsonArguments>'],
+            execStdin: '<statsbyfile>',
+        },
+
         example2: {
             label: 'Flip reference decisions',
             type: 'program',
-            exec: ['python', '-c', "\
+            exec: ['python3', '-c', "\
 import json, sys \n\
 with open(sys.argv[1], 'w') as html: \n\
     html.write('<html><body>') \n\
