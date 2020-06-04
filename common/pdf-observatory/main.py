@@ -299,6 +299,8 @@ class Client(vuespa.Client):
                 )
                 result = {'html': None, 'decisions': []}
                 d = result['decisions']
+                # Track stderr to forward to user interface
+                stderr = []
                 async def read_out(s):
                     async for line in s:
                         line = line.decode('utf-8')
@@ -312,6 +314,7 @@ class Client(vuespa.Client):
                     # stdout, which would be a bigger problem.
                     async for line in s:
                         line = line.decode('utf-8')
+                        stderr.append(line)
                         print(f'{plugin_key}: {line}', file=sys.stderr, end='')
                 async def write_in(s):
                     try:
@@ -361,7 +364,9 @@ class Client(vuespa.Client):
                                 exc.__traceback__)
 
                 if exit_code != 0:
-                    raise ValueError(f'non-zero exit: {plugin_key}')
+                    # Gets forwarded to user, hence desire for duplicating
+                    # stderr
+                    raise ValueError(f'non-zero exit: {plugin_key}:\n{"".join(stderr)}')
 
                 if output_html is not None:
                     result['html'] = open(output_html.name, 'rb').read().decode(
