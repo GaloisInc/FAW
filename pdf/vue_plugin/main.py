@@ -88,12 +88,22 @@ def _collect_vue(args):
         # Debugging output on stderr will be printed in workbench's console.
         # Otherwise, something like "docker exec -it <container> /bin/bash" can
         # be used to read temp files.
+        #print(re_html, file=sys.stderr)
+        #print('hi tar', file=sys.stderr, flush=True)
 
         # FIXME something fails about long debug prints inside docker,
         # which is probably related to https://github.com/travis-ci/travis-ci/issues/4704#issuecomment-348435959
         # but for now just write to a temp file
         with open('/tmp/example.html', 'w') as f:
             f.write(re_html)
+
+        # This prints zero, meaning it's not the ioctl business
+        #f = sys.stderr
+        #with open('/tmp/ioctl.dbg', 'w') as f:
+        #    print('TEST HI', file=f)
+        #    import fcntl
+        #    flags = fcntl.fcntl(sys.stdout, fcntl.F_GETFL); print(flags&os.O_NONBLOCK, file=f);
+        #    flags = fcntl.fcntl(sys.stderr, fcntl.F_GETFL); print(flags&os.O_NONBLOCK, file=f);
     return re_html
 
 

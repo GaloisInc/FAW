@@ -216,6 +216,7 @@ def main():
         t_watch.start()
 
     subprocess.check_call(['docker', 'run', '-it', '--rm',
+            '--log-driver', 'none',
             '--name', docker_id,
             '-v', f'{pdf_dir}:/home/pdf-files',
             '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db',
@@ -483,12 +484,19 @@ def _check_image(development, config_data):
                     && rm /tmp/s6-overlay-amd64.tar.gz
 
             # Setup service files to automatically run mongodb in the background
-            # Note that logging is ignored until https://github.com/just-containers/s6-overlay/issues/291 is solved.
+            # Note that logging for mongodb goes to /var/log/mongodb; see
+            # https://github.com/just-containers/s6-overlay/issues/291
+
+            # Tell S6 to pass environment variables on to child processes
+            ENV S6_KEEP_ENV 1
+            # Tell python to never buffer output. This is vital for preventing
+            # some "write would block" messages.
+            ENV PYTHONUNBUFFERED 1
             RUN \
                 mkdir -p /etc/cont-init.d \
                 && echo "#! /bin/sh\\nmkdir -p /var/log/mongodb\\nchown -R nobody:nogroup /var/log/mongodb" > /etc/cont-init.d/mongod \
                 && mkdir -p /etc/services.d/mongod \
-                && echo "#! /usr/bin/with-contenv /bin/sh\\nmongod --bind_ip_all" >> /etc/services.d/mongod/run \
+                && echo "#! /bin/sh\\nmongod --bind_ip_all" >> /etc/services.d/mongod/run \
                 && chmod a+x /etc/services.d/mongod/run \
                 && mkdir /etc/services.d/mongod/log \
                 && echo "#! /usr/bin/execlineb -P\\nlogutil-service /var/log/mongodb" >> /etc/services.d/mongod/log/run \
@@ -497,7 +505,7 @@ def _check_image(development, config_data):
             # Observatory service
             RUN \
                 mkdir /etc/services.d/observatory \
-                    && echo '#! /usr/bin/with-contenv /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${DB}" --in-docker --host 0.0.0.0 --port 8123 ${OBS_PRODUCTION} --config ../config.json' >> /etc/services.d/observatory/run \
+                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${DB}" --in-docker --host 0.0.0.0 --port 8123 ${OBS_PRODUCTION} --config ../config.json' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
                 && echo OK
 

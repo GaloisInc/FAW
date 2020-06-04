@@ -299,7 +299,6 @@ class Client(vuespa.Client):
                 )
                 result = {'html': None, 'decisions': []}
                 d = result['decisions']
-                stderr = []
                 async def read_out(s):
                     async for line in s:
                         line = line.decode('utf-8')
@@ -308,10 +307,12 @@ class Client(vuespa.Client):
                             continue
                         d.append(json.loads(line))
                 async def read_err(s):
+                    # FIXME long lines (print statement in pdf/vue_plugin/main.py)
+                    # will drop the end of their content. This _may_ affect
+                    # stdout, which would be a bigger problem.
                     async for line in s:
                         line = line.decode('utf-8')
                         print(f'{plugin_key}: {line}', file=sys.stderr, end='')
-                        stderr.append(line)
                 async def write_in(s):
                     try:
                         template = plugin_def.get('execStdin')
@@ -345,22 +346,22 @@ class Client(vuespa.Client):
                     finally:
                         s.close()
 
-                exit_failed = False
-                try:
-                    await asyncio.gather(
-                            read_out(proc.stdout),
-                            read_err(proc.stderr),
-                            write_in(proc.stdin),
-                    )
-                except:
-                    traceback.print_exc()
-                    exit_failed = True
-                finally:
-                    exit_code = await proc.wait()
+                r = await asyncio.gather(
+                        read_out(proc.stdout),
+                        read_err(proc.stderr),
+                        write_in(proc.stdin),
+                        # Read all of stdout and stderr, even if stdin
+                        # crashes.
+                        return_exceptions=True,
+                )
                 exit_code = await proc.wait()
+                for exc in r:
+                    if isinstance(exc, Exception):
+                        traceback.print_exception(type(exc), exc,
+                                exc.__traceback__)
 
-                if exit_code != 0 or exit_failed:
-                    raise ValueError(f'non-zero exit: {"".join(stderr)}')
+                if exit_code != 0:
+                    raise ValueError(f'non-zero exit: {plugin_key}')
 
                 if output_html is not None:
                     result['html'] = open(output_html.name, 'rb').read().decode(
