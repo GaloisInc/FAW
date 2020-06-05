@@ -91,6 +91,9 @@ export default Vue.extend({
     this.canvasRender(this.node.nodes);
   },
   watch: {
+    decisionAspectSelected() {
+      this.canvasUpdate(this.node.nodes);
+    },
     pdfs(new_pdfs, old_pdfs) {
       if (this.decisionDefinitionDirty) {
         this.populateParams(this.decisionDefinition);
