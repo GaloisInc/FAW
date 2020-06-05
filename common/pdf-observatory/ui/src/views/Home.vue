@@ -179,7 +179,7 @@
               v-tab(:key="DbView.Tools") Output - Tools
               v-tab(:key="DbView.Parsers") Output - Parser
               v-tab(:key="DbView.Stats") Output - Stats
-            v-tabs-items(v-model="dbView")
+            v-tabs-items(v-model="dbView" ref="detailView")
               v-tab-item(:key="DbView.Decision")
                 v-expansion-panels(inset :style="{'margin-top': '1em'}")
                   v-expansion-panel
@@ -193,7 +193,6 @@
                         v-progress-circular(v-show="pluginIframeLoading" :indeterminate="true")
                         iframe(v-show="pluginIframeSrc != null" style="width: 100%; height: 100%" ref="pluginIframe")
                 FileFilterDetail(
-                    ref="fileDetailView"
                     :decisionDefinition="decisionDefinition"
                     :decisionSelected="decisionSelected"
                     :decisionSelectedDsl="decisionSelectedDsl"
@@ -1046,7 +1045,7 @@ export default Vue.extend({
     },
     scrollToFileDetails() {
       // Show the user that a new file has been searched
-      (this.$refs.fileDetailView as Vue).$el.scrollIntoView();
+      (this.$refs.detailView as Vue).$el.scrollIntoView();
     },
     showFile(id: string) {
       this.pdfsSearchedUserAction = this.pdfs.filter(
