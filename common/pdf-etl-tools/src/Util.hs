@@ -1,7 +1,10 @@
 module Util where
 
+import           Control.Monad
+import           System.Directory
 import           System.Environment
 import           System.Exit
+import           System.IO.Error
 
 ---- userError -----------------------------------------------
 
@@ -10,6 +13,14 @@ exitWithMessage msg = do
                 nm <- getProgName
                 putStrLn (nm ++ ": " ++ msg)
                 exitFailure
+
+---- file operations ---------------------------------------------------------
+
+-- | "Tries" to remove a file.  If file does not exist, ignore.
+tryRemoveFile :: FilePath -> IO ()
+tryRemoveFile path = catchIOError (removeFile path) $
+    \e -> unless (isDoesNotExistError e) $ ioError e
+
 
 ---- split,unsplit ------------------------------------------------------------
 

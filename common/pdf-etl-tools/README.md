@@ -30,23 +30,27 @@ execute the pdf-etl-tool using stack like this
 
     stack run pdf-etl-tool -- arg1 arg2 arg3 ...
 
-
 ## Help
 
     stack run pdf-etl-tool -- --help           # general help
     stack run pdf-etl-tool -- add-raw --help   # help for the add-raw command
 
+## Preliminaries
+
+You need a mongo database running locally (or you can use --server HOSTNAME[:port]).
+
 ## Test Run
 
 Usage:
 
+    TESTDIR=../../../test/data
     stack run pdf-etl-tool -- \
-       -v -d littlegovdocs -c rawinvocations add-raw -ipdfinfo,qpdf-check ../test/data/*.pdf
+       -v -d littlegovdocs -c rawinvocations add-raw -ipdfinfo,qpdf-check $TESTDIR/*.pdf
 
 This will
-  - for each pdf in `../test/data/*.pdf`
+  - for each pdf in `$TESTDIR/*.pdf`
     - run two tools (AKA "invokers") on the pdf ("pdfinfo" and "qpdf-check")
-    - capture exit status, stdout, stdin, the runtime
+    - capture exit status, stdout, stdin, and the run time in seconds
     - connect to a local mongo db and write the above information to
       - database "littlegovdocs"
       - collection "rawinvocations"

@@ -22,9 +22,10 @@ import Data.Bson
 import Data.Bson.Mapping
 
 -- local:
-import Types
 import InvocationTypes
 import ProcessUtil
+import Types
+import Util
 
 ---- instances, etc ----------------------------------------------------------
 
@@ -166,6 +167,8 @@ invoke' verbose override i@(Invoker args scale _ver _iname) inputFile =
   when verbose $
     printResult r'
 
+  mapM_ removeTempFileArg args
+
   return $
      Invocation { invoker= i{exec=exe:args'}
                 , file   = inputFile
@@ -177,9 +180,25 @@ interpretArg ifile a =
   case a of
     Str s        -> return s
     InputFile    -> return ifile
-    TmpFN suffix -> do
-                    pid <- getProcessID
-                    return (concat $ [tempDir,"/","tmp-",show pid,"-",suffix])
+    TmpFN suffix -> getTmpFilename suffix
+
+
+removeTempFileArg :: Arg -> IO ()
+removeTempFileArg arg =
+  case arg of
+    TmpFN suffix ->
+        do
+        fn <- getTmpFilename suffix
+        tryRemoveFile fn
+        return ()
+    _ ->
+        return ()
+
+getTmpFilename :: String -> IO String
+getTmpFilename suffix =
+  do
+  pid <- getProcessID
+  return (concat $ [tempDir,"/","tmp-",show pid,"-",suffix])
 
 -- | createTempDir - must be called before running (certain) invokers.
 createTempDir :: IO ()
