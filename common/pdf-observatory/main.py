@@ -144,6 +144,20 @@ def _config_reload():
     app_config_loaded = ts_loaded
 
 
+class _DbLoaderProc:
+    def __init__(self):
+        self.proc = None
+        self.aborted = False
+    def kill(self):
+        self.aborted = True
+        if self.proc is None:
+            return
+        try:
+            self.proc.kill()
+        except ProcessLookupError:
+            # Already finished, OK
+            pass
+_db_loader_proc = _DbLoaderProc()
 async def init_check_pdfs(retry_errors=False):
     """Check the database to see what's populated and what's not.
 
@@ -152,6 +166,12 @@ async def init_check_pdfs(retry_errors=False):
 
     Ran on program init and on DB reset via UI.
     """
+    global _db_loader_proc
+
+    # Try to abort old `init_check_pdfs` call.
+    _db_loader_proc.kill()
+    _db_loader_proc = loader_proc = _DbLoaderProc()
+
     db = app_mongodb_conn
     col = db['observatory']
 
@@ -166,6 +186,10 @@ async def init_check_pdfs(retry_errors=False):
         p for p in pdfs
         if os.path.isfile(os.path.join(app_pdf_dir, p)) and not p.startswith('.')]
     for p in pdfs:
+        if loader_proc.aborted:
+            # User re-triggered this step, so stop processing.
+            return
+
         try:
             exists = await col.insert_one({'_id': p, 'queueStart': None,
                     'queueStop': None, 'queueErr': None})
@@ -174,22 +198,26 @@ async def init_check_pdfs(retry_errors=False):
 
     # Now that all PDFs are guaranteed queued, run a queue helper which does
     # depth-first processing of all files
-    oargs = ''
+    oargs = []
     if retry_errors:
-        oargs = '--timeout 7200 --retry-errors'
+        oargs = ['--timeout', '7200', '--retry-errors']
     try:
-        proc = await asyncio.create_subprocess_shell(
-                f'python3 ../pdf-observatory/queue_client.py '
-                    f'--mongo-db {app_mongodb} --pdf-dir {app_pdf_dir} '
-                    f'--config {shlex.quote(os.path.abspath(app_config_path))} '
-                    f'{oargs} '
-                    ,
+        proc = await asyncio.create_subprocess_exec(
+                'python3', '../pdf-observatory/queue_client.py',
+                '--mongo-db', app_mongodb, '--pdf-dir', app_pdf_dir,
+                '--config', os.path.abspath(app_config_path),
+                *oargs,
                 cwd=os.path.join(etl_path, 'dist'),
         )
+        loader_proc.proc = proc
         await proc.communicate()
         if await proc.wait() != 0:
             raise ValueError("non-zero exit")
     except:
+        if loader_proc.aborted:
+            # OK if aborted; we were expecting some failure.
+            return
+
         traceback.print_exc()
         # No point in continuing, fatal error.  Use os._exit to avoid
         # SystemExit exception, which won't be caught by UI.
@@ -231,8 +259,8 @@ class Client(vuespa.Client):
 
             try:
                 cmd = [c if c != '<outputFile>' else file_out.name for c in cmd]
-                proc = await asyncio.create_subprocess_shell(
-                        ' '.join([shlex.quote(c) for c in cmd]),
+                proc = await asyncio.create_subprocess_exec(
+                        *cmd,
                         cwd=os.path.join(etl_path, 'dist'),
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
@@ -454,10 +482,6 @@ class Client(vuespa.Client):
 
 
     def reprocess_db(self, *args, **kwargs):
-        global app_init
-        # TODO cancel existing app_init
-        if not app_init.done():
-            raise NotImplementedError("Should abort existing app_init")
         loop = asyncio.get_event_loop()
         app_init = loop.create_task(init_check_pdfs(*args, **kwargs))
 

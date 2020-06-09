@@ -165,7 +165,7 @@ def main():
         if development:
             time.sleep(5)
         else:
-            time.sleep(1)
+            time.sleep(1.5)
         try:
             webbrowser.open(f'http://localhost:{port}')
         except:
