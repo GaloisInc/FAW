@@ -139,7 +139,9 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
     host_port, db = mongo_db.split('/')
     pdf_file = os.path.join(pdf_dir, doc['_id'])
     args = ['pdf-etl-tool', '-s', host_port, '-d', db,
-            '-c', 'rawinvocations', 'add-raw',
+            '-c', 'rawinvocations',
+            '--invokersfile', '/home/pdf-etl-tools/invokers.cfg',
+            'add-raw',
             # Deliberately allow existing data which did not time out
             '--absentonly',
             '-i', 'ALL',
@@ -156,7 +158,7 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
         args.extend(['--timeout', str(math.ceil(timeout * 2 + 5))])
     args.append(pdf_file)
     call(args,
-            cwd='/home/pdf-etl-tools',
+            cwd='/home/dist',
             timeout=timeout)
 
     # For each raw invocation, parse it.
