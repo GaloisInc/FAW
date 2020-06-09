@@ -22,20 +22,8 @@
     v-expansion-panels(:multiple="true" :popout="true" :value="expansionPanels" :class="{colored: true}")
       //- Filter configuration - collapsible
       v-expansion-panel(:key="0")
-        v-expansion-panel-header Filters
+        v-expansion-panel-header Overview
         v-expansion-panel-content
-          v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
-            div
-              AceEditor(ref="decisionCodeEditor"
-                  v-model="decisionCode"
-                  lang="yaml"
-                  @init="decisionCodeEditorInit"
-                  style="font-size: 1em"
-                  )
-            div
-              checkmark(:status="decisionDefinition ? 'valid' : 'rejected'")
-              span compilation {{decisionDefinition ? 'succeeded' : 'failed'}}
-
           div(style="display: flex; flex-direction: row; flex-wrap: wrap")
             v-tooltip(bottom :disabled="!!decisionDefinition")
               template(v-slot:activator="{on}")
@@ -62,7 +50,7 @@
             v-expansion-panel
               v-expansion-panel-header(:class="{'grey lighten-2': true}") Decision Plugins
               v-expansion-panel-content
-                v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.decision_views || {})" 
+                v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.decision_views || {})"
                     :key="pluginKey"
                     @click="pluginDecisionView(pluginKey, {})") {{plugin.label}}
                 v-btn(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0") (Close current plugin)
@@ -91,25 +79,41 @@
               :pdfsReference="pdfsReference"
               :decisionAspectSelected="decisionAspectSelected")
 
+      v-expansion-panel(:key="1")
+        //-
+          NOTE: MUST BE VISIBLE on page load. Otherwise decisionCodeEditor has issues.
+        v-expansion-panel-header Filters
+        v-expansion-panel-content
+          v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
+            div
+              AceEditor(ref="decisionCodeEditor"
+                  v-model="decisionCode"
+                  lang="yaml"
+                  @init="decisionCodeEditorInit"
+                  style="font-size: 1em"
+                  )
+            div
+              checkmark(:status="decisionDefinition ? 'valid' : 'rejected'")
+              span compilation {{decisionDefinition ? 'succeeded' : 'failed'}}
 
       //- Global listing of reasons files failed
-      v-expansion-panel(:key="2")
-        v-expansion-panel-header All reasons files were rejected
-        v-expansion-panel-content
-          .decision-reasons Error message: number of files rejected / uniquely rejected (click rejected to accept)
-            .decision-reason(v-for="f of failReasons" :key="f[0]"
-                @click="filterToggle(f[0], true)"
-                )
-              checkmark(status="rejected")
-              span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
+        v-expansion-panel(:key="2")
+          v-expansion-panel-header All reasons files were rejected
+          v-expansion-panel-content
+            .decision-reasons Error message: number of files rejected / uniquely rejected (click rejected to accept)
+              .decision-reason(v-for="f of failReasons" :key="f[0]"
+                  @click="filterToggle(f[0], true)"
+                  )
+                checkmark(status="rejected")
+                span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
 
       //- File listing
-      v-expansion-panel(:key="1")
+      v-expansion-panel(:key="3")
         v-expansion-panel-header Files
         v-expansion-panel-content
           .file-lists
             v-list(dense)
-              v-subheader 
+              v-subheader
                 span(style="white-space: pre-wrap") Current decisions (top {{pdfsToShowMax}}) -!{' '}
                 Stats(:pdfs="pdfs" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
               v-list-item-group(mandatory)
@@ -143,7 +147,7 @@
                   @click="makeBaseline"
                   :color="holdReferences ? 'primary' : ''") -&gt;
             v-list(dense)
-              v-subheader 
+              v-subheader
                 span(style="white-space: pre-wrap") Reference decisions -!{' '}
                 Stats(:pdfs="pdfsReference" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
               v-list-item-group()
@@ -185,7 +189,7 @@
                   v-expansion-panel
                     v-expansion-panel-header(:class="{'grey lighten-2': true}") File Detail Plugins
                     v-expansion-panel-content
-                      v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.file_detail_views || {})" 
+                      v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.file_detail_views || {})"
                           :key="pluginKey"
                           @click="pluginFileDetailView(pluginKey)") {{plugin.label}}
                       v-btn(v-show="pluginIframeSrc != null || pluginIframeLoading" @click="pluginIframeSrc = null; pluginIframeLoading = 0") (Close current plugin)
@@ -366,7 +370,7 @@ export default Vue.extend({
       decisionReference: {} as PdfDecision,
       decisionSelectedDsl: {} as PdfDecision,
       error: false as any,
-      expansionPanels: [0, 2],
+      expansionPanels: [0, 1, 2],
       failReasons: [] as Array<[string, [Set<string>, Set<string>]]>,
       fileSelected: 0,
       holdReferences: true,
