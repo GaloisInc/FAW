@@ -16,6 +16,7 @@ import UnliftIO.Temporary
 import qualified MongoExample
 -- import CommandLineProcessing
 import ProcessUtil
+import ThreadUtil
 
 
 main :: IO ()
@@ -49,7 +50,8 @@ main =
                    )
                  -- this doesn't cleanup on signals
 
-    ["kill3"] -> do
+    ["kill3"] ->
+                 do
                  vStart <- newEmptyMVar
                  vDone  <- newEmptyMVar
                  let handleTERM tid =
@@ -80,7 +82,13 @@ main =
                  takeMVar vDone
                  putStrLn "the real exit"
 
-    _         -> putStrLn "Usage: testing [mongo|kill|kill2|kill3]"
+    ["kill4"] -> finallyHandlingTerm
+                   testSubProcessKill
+                   (\(SomeException e) -> putStrLn $ "exception: " ++ displayException e)
+                   (putStrLn "cleaning up!")
+
+    _         -> putStrLn "Usage: testing [mongo|kill|kill2|kill3|kill4]"
+
 
 testSubProcessKill :: IO ()
 testSubProcessKill =
