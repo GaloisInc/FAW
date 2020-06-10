@@ -20,6 +20,7 @@ import           Invocation
 import           InvocationTypes
 import           Types
 import           Util
+import           TempFiles
 
 ---- the main function -------------------------------------------------------
 

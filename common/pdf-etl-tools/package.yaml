@@ -78,6 +78,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - pdf-etl-tools
+    - unliftio
 
 tests:
   pdf-etl-tools-test:

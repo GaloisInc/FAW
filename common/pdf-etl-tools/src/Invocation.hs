@@ -6,11 +6,8 @@ module Invocation where
 import Control.Exception
 import Control.Monad
 import Data.Typeable
-import System.Directory (createDirectoryIfMissing)
 import System.Exit
 import System.Posix.Files
-import System.Posix.Process (getProcessID)
-
 
 -- package: time
 import Data.Time
@@ -26,6 +23,7 @@ import InvocationTypes
 import ProcessUtil
 import Types
 import Util
+import TempFiles
 
 ---- instances, etc ----------------------------------------------------------
 
@@ -120,9 +118,9 @@ computeTimeoutInMicrosecs override scale inputFile =
   case override of
     TO_NoOverride ->
         do
-        fs <- getFileStatus inputFile
+        status <- getFileStatus inputFile
               -- NOTE: this is unnecessary when (isNothing scale)
-        return $ (\x-> max (x * fromIntegral (fileSize fs))
+        return $ (\x-> max (x * fromIntegral (fileSize status))
                          6000000 -- never less than 6 secs
                  ) <$> scale
     TO_NoTimeout ->
@@ -178,33 +176,18 @@ invoke' verbose override i@(Invoker args scale _ver _iname) inputFile =
 interpretArg :: FilePath -> Arg -> IO String
 interpretArg ifile a =
   case a of
-    Str s        -> return s
-    InputFile    -> return ifile
-    TmpFN suffix -> getTmpFilename suffix
+    Str s          -> return s
+    InputFile      -> return ifile
+    TmpFN template -> getTempFileName template
 
 
 removeTempFileArg :: Arg -> IO ()
 removeTempFileArg arg =
   case arg of
-    TmpFN suffix ->
+    TmpFN template ->
         do
-        fn <- getTmpFilename suffix
+        fn <- getTempFileName template
         tryRemoveFile fn
         return ()
     _ ->
         return ()
-
-getTmpFilename :: String -> IO String
-getTmpFilename suffix =
-  do
-  pid <- getProcessID
-  return (concat $ [tempDir,"/","tmp-",show pid,"-",suffix])
-
--- | createTempDir - must be called before running (certain) invokers.
-createTempDir :: IO ()
-createTempDir = createDirectoryIfMissing False tempDir
-
-tempDir :: String
-tempDir = "/tmp/pdf-etl-tool"  -- should work for linux & mac
-
--- FIXME[C2]: unfortunate we to bake this in (rather than calling lib functions in Unliftio.Temporary).  Rework to remove this.
