@@ -29,12 +29,14 @@ main =
   do
   (opts,cmd) <- cmdLineParser
   globals <- optionsToGlobals opts
+  createTempDir -- though not all commands require it
   case cmd of
     C_AddRaw copts      -> run_addRaw globals copts
     C_Decisions copts   -> run_decisions globals copts
     C_ListInvokers      -> run_listInvokers globals
     C_Clear             -> run_clear globals
     C_Retry             -> run_retry globals
+  removeTempDir
 
 ---- command : retry --------------------------------------------------------
 
@@ -48,7 +50,6 @@ main =
 run_retry :: Globals -> IO ()
 run_retry opts =
   do
-  createTempDir
   xs <- get_RuntimeErrors opts
   rs <- forM xs $ \(iname,f)->
           case findInvoker opts iname of
@@ -75,7 +76,6 @@ run_retry opts =
 run_addRaw :: Globals -> O_AddRaw -> IO ()
 run_addRaw opts co =
   do
-  createTempDir
   fs <- stdinIfNull $ ar_files co
   is <- case ar_invokers co of
           []      -> error "run_addRaw: internal error"

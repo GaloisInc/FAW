@@ -1,6 +1,7 @@
 module TempFiles
   ( createTempDir
   , getTempFileName
+  , getTempDirName
   , removeTempDir
   )
   where
@@ -14,21 +15,18 @@ getTempFileName template =
   tempDir <- getTempDirName
   return $ concat [tempDir,"/",template]
 
--- | createTempDir - must be called before running (certain) invokers.
+-- | createTempDir - must be called before writing any 'getTempFileName's
 createTempDir :: IO ()
 createTempDir =
   do
   tempDir <- getTempDirName
   createDirectoryIfMissing True tempDir
 
--- e.g., to be called on INT signal (or ...?)
 removeTempDir :: IO ()
 removeTempDir =
   do
   tempDir <- getTempDirName
   removePathForcibly tempDir
-
-
 
 getTempDirName :: IO String
 getTempDirName =
@@ -39,5 +37,3 @@ getTempDirName =
   where
   tempDir1 :: String
   tempDir1 = "/tmp/pdf-etl-tool"  -- should work for linux & mac
-
--- FIXME[C2]: unfortunate we to bake this in (rather than calling lib functions in Unliftio.Temporary).  Rework to remove this.

@@ -16,12 +16,14 @@ import qualified Data.Text.Encoding       as T
 import qualified Data.Text.Encoding.Error as T
 
 -- package: unliftio
-import            UnliftIO.Temporary (withSystemTempFile)
+import            UnliftIO.Temporary (withTempFile)
 
 -- package: typed-process
 import            System.Process.Typed
    -- "replaces" base System.Process
 
+-- local
+import            TempFiles
 
 ---- a dip into the 'textual' morass -----------------------------------------
 
@@ -57,8 +59,9 @@ readProcessWithExitCodeOrTimeout
     -> IO (Maybe ExitCode, T.Text, T.Text)
           -- ^ (exitcode, stdout, stderr)
 readProcessWithExitCodeOrTimeout cmd args mMicrosecs input =
-  withSystemTempFile "pdf-etl-tool-stdout" $ \stdout_fp stdout_h->
-  withSystemTempFile "pdf-etl-tool-stderr" $ \stderr_fp stderr_h->
+  getTempDirName >>= \tdir->
+  withTempFile tdir "x-stdout" $ \stdout_fp stdout_h->
+  withTempFile tdir "x-stderr" $ \stderr_fp stderr_h->
     do
     let pc = setStdin (byteStringInput input)
            $ setStdout (useHandleClose stdout_h)
