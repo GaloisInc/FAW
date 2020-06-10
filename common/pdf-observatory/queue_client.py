@@ -80,7 +80,7 @@ def call(args, cwd=None, input=None, timeout=None):
     try:
         stdout, stderr = p.communicate(input=input, timeout=timeout)
     except subprocess.TimeoutExpired:
-        p.kill()
+        p.terminate()
         stdout, stderr = p.communicate()
         stdout = stdout.decode()
         stderr = stderr.decode()

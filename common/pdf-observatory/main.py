@@ -148,7 +148,7 @@ class _DbLoaderProc:
     def __init__(self):
         self.proc = None
         self.aborted = False
-    def kill(self):
+    def abort(self):
         self.aborted = True
         if self.proc is None:
             return
@@ -169,7 +169,7 @@ async def init_check_pdfs(retry_errors=False):
     global _db_loader_proc
 
     # Try to abort old `init_check_pdfs` call.
-    _db_loader_proc.kill()
+    _db_loader_proc.abort()
     _db_loader_proc = loader_proc = _DbLoaderProc()
 
     db = app_mongodb_conn
