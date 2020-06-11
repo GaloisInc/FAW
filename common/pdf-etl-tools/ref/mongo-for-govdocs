@@ -70,7 +70,11 @@ db.rawinvocations.find({"file": "/media/data/raw/govdocs/000020.pdf"}
 
 db.rawinvocations.find({"result._cons": "Timeout"}).count()
 
-# Newish / hackathon
+* idioms based on hackathon files & observatory instance of mongo
+
+db.rawinvocations.find(
+   {"file": "/home/pdf-files/0122_026748e49f1b845b9d1697387ed1a8a7d89037379d83a4859ac8a34bfc32d71f.pdf"}
+  ,{_id:0, file: 1, 'result.exitcode': 1, 'invoker.invName': 1})
 
 db.rawinvocations.find(
    {"file": "/home/pdf-files/117_fdf0f5ed51c75943c5cec0c08f9350e51da99c215210dac3b2f77ae93ff1ae89.pdf"}
