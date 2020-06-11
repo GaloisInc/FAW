@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Invocation where
 
@@ -142,13 +143,14 @@ invoke' verbose override i@(Invoker args scale _ver _iname) inputFile =
 
   mTimeoutMicrosecs <- computeTimeoutInMicrosecs override scale inputFile
   t1 <- getCurrentTime
-  r <- fmap Right
-         (readProcessWithExitCodeOrTimeout exe args'
-            mTimeoutMicrosecs
-            "" -- no stdinput
-         )
-       `catch` \(SomeException e)->
-          return (Left (displayException e))
+  r <- catchNonAsyncException
+         (fmap Right
+           (readProcessWithExitCodeOrTimeout exe args'
+              mTimeoutMicrosecs
+              "" -- no stdinput
+           ))
+         (\e-> return (Left (displayException e)))
+
   t2 <- getCurrentTime
   let
     codeToInt (ExitSuccess)   = 0
@@ -191,3 +193,17 @@ removeTempFileArg arg =
         return ()
     _ ->
         return ()
+
+---- utilities ---------------------------------------------------------------
+
+-- catchNonAsyncException - like catch, but Async Exceptions are *not* caught
+catchNonAsyncException :: IO a -> (SomeException -> IO a) -> IO a
+catchNonAsyncException action h =
+  catchJust
+   (\e-> case fromException e of
+           Just (_::AsyncException) -> Nothing
+                         -- these (ThreadKilled,UserInterrupt,...) are not caught
+           Nothing -> Just e
+   )
+   action
+   h

@@ -17,12 +17,18 @@ import qualified MongoExample
 -- import CommandLineProcessing
 import ProcessUtil
 import ThreadUtil
+import Invocation
+import TempFiles
 
 
 main :: IO ()
 main =
   do
   args <- getArgs
+  main' args
+
+main' :: [String] -> IO ()
+main' args =
   case args of
     ["mongo"] -> MongoExample.main2
 
@@ -82,12 +88,18 @@ main =
                  takeMVar vDone
                  putStrLn "the real exit"
 
-    ["kill4"] -> finallyHandlingTerm
-                   testSubProcessKill
-                   (\(SomeException e) -> putStrLn $ "exception: " ++ displayException e)
-                   (putStrLn "cleaning up!")
+    ["kill4",n] -> do
+                 let tspk = (if read n == (0::Int) then print $ head ([]::[Int]) else testSubProcessKill)
+                            `catchNonAsyncException`
+                             (\e-> putStrLn $ "catchNonAsync: " ++ displayException e)
 
-    _         -> putStrLn "Usage: testing [mongo|kill|kill2|kill3|kill4]"
+                 createTempDir
+                 finally_WithSignals
+                   (tspk >> tspk)
+                   (\(SomeException e) -> putStrLn $ "exception: " ++ displayException e)
+                   (putStrLn "cleaning up!" >> removeTempDir)
+
+    _         -> putStrLn "Usage: testing [mongo | kill | kill2 | kill3 | kill4 n]"
 
 
 testSubProcessKill :: IO ()

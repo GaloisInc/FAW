@@ -1,6 +1,7 @@
 module Main where
 
 -- system packages:
+import           Control.Exception
 import           Control.Monad
 import           Data.Maybe
 import qualified Data.Set  as Set
@@ -21,6 +22,7 @@ import           InvocationTypes
 import           Types
 import           Util
 import           TempFiles
+import           ThreadUtil
 
 ---- the main function -------------------------------------------------------
 
@@ -30,13 +32,20 @@ main =
   (opts,cmd) <- cmdLineParser
   globals <- optionsToGlobals opts
   createTempDir -- though not all commands require it
-  case cmd of
-    C_AddRaw copts      -> run_addRaw globals copts
-    C_Decisions copts   -> run_decisions globals copts
-    C_ListInvokers      -> run_listInvokers globals
-    C_Clear             -> run_clear globals
-    C_Retry             -> run_retry globals
-  removeTempDir
+  finally_WithSignals
+    (case cmd of
+       C_AddRaw copts      -> run_addRaw globals copts
+       C_Decisions copts   -> run_decisions globals copts
+       C_ListInvokers      -> run_listInvokers globals
+       C_Clear             -> run_clear globals
+       C_Retry             -> run_retry globals
+    )
+    (\(SomeException e) -> putStrLn $ "abnormal main exit: " ++ displayException e)
+    (do
+     when (g_verbose globals) $
+       putStrLn "removing temporary directory"
+     removeTempDir
+    )
 
 ---- command : retry --------------------------------------------------------
 
