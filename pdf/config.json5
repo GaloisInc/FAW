@@ -19,15 +19,24 @@
     name: 'galois-workbench-pdf',
 
     parsers: {
-        test: {
-            // Any disabled parser has no effect.
+        // Example of running the unix command 'file' on each file to gather
+        // information.
+        "example-file": {
+            // Any disabled parser has no effect -- comment this line to enable
             disabled: true,
-            exec: ['echo', 'hi'],
+            exec: ['file', '<inputFile>'],
+            timeoutScale: 1,
             version: '1',
             parse: {
-                type: 'program',
-                exec: ['python3', 'blah.py', '<parserName>', '<parserVersion>',
-                    '<stdinType>'],
+                type: 'regex-counter',
+                stdstar: {
+                  // Report all lines of stdout and stderr, but strip numbers.
+                  '.*': {
+                    nameReplace: {
+                      '[0-9]': '',
+                    },
+                  },
+                },
             },
         },
 
