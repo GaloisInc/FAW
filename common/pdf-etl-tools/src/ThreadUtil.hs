@@ -14,24 +14,30 @@ finally_WithSignals action handleException final =
   do
   vStart <- newEmptyMVar
   vDone  <- newEmptyMVar
-  let handleSignal s tid =
-        do
-        putStrLn $ "received signal " ++ show s
-        throwTo tid UserInterrupt
-        takeMVar vDone
-        final
 
+  -- main thread:
   tid <- forkFinally
-           (takeMVar vStart >> action)  -- The main action
+           (takeMVar vStart   -- i.e., wait for signal handler installs
+            >> action         -- The main action
+           )
            (\x-> do
                  case x of
                    Left e   -> handleException e
                    Right () -> return ()
                  putMVar vDone ()
             )
-  _ <- installHandler sigTERM (Catch (handleSignal sigTERM tid)) Nothing
-  _ <- installHandler sigINT  (Catch (handleSignal sigINT  tid)) Nothing
+
+  -- signal handlers:
+  let handleSignal s =
+        do
+        putStrLn $ "received signal " ++ show s
+        throwTo tid UserInterrupt
+        takeMVar vDone
+        final
+  _ <- installHandler sigTERM (Catch (handleSignal sigTERM)) Nothing
+  _ <- installHandler sigINT  (Catch (handleSignal sigINT )) Nothing
        -- safe to ignore any previous handler?
+
   putMVar vStart ()
   takeMVar vDone  -- wait on the 'action'
   final
