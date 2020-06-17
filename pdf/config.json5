@@ -19,24 +19,15 @@
     name: 'galois-workbench-pdf',
 
     parsers: {
-        // Example of running the unix command 'file' on each file to gather
-        // information.
-        "example-file": {
-            // Any disabled parser has no effect -- comment this line to enable
+        test: {
+            // Any disabled parser has no effect.
             disabled: true,
-            exec: ['file', '<inputFile>'],
-            timeoutScale: 1,
+            exec: ['echo', 'hi'],
             version: '1',
             parse: {
-                type: 'regex-counter',
-                stdstar: {
-                  // Report all lines of stdout and stderr, but strip numbers.
-                  '.*': {
-                    nameReplace: {
-                      '[0-9]': '',
-                    },
-                  },
-                },
+                type: 'program',
+                exec: ['python3', 'blah.py', '<parserName>', '<parserVersion>',
+                    '<stdinType>'],
             },
         },
 
@@ -163,7 +154,7 @@
         'qpdf-check': {
             exec: ['qpdf', '--check', '<inputFile>'],
             timeoutScale: 18,
-            version: '8.0.2',
+            version: '10.0.1',
             parse: {
                 type: 'regex-counter',
                 stdout: {
@@ -360,7 +351,7 @@
         'mutool-convert-pdf': {
             exec: ['mutool', 'convert', '-F', 'pdf', '-o', '<tempFile .pdf>', '<inputFile>'],
             timeoutScale: 18,
-            version: 'mupdf-tools-1.12',
+            version: 'mupdf-1.17',
             parse: {
                 type: 'regex-counter',
                 stdout: {},
@@ -376,7 +367,22 @@
             // "mutool clean -s" requires a .pdf extension, or it hangs
             exec: ['mutool', 'clean', '-s', '<inputFile>', '<tempFile .pdf>'],
             timeoutScale: 18,
-            version: 'mupdf-tools-1.12',
+            version: 'mupdf-1.17',
+            parse: {
+                type: 'regex-counter',
+                stdout: {},
+                stderr: {
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        'mutool-draw': {
+            exec: ['mutool', 'draw', '-F', 'png', '-o', '<tempFile>', '<inputFile>'],
+            timeoutScale: 18,
+            version: 'mupdf-1.17',
             parse: {
                 type: 'regex-counter',
                 stdout: {},
@@ -687,10 +693,8 @@ with open(sys.argv[1], 'w') as html: \n\
                     // Base packages
                     'RUN apt-get update && apt-get install -y \
                         curl \
-                        mupdf-tools \
                         python3 \
                         python3-pip \
-                        qpdf \
                         xpdf \
                         wget \
                         ',
@@ -731,6 +735,10 @@ with open(sys.argv[1], 'w') as html: \n\
                     'RUN apt-get update && apt-get install -y \
                         libcairo2-dev \
                         ',
+                    // Needed to build qpdf
+                    'RUN apt-get update && apt-get install -y \
+                        libjpeg-dev \
+                        ',
                 ],
             },
 
@@ -764,6 +772,24 @@ with open(sys.argv[1], 'w') as html: \n\
                         && eval `opam config env` \
                         && make \
                         && install caradoc /usr/local/bin \
+                        '",
+                ],
+            },
+
+            mupdf: {
+                copy_output: {
+                    '/usr/local/bin/mutool': true,
+                },
+                commands: [
+                    'RUN \
+                        wget -q https://mupdf.com/downloads/archive/mupdf-1.17.0-source.tar.gz \
+                        && tar xf mupdf-1.17.0-source.tar.gz \
+                        && rm mupdf-1.17.0-source.tar.gz \
+                        ',
+                    "RUN bash -c '\
+                        cd mupdf-1.17.0-source \
+                        && make XCFLAGS='-DDEBUG_PROGESSIVE_ADVANCE=1' tools\
+                        && install build/release/mutool /usr/local/bin \
                         '",
                 ],
             },
@@ -844,6 +870,24 @@ with open(sys.argv[1], 'w') as html: \n\
 
                     // installs to /usr/local:
                     'RUN make -j5 install',
+                ],
+            },
+
+            qpdf: {
+                copy_output: {
+                    '/usr/local': true,
+                },
+                commands: [
+                     'WORKDIR /src/',
+                     'RUN \
+                          wget https://github.com/qpdf/qpdf/archive/release-qpdf-10.0.1.tar.gz \
+                          && tar xf release-qpdf-10.0.1.tar.gz \
+                          && rm release-qpdf-10.0.1.tar.gz \
+                          ',
+                     'WORKDIR /src/qpdf-release-qpdf-10.0.1/',
+                     'RUN ./configure',
+                     'RUN make',
+                     'RUN make install',
                 ],
             },
         },
