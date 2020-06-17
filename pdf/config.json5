@@ -248,11 +248,11 @@
         },
 
         'pdfid': {
-            exec: ['python', 'lib/pdfid_v0_2_5/pdfid.py',
+            exec: ['python', 'lib/pdfid_v0_2_7/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
             timeoutScale: 18,
-            version: 'pdfid_v0_2_5',
+            version: 'pdfid_v0_2_7',
             parse: {
                 type: 'regex-counter',
                 stdout: {

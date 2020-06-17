@@ -51,11 +51,11 @@ invokerList =
       "8.0.2"
       "qpdf-check"
   , Invoker
-      [Str "python", Str "../lib/pdfid_v0_2_5/pdfid.py", Str "-e", InputFile]
+      [Str "python", Str "../lib/pdfid_v0_2_7/pdfid.py", Str "-e", InputFile]
       (Just 18)
          -- (Just 3) was timing out!
          --   because this scans whole file?
-      "pdfid_v0_2_5"
+      "pdfid_v0_2_7"
          -- FIXME: a bit ugly in that we have a relative path here!
       "pdfid"
   , Invoker

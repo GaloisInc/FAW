@@ -2,8 +2,8 @@
 
 __description__ = 'Tool to test a PDF file'
 __author__ = 'Didier Stevens'
-__version__ = '0.2.5'
-__date__ = '2018/07/05'
+__version__ = '0.2.7'
+__date__ = '2019/11/05'
 
 """
 
@@ -54,6 +54,8 @@ History:
   2018/01/15: bugfix ConfigParser privately reported
   2018/01/29: bugfix oPDFEOF.cntCharsAfterLastEOF when no %%EOF
   2018/07/05: V0.2.5 introduced cExpandFilenameArguments; renamed option literal to literalfilenames
+  2019/09/30: V0.2.6 color bugfix, thanks to Leo
+  2019/11/05: V0.2.7 fixed plugin path when compiled with pyinstaller
 
 Todo:
   - update XML example (entropy, EOF)
@@ -353,7 +355,7 @@ class cCVE_2009_3459:
         self.count = 0
 
     def Check(self, lastName, word):
-        if (lastName == '/Colors' and word.isdigit() and int(word) > 2^24): # decided to alert when the number of colors is expressed with more than 3 bytes
+        if (lastName == '/Colors' and word.isdigit() and int(word) > 2**24): # decided to alert when the number of colors is expressed with more than 3 bytes
             self.count += 1
 
 def XMLAddAttribute(xmlDoc, name, value=None):
@@ -363,10 +365,16 @@ def XMLAddAttribute(xmlDoc, name, value=None):
         att.nodeValue = value
     return att
 
+def GetScriptPath():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(sys.argv[0])
+
 def ParseINIFile():
     oConfigParser = ConfigParser.ConfigParser(allow_no_value=True)
     oConfigParser.optionxform = str
-    oConfigParser.read(os.path.join(os.path.dirname(sys.argv[0]), 'pdfid.ini'))
+    oConfigParser.read(os.path.join(GetScriptPath(), 'pdfid.ini'))
     keywords = []
     if oConfigParser.has_section('keywords'):
         for key, value in oConfigParser.items('keywords'):
@@ -977,7 +985,7 @@ class cPluginParent():
 def LoadPlugins(plugins, verbose):
     if plugins == '':
         return
-    scriptPath = os.path.dirname(sys.argv[0])
+    scriptPath = GetScriptPath()
     for plugin in sum(map(ProcessAt, plugins.split(',')), []):
         try:
             if not plugin.lower().endswith('.py'):

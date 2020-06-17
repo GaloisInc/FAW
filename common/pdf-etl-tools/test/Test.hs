@@ -126,11 +126,11 @@ invokerList =
       "8.0.2"
       "qpdf-check"
   , Invoker
-      [A_Str "python", A_Str "../lib/pdfid_v0_2_5/pdfid.py", A_Str "-e", A_Input]
+      [A_Str "python", A_Str "../lib/pdfid_v0_2_7/pdfid.py", A_Str "-e", A_Input]
       longTimeoutScale
          -- shortTimeoutScale was timing out!
          --   because this scans whole file?
-      "pdfid_v0_2_5"
+      "pdfid_v0_2_7"
        -- FIXME: remove dependence on CWD
       "pdfid"
   , Invoker
