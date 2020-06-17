@@ -36,7 +36,7 @@
         pdfinfo: {
             exec: ['/usr/local/bin/pdfinfo', '<inputFile>'],
             timeoutScale: 3,
-            version: 'poppler-0.84.0',
+            version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
                 // The 'regex-counter' type generates a small program which
@@ -79,7 +79,7 @@
         "pdfinfo-meta": {
             exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
             timeoutScale: 3,
-            version: 'poppler-0.84.0',
+            version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
                 stdstar: {
@@ -93,7 +93,7 @@
         "pdfinfo-struct": {
             exec: ['/usr/local/bin/pdfinfo', '-struct', '<inputFile>'],
             timeoutScale: 18,
-            version: 'poppler-0.84.0',
+            version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
                 stdout: {
@@ -126,7 +126,7 @@
         "pdftocairo-pdf": {
             exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             timeoutScale: 18,
-            version: 'poppler-0.84.0',
+            version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
                 stderr: {
@@ -140,7 +140,7 @@
         pdftops: {
             exec: ['/usr/local/bin/pdftops', '<inputFile>', '<tempFile>'],
             timeoutScale: 18,
-            version: 'poppler-0.84.0',
+            version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
                 stdstar: {
@@ -547,9 +547,9 @@ outputs:  \n\
                     the most detailed is `rawinvocations`.
 
                     Available collections:
-                        * statsbyfile -- `_id` is path to file within 
-                            <filesPath>. Outside of that, each key is a 
-                            feature present in the file, and each value is 
+                        * statsbyfile -- `_id` is path to file within
+                            <filesPath>. Outside of that, each key is a
+                            feature present in the file, and each value is
                             undefined at the moment.
                         * obsgroups -- Each document is a group of features.
                             `_id` is the prefix, and any key starting with a
@@ -558,8 +558,8 @@ outputs:  \n\
                             associated with the key is a list of files which
                             had that feature.
                         * rawinvocations -- Keyed by `doc['invoker']['invName']`
-                            and `doc['file']` (which is `filesPath + '/' + file`), 
-                            rawinvocations contains the raw parser stdout, stderr, 
+                            and `doc['file']` (which is `filesPath + '/' + file`),
+                            rawinvocations contains the raw parser stdout, stderr,
                             and exit code attained by running a parser.
 
                             Not for the faint of heart.
@@ -589,7 +589,7 @@ outputs:  \n\
                 needing to interact with mongo.
 
                 Template options:
-                * <obsgroups> Each line is a JSON object; this is a lightly 
+                * <obsgroups> Each line is a JSON object; this is a lightly
                     processed version of the DB entries:
 
                     `{"id": "feature", "files": ["file1", "file2", ...]}`.
@@ -648,7 +648,7 @@ with open(sys.argv[1], 'w') as html: \n\
             exec: ['cat', '<inputFile>'],
             // Applications may also produce non-HTML content displayable in a browser,
             // as long as the MIME type gets set. Test this in Chrome; Firefox appears
-            // to have better MIME type inference, and may correctly show the content 
+            // to have better MIME type inference, and may correctly show the content
             // even without this field.
             outputMimeType: 'application/pdf',
         },
@@ -803,10 +803,10 @@ with open(sys.argv[1], 'w') as html: \n\
                     'WORKDIR /src',
 
                     // FreeType http://www.linuxfromscratch.org/blfs/view/svn/general/freetype2.html
-                    'RUN wget https://downloads.sourceforge.net/freetype/freetype-2.10.1.tar.xz',
-                    'RUN tar -xvf freetype-2.10.1.tar.xz',
+                    'RUN wget https://downloads.sourceforge.net/freetype/freetype-2.10.2.tar.xz',
+                    'RUN tar -xvf freetype-2.10.2.tar.xz',
 
-                    'WORKDIR /src/freetype-2.10.1',
+                    'WORKDIR /src/freetype-2.10.2',
 
                     // Some linux from scratch magic
                     'RUN sed -ri "s:.*(AUX_MODULES.*valid):\\1:" modules.cfg',
@@ -839,18 +839,10 @@ with open(sys.argv[1], 'w') as html: \n\
                     // ==== build fontconfig ====
                     'WORKDIR /src/',
 
-                    // From carsonharmon:
-                    //   Fontconfig (depends on FreeType), note that the linux from scratch version is broken
-                    //   The gitlab version is up to date, and has a PR merged from a year ago with the bug fix
-                    //   https://gitlab.freedesktop.org/fontconfig/fontconfig/merge_requests/2/diffs?commit_id=8208f99fa1676c42bfd8d74de3e9dac5366c150c
-                    //   RUN git clone https://gitlab.freedesktop.org/fontconfig/fontconfig.git
-                    //
-                    // However, MarkT replaced above
-                    //  with a repeatable alternative: (the above fix is in the 2.13.91 tag):
-                    'RUN wget https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.13.91.tar.xz',
-                    'RUN tar -xf fontconfig-2.13.91.tar.xz',
+                    'RUN wget https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.13.92.tar.xz',
+                    'RUN tar -xf fontconfig-2.13.92.tar.xz',
 
-                    'WORKDIR /src/fontconfig-2.13.91/',
+                    'WORKDIR /src/fontconfig-2.13.92/',
 
                     'RUN ./configure --sysconfdir=/etc --prefix=/usr/local --enable-libxml2 --mandir=/usr/local/share/man',
                     'RUN make -j5 install',
@@ -858,15 +850,15 @@ with open(sys.argv[1], 'w') as html: \n\
                     // ==== build poppler-utils ====
                     'WORKDIR /src/',
 
-                    // Poppler 0.84.0
-                    'RUN wget https://poppler.freedesktop.org/poppler-0.84.0.tar.xz',
-                    'RUN tar -xvf poppler-0.84.0.tar.xz',
+                    // Poppler 0.89.0
+                    'RUN wget https://poppler.freedesktop.org/poppler-0.89.0.tar.xz',
+                    'RUN tar -xvf poppler-0.89.0.tar.xz',
 
-                    'WORKDIR /src/poppler-0.84.0',
+                    'WORKDIR /src/poppler-0.89.0',
                     // 'RUN cmake -DBUILD_SHARED_LIBS=OFF -DENABLE_LIBOPENJPEG=unmaintained -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang ..',
 
                     'WORKDIR build',
-                    'RUN cmake -DBUILD_SHARED_LIBS=OFF -DBUILD_GTK_TESTS=OFF -DBUILD_QT5_TESTS=OFF -DBUILD_CPP_TESTS=OFF -DENABLE_SPLASH=OFF -DENABLE_CPP=OFF -DENABLE_GLIB=OFF -DENABLE_GTK_DOC=OFF -DENABLE_QT5=OFF -DENABLE_LIBOPENJPEG=unmaintained -DENABLE_CMS=none -DENABLE_LIBCURL=OFF -DENABLE_ZLIB=OFF -DENABLE_DCTDECODER=unmaintained -DENABLE_ZLIB_UNCOMPRESS=OFF -DWITH_JPEG=OFF -DWITH_PNG=OFF -DWITH_TIFF=OFF -DWITH_NSS3=OFF -DWITH_Cairo=ON -DWITH_FONTCONFIGURATION_FONTCONFIG=OFF -DCMAKE_EXE_LINKER_FLAGS="-pthread" ../',
+                    'RUN cmake -DBUILD_SHARED_LIBS=OFF -DBUILD_GTK_TESTS=OFF -DBUILD_QT5_TESTS=OFF -DBUILD_CPP_TESTS=OFF -DENABLE_SPLASH=OFF -DENABLE_CPP=OFF -DENABLE_GLIB=OFF -DENABLE_GTK_DOC=OFF -DENABLE_QT5=OFF -DENABLE_LIBOPENJPEG=unmaintained -DENABLE_CMS=none -DENABLE_LIBCURL=OFF -DENABLE_ZLIB=OFF -DENABLE_DCTDECODER=unmaintained -DENABLE_ZLIB_UNCOMPRESS=OFF -DWITH_JPEG=OFF -DWITH_PNG=ON -DWITH_TIFF=OFF -DWITH_NSS3=OFF -DWITH_Cairo=ON -DWITH_FONTCONFIGURATION_FONTCONFIG=OFF -DCMAKE_EXE_LINKER_FLAGS="-pthread" ../',
 
                     // installs to /usr/local:
                     'RUN make -j5 install',
