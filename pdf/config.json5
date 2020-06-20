@@ -877,6 +877,8 @@ with open(sys.argv[1], 'w') as html: \n\
             qpdf: {
                 copy_output: {
                     '/usr/local': true,
+                    '/usr/local/lib/libqpdf*': '/usr/lib/',
+                                    // qdpf install is broken: efficient way around.
                 },
                 commands: [
                      'WORKDIR /src/',
