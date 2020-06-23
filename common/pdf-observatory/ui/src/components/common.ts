@@ -1,7 +1,7 @@
 
 // Class mimicking Kudu expected output
 export type PdfDecision = {
-  info: string,
+  info: string[],
   testfile: string,
 
   [outputGroup: string]: any,

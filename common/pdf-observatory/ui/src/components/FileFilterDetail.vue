@@ -6,10 +6,10 @@
       .decision-info {{decisionSelected.info}}
 
     div Current decision
-      json-tree(:data="decisionSelected" :level="1")
+      json-tree(:data="decisionSelected" :level="2")
 
     div Reference decision
-      json-tree(:data="decisionReference" :level="1")
+      json-tree(:data="decisionReference" :level="2")
 
     div(style="font-weight: bold; border-top: solid 1px #000") In-Tool Decision Details
     .decision-overview
@@ -31,7 +31,7 @@
           checkmark(:status="k[1]")
           span {{k[0]}}
 
-    .decision-reasons Full listing of reasons (for filters: passed 'all', rejected by 'any'):
+    .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'):
       .decision-reason(v-for="k of fileStats.get('other')"
           :key="k[0]"
           @click="filterToggle(k[0], true)"
@@ -82,6 +82,7 @@ export default Vue.extend({
         // Prevent duplicates by re-setting the array whenever we get data
         this.fileStats.clear();
         this.fileStats.set('other', []);
+        const otherSeen = new Set<string>();
         for (const [d, dv] of Object.entries(data[0])) {
           if ([0, false, null, undefined].indexOf(dv as any) !== -1 || ['_id'].indexOf(d) !== -1) {
             continue;
@@ -90,8 +91,10 @@ export default Vue.extend({
           const dRe = new RegExp(`^'([^']*)' (rejected|accepted) '${RegExp.escape(d)}'$`, 'gm');
           const dMatches = new Array<RegExpExecArray|null>();
           let dMatch;
-          while ((dMatch = dRe.exec(info)) !== null) {
-            dMatches.push(dMatch);
+          for (const line of info) {
+            while ((dMatch = dRe.exec(line)) !== null) {
+              dMatches.push(dMatch);
+            }
           }
           if (dMatches.length === 0) {
             // Placeholder for unused message
@@ -103,18 +106,32 @@ export default Vue.extend({
                 : dMatch[2] === 'rejected' ? 'rejected'
                 : dMatch[2] === 'accepted' ? 'valid'
                 : 'other');
-            let dKey = dMatch ? dMatch[1] : 'other';
-            let arr = this.fileStats.get(dKey);
-            if (!arr) {
-              arr = [];
-              this.fileStats.set(dKey, arr);
+            if (dMatch) {
+              const dKey = dMatch[1];
+              let arr = this.fileStats.get(dKey);
+              if (!arr) {
+                arr = [];
+                this.fileStats.set(dKey, arr);
+              }
+              arr.push([d, dStatus]);
             }
-            arr.push([d, dStatus]);
+
+            // Special behavior for 'other', to show all messages side by side
+            if (!otherSeen.has(d)) {
+              otherSeen.add(d);
+              const dKey = 'other';
+              let arr = this.fileStats.get(dKey);
+              if (!arr) {
+                arr = [];
+                this.fileStats.set(dKey, arr);
+              }
+              arr.push([d, dMatch ? 'valid' : 'ignore']);
+            }
           }
         }
 
         const fsToSort = this.fileStats.get('other')!;
-        sortByReject(fsToSort, fsToSort.map(x => `${x[1]},${x[0]}`));
+        sortByReject(fsToSort, fsToSort.map(x => `${x[0]},${x[1]}`));
         // Vue doesn't track reactivity on Map objects.  So, re-assign with
         // copy.
         Vue.set(this, 'fileStats', new Map(this.fileStats));

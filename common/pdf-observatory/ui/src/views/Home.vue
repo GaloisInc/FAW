@@ -176,7 +176,7 @@
                 ) Rationalizer (replaces DSL)
 
           //- Big margin-bottom to prevent scroll-back when changing file selection
-          v-sheet(:elevation="3" style="margin-top: 1em; padding: 1em; margin-bottom: 100em")
+          v-sheet(:elevation="3" style="margin-top: 1em; padding: 1em; margin-bottom: 50vh")
             v-subheader Results for {{decisionSelected.testfile}}
             v-tabs(v-model="dbView" grow)
               v-tab(:key="DbView.Decision") Decision
@@ -440,7 +440,7 @@ export default Vue.extend({
       return r;
     },
     decisionSelected(): PdfDecision {
-      if (this.pdfs === undefined) return {info: '', status: 'rejected',
+      if (this.pdfs === undefined) return {info: [], status: 'rejected',
           testfile: ''};
       if (this.pdfsSearched) return this.pdfsSearched;
       return this.pdfsToShow[this.fileSelected] || {};
@@ -486,10 +486,10 @@ export default Vue.extend({
       }
       
       if (decRef === null) {
-        decRef = {info: '', status: 'not found', testfile: testfile};
+        decRef = {info: [], status: 'not found', testfile: testfile};
       }
       if (dslRef === null) {
-        dslRef = {info: '', status: 'not found', testfile: testfile};
+        dslRef = {info: [], status: 'not found', testfile: testfile};
       }
       this.decisionReference = decRef!;
       this.decisionSelectedDsl = dslRef!;
@@ -923,7 +923,7 @@ export default Vue.extend({
           if (pdfMap.has(f)) continue;
           const dec = {
                 testfile: f,
-                info: '',
+                info: [],
           };
           newPdfs.push(dec);
           pdfMap.set(f, dec);
@@ -960,7 +960,7 @@ export default Vue.extend({
             if (!matched) {
               for (const file of files) {
                 result.add(file);
-                pdfMap.get(file)!.info += `'${f.name}' rejected '${k}'\n`;
+                pdfMap.get(file)!.info.push(`'${f.name}' rejected '${k}'`);
               }
             }
           }
@@ -970,7 +970,7 @@ export default Vue.extend({
             if (matched) {
               for (const file of files) {
                 result.add(file);
-                pdfMap.get(file)!.info += `'${f.name}' accepted '${k}'\n`;
+                pdfMap.get(file)!.info.push(`'${f.name}' accepted '${k}'`);
               }
             }
           }
@@ -1065,19 +1065,21 @@ export default Vue.extend({
         let r: RegExpExecArray | null;
         let only = true;
         let onlyKey: string | undefined = undefined;
-        while ((r = re.exec(p.info)) !== null) {
-          const k = r[1];
-          if (onlyKey !== undefined && k !== onlyKey) {
-            only = false;
-          }
+        for (const line of p.info) {
+          while ((r = re.exec(line)) !== null) {
+            const k = r[1];
+            if (onlyKey !== undefined && k !== onlyKey) {
+              only = false;
+            }
 
-          let rr = failReasons.get(k);
-          if (rr === undefined) {
-            rr = [new Set(), new Set()];
-            failReasons.set(k, rr);
+            let rr = failReasons.get(k);
+            if (rr === undefined) {
+              rr = [new Set(), new Set()];
+              failReasons.set(k, rr);
+            }
+            onlyKey = k;
+            rr[0].add(p.testfile);
           }
-          onlyKey = k;
-          rr[0].add(p.testfile);
         }
 
         if (only && onlyKey !== undefined) {
