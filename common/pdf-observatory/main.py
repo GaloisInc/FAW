@@ -181,20 +181,26 @@ async def init_check_pdfs(retry_errors=False):
         col.create_index([('queueErr', pymongo.ASCENDING)]),
     ])
 
-    pdfs = sorted(os.listdir(app_pdf_dir))
-    pdfs = [
-        p for p in pdfs
-        if os.path.isfile(os.path.join(app_pdf_dir, p)) and not p.startswith('.')]
-    for p in pdfs:
-        if loader_proc.aborted:
-            # User re-triggered this step, so stop processing.
-            return
+    for path, subfolders, files in os.walk(app_pdf_dir):
+        # Filter subsequent subfolders to not go into hidden directories
+        for i in range(len(subfolders)-1, -1, -1):
+            if subfolders[i].startswith('.'):
+                subfolders.pop(i)
 
-        try:
-            exists = await col.insert_one({'_id': p, 'queueStart': None,
-                    'queueStop': None, 'queueErr': None})
-        except pymongo.errors.DuplicateKeyError:
-            pass
+        for f in files:
+            if f.startswith('.'):
+                continue
+
+            if loader_proc.aborted:
+                # User re-triggered this step, so stop processing.
+                return
+
+            ff = os.path.relpath(os.path.join(path, f), app_pdf_dir)
+            try:
+                await col.insert_one({'_id': ff, 'queueStart': None,
+                        'queueStop': None, 'queueErr': None})
+            except pymongo.errors.DuplicateKeyError:
+                pass
 
     # Now that all PDFs are guaranteed queued, run a queue helper which does
     # depth-first processing of all files
