@@ -2,14 +2,14 @@
   table
     tr
       td Decision \\ Reference
-      td(v-for="r of references" :key="r") {{r || 'undefined'}}
+      td(v-for="r of references" :key="r") {{r === undefined ? 'undefined' : r}}
     tr(v-for="d, di of decisions" :key="d")
-      td {{d || 'undefined'}}
-      td(v-for="r, ri of references" 
+      td {{d === undefined ? 'undefined' : d}}
+      td(v-for="r, ri of references"
           :class="{clickable: counts[di][ri]}"
           :style="(di !== ri) ? 'background-color: ' + spectrum(counts[di][ri]) : 'background-color: #ddf'"
           @click="onClick(di, ri)"
-          ) 
+          )
         template(v-if="counts[di][ri]")
           v-menu(offset-y)
             template(v-slot:activator="{on}")
