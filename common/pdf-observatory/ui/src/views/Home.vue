@@ -79,6 +79,19 @@
               :pdfsReference="pdfsReference"
               :decisionAspectSelected="decisionAspectSelected")
 
+            //- Global listing of reasons files failed
+            v-expansion-panels(:value="0" :popout="true" v-if="decisionAspectSelected.startsWith('filter-')")
+              v-expansion-panel(:key="0")
+                v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
+                v-expansion-panel-content
+                  .decision-reasons(style="max-height: 7em; padding-bottom: 1em; overflow-y: scroll") Error message: number of files rejected / uniquely rejected
+                    //- (click rejected to accept)
+                    .decision-reason(v-for="f of failReasons.get(decisionAspectSelected).slice(0, 20)" :key="f[0]"
+                        @click="filterToggle(f[0], true)"
+                        )
+                      checkmark(status="rejected")
+                      span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
+
       v-expansion-panel(:key="1")
         //-
           NOTE: MUST BE VISIBLE on page load. Otherwise decisionCodeEditor has issues.
@@ -95,17 +108,6 @@
             div
               checkmark(:status="decisionDefinition ? 'valid' : 'rejected'")
               span compilation {{decisionDefinition ? 'succeeded' : 'failed'}}
-
-      //- Global listing of reasons files failed
-        v-expansion-panel(:key="2")
-          v-expansion-panel-header All reasons files were rejected
-          v-expansion-panel-content
-            .decision-reasons Error message: number of files rejected / uniquely rejected (click rejected to accept)
-              .decision-reason(v-for="f of failReasons" :key="f[0]"
-                  @click="filterToggle(f[0], true)"
-                  )
-                checkmark(status="rejected")
-                span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
 
       //- File listing
       v-expansion-panel(:key="3")
@@ -371,7 +373,7 @@ export default Vue.extend({
       decisionSelectedDsl: {} as PdfDecision,
       error: false as any,
       expansionPanels: [0, 1, 2],
-      failReasons: [] as Array<[string, [Set<string>, Set<string>]]>,
+      failReasons: new Map<string, Array<[string, [Set<string>, Set<string>]]>>(),
       fileSelected: 0,
       holdReferences: true,
       initReferences: false,
@@ -1058,37 +1060,56 @@ export default Vue.extend({
     },
     /** For "All reasons files were rejected" section */
     updateFailReasons(){
-      const failReasons = new Map<string, [Set<string>, Set<string>]>();
+      const failReasons = new Map<string, Map<string, [Set<string>, Set<string>]>>();
       for (const p of this.pdfs) {
         // Go through reasons failed, increment
-        const re = /^rejected: (.*)$/gm;
+        const re = /^'(.*)' (accepted|rejected) '(.*)'$/gm;
         let r: RegExpExecArray | null;
-        let only = true;
+        let only = false;
         let onlyKey: string | undefined = undefined;
+        let onlyFilter: string | undefined = undefined;
+        const logOnly = () => {
+          if (!only || !onlyFilter || !onlyKey) return;
+          failReasons.get(onlyFilter)!.get(onlyKey)![1].add(p.testfile);
+        };
         for (const line of p.info) {
           while ((r = re.exec(line)) !== null) {
-            const k = r[1];
-            if (onlyKey !== undefined && k !== onlyKey) {
+            const filt = r[1];
+            const msg = r[3];
+            if (filt !== onlyFilter) {
+              logOnly();
+              only = true;
+              onlyKey = msg;
+              onlyFilter = filt;
+            }
+
+            if (msg !== onlyKey) {
               only = false;
             }
 
-            let rr = failReasons.get(k);
+            let filtMap = failReasons.get(filt);
+            if (filtMap === undefined) {
+              filtMap = new Map<string, [Set<string>, Set<string>]>();
+              failReasons.set(filt, filtMap);
+            }
+
+            let rr = filtMap.get(msg);
             if (rr === undefined) {
               rr = [new Set(), new Set()];
-              failReasons.set(k, rr);
+              filtMap.set(msg, rr);
             }
-            onlyKey = k;
             rr[0].add(p.testfile);
           }
         }
-
-        if (only && onlyKey !== undefined) {
-          failReasons.get(onlyKey)![1].add(p.testfile);
-        }
+        logOnly();
       }
-      this.failReasons = Array.from(failReasons.entries());
-      this.failReasons.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
- 
+      const frMap = new Map<string, Array<[string, [Set<string>, Set<string>]]>>();
+      for (const [filt, data] of failReasons.entries()) {
+        const filtData = Array.from(data.entries());
+        filtData.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
+        frMap.set(`filter-${filt}`, filtData);
+      }
+      this.failReasons = frMap;
     },
     updatePdfsChanged() {
       const refs = {} as any;
