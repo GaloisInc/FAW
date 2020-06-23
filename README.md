@@ -28,6 +28,6 @@ To build a standalone workbench in `build/label`, run:
 
     python3 workbench.py pdf build/label
 
-See `README-dist.md` for additional information on running the workbench docker
-image in a standalone fashion; that file is packaged with any builds.
+See `common/README-dist.md` for additional information on running the workbench
+docker image in a standalone fashion; that file is packaged with any builds.
 

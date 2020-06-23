@@ -108,7 +108,9 @@ def main():
                 shell=True)
 
         # Export readme
-        with open('README-dist.md') as fin, open(os.path.join(pdf_dir, 'README.md'), 'w') as fout:
+        with \
+                open(os.path.join('common', 'README-dist.md')) as fin, \
+                open(os.path.join(pdf_dir, 'README.md'), 'w') as fout:
             fout.write(
                     re.sub(r'{distribution}', dist_name,
                         re.sub(r'{imageName}', IMAGE_TAG,
