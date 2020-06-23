@@ -8,8 +8,6 @@ To create a new distribution, create a new subfolder, modeled off of the `pdf`
 base distribution. Available options are documented in `config.json5` within
 that folder.
 
-Please do not add other files directly to this folder.
-
 To get started, run:
 
     pip3 install -r requirements.txt
@@ -18,6 +16,22 @@ To get started, run:
 The first invocation will take a long time (up to an hour or two). After that,
 it will be quite fast. Once it's loaded, point your browser at
 http://localhost:8123
+
+Please do not add other files directly to this folder. For development purposes,
+such as keeping a private workbench distribution, the configuration for a
+distribution might be kept in the parent folder to which the FAW is cloned.
+E.g., one might run:
+
+    python3 workbench.py ../my-pdf ./test_files/pdf
+
+Due to the design of Docker, running this will upload all contents of `..` to
+the Docker daemon, which may be time consuming and wasteful. If using this
+feature, please ensure the parent folder is as empty as possible, preferentially
+only containing the FAW folder and the private distribution. Note that multiple
+cloned FAWs will mostly use the same Docker images, so no need to worry about the
+inefficiency of cloning FAW multiple times. The exception is that two builds
+will be maintained -- one for non-parent-directory distributions, and one for
+parent-directory distributions.
 
 While developing a distribution, consider using `--development` to use Vue's
 live reload functionality and to mount the distribution's folder into

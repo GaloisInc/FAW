@@ -34,18 +34,25 @@ CONFIG_FOLDER = None
 IMAGE_TAG = None
 VOLUME_SUFFIX = '-data'
 
+# Keep track of the directory containing the FAW
+faw_dir = os.path.dirname(os.path.abspath(__file__))
 
 def main():
     """
     Launches a production instance of Galois Format Analysis Workbench (GFAW)
-    using the files in `FILE_DIR`.  Each directory `FILE_DIR` will be hashed to
-    a unique build of the observatory to maximize caching.
+    using the distribution `CONFIG_DIR` to investigate the files in `FILE_DIR`.
+    `CONFIG_DIR` may be at most one parent directory up; doing so is mostly a
+    convenience for development. Note that Docker requires all sibling folders
+    to the one-folder-up idiom will also be uploaded to Docker, so keep the
+    containing folder sparse if that feature is used.
 
-    Usage:
+    Each directory `FILE_DIR` will be hashed to a unique build of the 
+    observatory to maximize caching.
+
+    Example invocation:
 
         python workbench.py pdf path/to/pdfs
     """
-    cur_dir = os.path.dirname(os.path.abspath(__file__))
 
     parser = argparse.ArgumentParser(description=textwrap.dedent(main.__doc__),
             formatter_class=argparse.RawTextHelpFormatter)
@@ -86,9 +93,32 @@ def main():
             config = CONFIG_FOLDER
         config_data = _check_config_file(config)
 
+        # Figure out build folder
+        config_rel = os.path.relpath(config, faw_dir)
+        parts = []
+        while config_rel:
+            h, t = os.path.split(config_rel)
+            parts.insert(0, t)
+            config_rel = h
+        if parts[0] == '..':
+            assert len(parts) > 1, parts
+            assert parts[1] != '..', 'Only one parent directory allowed to reach distribution folder'
+
+            build_dir = os.path.dirname(faw_dir)
+            build_faw_dir = os.path.basename(faw_dir)
+
+            # Ensure the docker build sees the correct .dockerignore, or it will
+            # upload a lot of extra cruft.
+            shutil.copy2(os.path.join(faw_dir, '.dockerignore'),
+                    os.path.join(build_dir, '.dockerignore'))
+        else:
+            build_dir = faw_dir
+            build_faw_dir = '.'
+
     # Check that observatory image is loaded / built
-    _check_image(development=development, config_data=config_data)
-    if os.path.split(os.path.relpath(pdf_dir, cur_dir))[0] == 'build':
+    _check_image(development=development, config_data=config_data,
+            build_dir=build_dir, build_faw_dir=build_faw_dir)
+    if os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build':
         assert not development, "Build cannot use --development"
 
         # Populate the given directory with a built version of the workbench.
@@ -129,7 +159,7 @@ def main():
 
         # Package up whole file
         file_name = os.path.abspath(os.path.join(os.path.abspath(pdf_dir), '..',
-                f'galois-workbench-{dist_name}.{os.path.basename(pdf_dir)}.tar.gz'))
+                f'{config_data["name"]}.tar.gz'))
         try:
             os.remove(file_name)
         except FileNotFoundError:
@@ -159,8 +189,8 @@ def main():
     if not development:
         extra_flags.append(IMAGE_TAG)
     else:
-        extra_flags.extend(['-v', f'{cur_dir}/common/pdf-observatory:/home/pdf-observatory'])
-        extra_flags.extend(['-v', f'{cur_dir}/{CONFIG_FOLDER}:/home/dist'])
+        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-observatory:/home/pdf-observatory'])
+        extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
         extra_flags.append(IMAGE_TAG + '-dev')
 
     def open_browser():
@@ -300,15 +330,23 @@ def _check_config_file(config):
     return config_data
 
 
-def _check_image(development, config_data):
+def _check_image(development, config_data, build_dir, build_faw_dir):
     """Ensure that the docker image is loaded, if we are using a packaged
     version, or rebuild latest, if using a development version.
+
+    Args:
+        development (bool): True if image is a development image, which will
+            have certain folders mounted.
+        config_data (dict): The loaded config.json5 data.
+        build_dir (str): The Docker build context folder.
+        build_faw_dir (str): The path, relative to the docker build context,
+            of the FAW code.
     """
-    build_local = development or os.path.lexists(os.path.join('common',
-            'pdf-observatory'))
+    build_local = development or os.path.lexists(os.path.join(faw_dir,
+            'common', 'pdf-observatory'))
     if not build_local:
         # For e.g. version updates, load the image first.
-        image_file = IMAGE_TAG + '.image'
+        image_file = os.path.join(faw_dir, IMAGE_TAG + '.image')
         if os.path.lexists(image_file):
             print('Loading docker image...')
             subprocess.check_call(['docker', 'load', '-i', image_file])
@@ -334,6 +372,9 @@ def _check_image(development, config_data):
 
     # Hardcoded stages required for observatory.
     stages_hardcoded = {
+        # For production builds, the mongodb server and the FAW utilities reside
+        # in the same image. So, clone the latest mongodb from the official
+        # image.
         'obs__mongo': {
             'from': 'mongo:latest',
             'copy_output': {
@@ -379,13 +420,13 @@ def _check_image(development, config_data):
                 #     - FIXME: discover a way to get cake and eat it too.
 
                 # Next, download and build all packages (takes a long time)
-                'COPY ./common/stack-staging /home/stack-staging',
-                'COPY ./common/pdf-etl-tools/stack.yaml /home/stack-staging/stack.yaml',
+                f'COPY {build_faw_dir}/common/stack-staging /home/stack-staging',
+                f'COPY {build_faw_dir}/common/pdf-etl-tools/stack.yaml /home/stack-staging/stack.yaml',
                 'WORKDIR /home/stack-staging',
                 'RUN stack build',
 
                 # Now, build our pdf-etl-tool
-                'COPY ./common/pdf-etl-tools /home/pdf-etl-tools',
+                f'COPY {build_faw_dir}/common/pdf-etl-tools /home/pdf-etl-tools',
                 'RUN cd /home/pdf-etl-tools && stack --allow-different-user install pdf-etl-tools:pdf-etl-tool',
             ],
         },
@@ -402,12 +443,12 @@ def _check_image(development, config_data):
             ''')
     else:
         # Production extensions...
-        dockerfile_middle.append(r'''
+        dockerfile_middle.append(rf'''
             FROM base AS ui-builder
             # Install npm locally, only for the build.
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
 
-            COPY ./common/pdf-observatory/ui /home/pdf-observatory/ui
+            COPY {build_faw_dir}/common/pdf-observatory/ui /home/pdf-observatory/ui
 
             RUN cd /home/pdf-observatory/ui \
                 && npm install \
@@ -415,38 +456,37 @@ def _check_image(development, config_data):
             ''')
 
     # Always install observatory component dependencies
-    dockerfile_final.append(r'''
-            COPY ./common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
+    dockerfile_final.append(rf'''
+            COPY {build_faw_dir}/common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
             RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
 
-            COPY ./common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
+            COPY {build_faw_dir}/common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
             RUN pip3 install -r /home/pdf-observatory/requirements.txt
     ''')
+    config_rel_dir = os.path.relpath(CONFIG_FOLDER, build_dir)
     if development:
-        dockerfile_final.append(r'''
+        dockerfile_final.append(rf'''
             # Add not-compiled code directories
-            COPY ./common/pdf-etl-parse /home/pdf-etl-parse
-            #COPY ./common/pdf-observatory /home/pdf-observatory
+            COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
+            #COPY {build_faw_dir}/common/pdf-observatory /home/pdf-observatory
             ''')
 
         # The CONFIG_FOLDER will be mounted as dist at runtime.
     else:
         dockerfile_final.append(rf'''
             # Add not-compiled code directories; omit "ui" for observatory
-            COPY ./common/pdf-etl-parse /home/pdf-etl-parse
-            COPY ./common/pdf-observatory/*.py /home/pdf-observatory/
-            COPY ./common/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
+            COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
+            COPY {build_faw_dir}/common/pdf-observatory/*.py /home/pdf-observatory/
+            COPY {build_faw_dir}/common/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
             COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
 
             # The final stage must always have the distribution folder available as
             # /home/dist; do this after copying the base material and building the
             # base UI, so user changes trigger those rebuilds infrequently.
-            COPY {shlex.quote(CONFIG_FOLDER)} /home/dist
+            COPY {shlex.quote(config_rel_dir)} /home/dist
 
             ENV OBS_PRODUCTION "--production"
             ''')
-
-    dist_name = os.path.basename(os.path.relpath(CONFIG_FOLDER))
 
     for stage, stage_def in {**config_data['build']['stages'],
             **stages_hardcoded}.items():
@@ -454,7 +494,7 @@ def _check_image(development, config_data):
             raise ValueError(f'First stage must be "base", not {stage}')
 
         stage_commands = stage_def.get('commands', [])
-        stage_commands = [s.replace('{dist}', dist_name) for s in stage_commands]
+        stage_commands = [s.replace('{dist}', config_rel_dir) for s in stage_commands]
 
         if stage == 'final':
             assert stage_def.get('from') is None
@@ -475,13 +515,13 @@ def _check_image(development, config_data):
             dockerfile_final.append(f'COPY --from={stage} {k} {v}')
 
     # Regardless, there's some glue code to create the final image.
-    dockerfile_middle.append(r'''
+    dockerfile_middle.append(rf'''
 
             FROM base
 
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
-            COPY ./common/s6-overlay-amd64.tar.gz /tmp/
+            COPY {build_faw_dir}/common/s6-overlay-amd64.tar.gz /tmp/
             RUN tar xzf /tmp/s6-overlay-amd64.tar.gz -C / \
                     && rm /tmp/s6-overlay-amd64.tar.gz
 
@@ -507,7 +547,7 @@ def _check_image(development, config_data):
             # Observatory service
             RUN \
                 mkdir /etc/services.d/observatory \
-                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${DB}" --in-docker --host 0.0.0.0 --port 8123 ${OBS_PRODUCTION} --config ../config.json' >> /etc/services.d/observatory/run \
+                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --host 0.0.0.0 --port 8123 ${{OBS_PRODUCTION}} --config ../config.json' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
                 && echo OK
 
@@ -534,8 +574,7 @@ def _check_image(development, config_data):
     print('='*79)
 
     r = subprocess.run(['docker', 'build', '-t', IMAGE_TAG + suffix,
-        '-f', '-', '.'], cwd=os.path.dirname(os.path.abspath(__file__)),
-        input=dockerfile.encode())
+        '-f', '-', '.'], cwd=build_dir, input=dockerfile.encode())
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
 

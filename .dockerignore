@@ -1,3 +1,5 @@
+# Note: This file may be copied into the parent directory! Paths should not
+# assume it is in its current location.
 **/build
 **/node_modules
 
