@@ -132,6 +132,20 @@
             },
         },
 
+        "pdfium": {
+            exec: ['/opt/pdfium/pdfium_test', '<inputFile>'],
+            timeoutScale: 18,
+            version: 'chromium-4180',
+            parse: {
+                type: 'regex-counter',
+                stdstar: {
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
         "pdftocairo-pdf": {
             exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             timeoutScale: 18,
@@ -800,6 +814,26 @@ with open(sys.argv[1], 'w') as html: \n\
                         && make XCFLAGS='-DDEBUG_PROGESSIVE_ADVANCE=1' tools\
                         && install build/release/mutool /usr/local/bin \
                         '",
+                ],
+            },
+
+            pdfium: {
+                copy_output: {
+                  '/src/pdfium/pdfium/out/Workbench': '/opt/pdfium',
+                },
+                commands: [
+                  'WORKDIR /src',
+                  // Setup per https://pdfium.googlesource.com/pdfium/
+                  'RUN git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git',
+                  'ENV PATH /src/depot_tools:$PATH',
+                  'RUN mkdir pdfium && cd pdfium && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git && gclient sync',
+                  // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
+                  'RUN cd pdfium/pdfium \
+                    && git checkout chromium/4180 \
+                    && echo Not needed: ./build/install-build-deps.sh \
+                    && EDITOR="python3 -c \'import sys; f = open(sys.argv[1], \\"w\\"); f.write(\\"pdf_is_standalone = true\\\\npdf_enable_xfa = true\\\\npdf_enable_v8 = true\\\\n\\"); f.close()\'" gn args out/Workbench \
+                    && ninja -C out/Workbench pdfium_test \
+                    ',
                 ],
             },
 
