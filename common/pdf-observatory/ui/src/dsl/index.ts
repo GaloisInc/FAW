@@ -12,6 +12,7 @@ export interface DslResult {
 export interface DslFilter {
   name: string;
   all: boolean;
+  caseInsensitive?: boolean;
   patterns: Array<string>;
 }
 

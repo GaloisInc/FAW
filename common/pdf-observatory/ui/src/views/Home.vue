@@ -62,8 +62,15 @@
             //- Allow selection of different things.
             div(v-if="decisionDefinition")
               v-radio-group(row v-model="decisionAspectSelected")
-                v-radio(v-for="o of decisionAspectAvailable" :key="o[1]"
+                v-radio(v-for="o of decisionAspectAvailable.filter(x => x[1].indexOf('faw-custom') === -1)" :key="o[1]"
                     :label="o[0]" :value="o[1]")
+                v-radio(label="(Custom Search)" :value="'filter-faw-custom'")
+            div(v-if="decisionAspectSelected === 'filter-faw-custom'"
+                style="display: flex; flex-direction: row; align-items: center")
+              v-text-field(label="Search Regex (press enter to reprocess)" v-on:keyup.enter="reprocess"
+                  v-model="decisionSearchCustom")
+              v-checkbox(v-model="decisionSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
+              v-btn(tile @click="reprocess" :disabled="!decisionDefinition" style="margin-left: 0.2em") Reprocess + Search
 
           //- Plot of file statuses
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
@@ -86,7 +93,7 @@
                 v-expansion-panel-content
                   .decision-reasons(style="max-height: 7em; padding-bottom: 1em; overflow-y: scroll") Error message: number of files rejected / uniquely rejected
                     //- (click rejected to accept)
-                    .decision-reason(v-for="f of failReasons.get(decisionAspectSelected).slice(0, 20)" :key="f[0]"
+                    .decision-reason(v-for="f of (failReasons.get(decisionAspectSelected) || []).slice(0, 20)" :key="f[0]"
                         @click="filterToggle(f[0], true)"
                         )
                       checkmark(status="rejected")
@@ -370,6 +377,8 @@ export default Vue.extend({
       // Actual parsed output of dslParser.parse().
       decisionDefinition: null as DslResult | null,
       decisionReference: {} as PdfDecision,
+      decisionSearchCustom: '',
+      decisionSearchInsensitive: true,
       decisionSelectedDsl: {} as PdfDecision,
       error: false as any,
       expansionPanels: [0, 1, 2],
@@ -911,6 +920,16 @@ export default Vue.extend({
         throw new Error("reprocess() was triggered without valid decision spec?");
       }
 
+      if (this.decisionAspectSelected === 'filter-faw-custom') {
+        dd.filters = dd.filters.filter(x => x.name !== 'faw-custom');
+        dd.filters.push({
+          name: 'faw-custom',
+          all: false,
+          caseInsensitive: this.decisionSearchInsensitive,
+          patterns: [this.decisionSearchCustom],
+        });
+      }
+
       // OK, everything needed fetched, go ahead and run decisions.
       this.reprocessInnerPdfGroups = false;
       if (!this.holdReferences) {
@@ -946,7 +965,8 @@ export default Vue.extend({
           pdfGroupIsNegative.set(f.name, false);
         }
 
-        const rs = f.patterns.map(p => new RegExp(p));
+        const rs = f.patterns.map(p => new RegExp(p,
+            f.caseInsensitive ? 'i' : undefined));
         for (const [k, files] of Object.entries(this.pdfGroups)) {
           let matched = false;
           for (const r of rs) {
