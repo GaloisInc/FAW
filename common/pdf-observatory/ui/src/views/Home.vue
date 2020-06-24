@@ -98,6 +98,9 @@
                         )
                       checkmark(status="rejected")
                       span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
+                    .decision-reason(v-if="(failReasons.get(decisionAspectSelected) || []).length > 20")
+                      checkmark(status="ignore")
+                      span ...{{failReasons.get(decisionAspectSelected).length - 20}} additional rows
 
       v-expansion-panel(:key="1")
         //-
