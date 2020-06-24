@@ -361,7 +361,11 @@ export default Vue.extend({
       const status_id = this.node.statuses[node.testfile][
         this.decisionAspectSelected
       ];
-      return this.centers[this.decisionAspectSelected][status_id];
+      const centers = this.centers[this.decisionAspectSelected];
+      if (centers === undefined) {
+        return 0.;
+      }
+      return centers[status_id];
     },
     nodeInit(statuses: Statuses) {
       let node_statuses: NodeStatuses = {};
