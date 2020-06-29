@@ -93,11 +93,15 @@
                 v-expansion-panel-content
                   .decision-reasons(style="max-height: 7em; padding-bottom: 1em; overflow-y: scroll") Error message: number of files rejected / uniquely rejected
                     //- (click rejected to accept)
-                    .decision-reason(v-for="f of (failReasons.get(decisionAspectSelected) || []).slice(0, 20)" :key="f[0]"
-                        @click="filterToggle(f[0], true)"
-                        )
-                      checkmark(status="rejected")
-                      span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
+                    div(v-for="f of (failReasons.get(decisionAspectSelected) || []).slice(0, 20)" :key="f[0]"
+                        @click="filterToggle(f[0], true)")
+                      v-menu(offset-y)
+                        template(v-slot:activator="{on}")
+                          .decision-reason(v-on="on")
+                            checkmark(status="rejected")
+                            span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
+                        v-list
+                          v-list-item(v-for="ex of pdfGroups[f[0]].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
                     .decision-reason(v-if="(failReasons.get(decisionAspectSelected) || []).length > 20")
                       checkmark(status="ignore")
                       span ...{{failReasons.get(decisionAspectSelected).length - 20}} additional rows
