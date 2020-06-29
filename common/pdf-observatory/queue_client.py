@@ -172,11 +172,10 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
             coll_resolver=coll_resolver,
             mongo_db=mongo_db)
 
-    # Finally, attempt to translate the mechanically-filtered error messages
-    # into groups using fuzzy string matches + buckets for locking protection.
-    _load_document_groups(doc['_id'],
-            coll_resolver=coll_resolver,
-            mongo_db=mongo_db)
+    # We used to then pre-group files into sets keyed by error message. However,
+    # that index wasn't used, and the current UI requires a full table scan
+    # anyway. Furthermore, that collection resulted in mongo documents greater
+    # than 16 megabytes, causing errors. Therefore, it has been removed.
 
 
 def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
@@ -215,8 +214,7 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
 def _load_document_stats(fname, coll_resolver, mongo_db):
     """Aggregate all stats acording to the decision process."""
     col_parse = coll_resolver(mongo_db + '/invocationsparsed')
-    stats_dbs = {'db_file': mongo_db + '/statsbyfile',
-            'db_population': mongo_db + '/statsbypopulation'}
+    stats_dbs = {'db_file': mongo_db + '/statsbyfile'}
 
     # Explicitly remove the file-level statistics, since the observatory
     # decision process relies on those.
@@ -225,12 +223,9 @@ def _load_document_stats(fname, coll_resolver, mongo_db):
     for parsedoc in col_parse.find({'file': fname}):
         doc = parsedoc
         dst_file = coll_resolver(stats_dbs['db_file'])
-        dst_pop = coll_resolver(stats_dbs['db_population'])
 
         doc_file_update = {}
-        doc_pop_update = {}
         parser = doc['parser'].replace('.', '_')
-        doc_pop_update['$inc'] = {f'file_count_{parser}': 1}
         if 'unhandled' in doc['result']:
             raise ValueError(f'doc {doc["file"]} needs parsers re-ran: '
                     f'{doc["result"]["unhandled"]}')
@@ -239,31 +234,6 @@ def _load_document_stats(fname, coll_resolver, mongo_db):
             pk = f'{parser}_{k}'
             pk = pk.replace('.', '_')
             doc_file_update.setdefault('$set', {})[pk] = v
-
-            # Population level...
-            # Just track number of documents with this field set, for now
-            cmd = doc_pop_update.setdefault('$inc', {})
-            cmd[pk] = 1
-            #if isinstance(v, str):
-            #    cmd = doc_pop_update.setdefault('$addToSet', {})
-            #    cmd.setdefault(pk, {'$each': []})
-            #    cmd[pk]['$each'].append(v)
-            #elif isinstance(v, datetime.datetime):
-            #    #cmd = doc_pop_update.setdefault('$addToSet', {})
-            #    #cmd.setdefault(pk, {'$each': []})
-            #    #cmd[pk]['$each'].append(v.strftime('%Y-%m-%d %H:%M:%S'))
-            #    cmd = doc_pop_update.setdefault('$inc', {})
-            #    pkv = f'{pk}_date_set'
-            #    cmd[pkv] = cmd.get(pkv, 0) + 1
-            #elif isinstance(v, bool):
-            #    cmd = doc_pop_update.setdefault('$inc', {})
-            #    pkv = f'{pk}_{v}'
-            #    cmd[pkv] = cmd.get(pkv, 0) + 1
-            #elif isinstance(v, (int, float)):
-            #    cmd = doc_pop_update.setdefault('$inc', {})
-            #    cmd[pk] = cmd.get(pk, 0) + v
-            #else:
-            #    raise NotImplementedError(f'{type(v)}: {repr(v)}')
 
         def update_with_retry(db, query, update):
             ntrial = 5
@@ -281,90 +251,6 @@ def _load_document_stats(fname, coll_resolver, mongo_db):
 
         if doc_file_update:
             update_with_retry(dst_file, {'_id': doc['file']}, doc_file_update)
-
-        if doc_pop_update:
-            update_with_retry(dst_pop, {'_id': 'global'}, doc_pop_update)
-
-
-def _load_document_groups(fname, coll_resolver, mongo_db):
-    """Populate obsgroups with fuzzy-matched list of files and
-    """
-    db_file = coll_resolver(mongo_db + '/statsbyfile')
-    db_groups = coll_resolver(mongo_db + '/obsgroups')
-
-    doc = db_file.find_one(fname)
-    if doc is None:
-        raise ValueError('No stats doc?')
-
-    # NOTE - down the line, may want to map individual PDFs to integers for
-    # efficiency on large datasets.
-    doc_id = fname
-
-    for parser_message, parser_v in doc.items():
-        if parser_message.startswith('_'):
-            # Reserved names
-            continue
-
-        if parser_v in (0, 0., False, None):
-            # Falsey values which indicate a missing attribute.
-            continue
-
-        # Break out parser name -- use a radix for sorting / controlling
-        # locks.  "Exact" fuzzy matching is not exactly efficient, so the
-        # finer grain the lock, the faster it will be.
-        pieces = parser_message.split('_', 1)
-        assert len(pieces) == 2, pieces
-        radix = '_'.join(pieces[:1]) + '_' + pieces[1][:3]
-        assert parser_message.startswith(radix)
-
-        while True:
-            # Inner, abort-if-lock-changed loop
-            query = {'_id': radix}
-            update = {'$set': {},
-                    '$addToSet': collections.defaultdict(lambda: {'$each': []})}
-            rad_doc = db_groups.find_one(query)
-            groups = []
-            if rad_doc is None:
-                # Turns into a DuplicateKeyError if no _obs_version == 0 exists
-                # but it tries to insert a new one with matching _id.
-                query['_obs_version'] = 0
-                update['$set']['_obs_version'] = 1
-            else:
-                query['_obs_version'] = rad_doc['_obs_version']
-                update['$set']['_obs_version'] = rad_doc['_obs_version'] + 1
-                groups = rad_doc.keys()
-
-            # Iterate through all messages in our document
-            suffix = parser_message[len(radix):]
-            if not suffix:
-                # Radix only... put it in its own group
-                update['$addToSet']['_NULL']['$each'].append(doc_id)
-            else:
-                # This bit used to contain code which used
-                # difflib.SequenceMatcher to collapse together strings which
-                # were highly related to one another.  However, this leads to
-                # inherently unstable output, as the order of insert always
-                # matters.  This can be seen with the idea of a threshold:
-                # Assume two dissimilar messages, A and B, are added.  Now
-                # assume C gets added, which is similar to both A and B.
-                # Any decision, _even collapsing A, B, and C_, depends on
-                # either insertion ordering OR the pdfs submitted to the
-                # observatory.  That is, if message C did not exist, then A
-                # and B never would have been collapsed.
-                #
-                # Therefore, this code is rather dull now.
-                update['$addToSet'][suffix]['$each'].append(doc_id)
-
-            try:
-                db_groups.update_one(query, update, upsert=True)
-                # Inserted / updated OK, so no contention.
-                break
-            except pymongo.errors.DuplicateKeyError:
-                # Someone else finished upsert first -- we need to re-fetch
-                # version.
-                continue
-            except:
-                raise ValueError(f'Handling {radix} / {query} / {update}')
 
 
 if __name__ == '__main__':

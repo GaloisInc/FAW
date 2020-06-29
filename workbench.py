@@ -293,8 +293,7 @@ def _check_config_file(config):
                         '<workbenchApiUrl>']),
                     )],
                 'execStdin': s.And(str, lambda x: all([
-                    y.group(0) in ['<obsgroups>', '<referenceDecisions>',
-                        '<statsbyfile>']
+                    y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
                     for y in re.finditer('<[^>]*>', x)]),
                     error="Must be string with any <'s being one of: "
                         "<statsbyfile>"),

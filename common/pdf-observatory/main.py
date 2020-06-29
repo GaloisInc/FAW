@@ -158,6 +158,14 @@ class _DbLoaderProc:
             # Already finished, OK
             pass
 _db_loader_proc = _DbLoaderProc()
+def _db_abort_process():
+    """Returns new `_DbLoaderProc`"""
+    global _db_loader_proc
+
+    # Try to abort old `init_check_pdfs` call.
+    _db_loader_proc.abort()
+    _db_loader_proc = _DbLoaderProc()
+    return _db_loader_proc
 async def init_check_pdfs(retry_errors=False):
     """Check the database to see what's populated and what's not.
 
@@ -166,11 +174,8 @@ async def init_check_pdfs(retry_errors=False):
 
     Ran on program init and on DB reset via UI.
     """
-    global _db_loader_proc
 
-    # Try to abort old `init_check_pdfs` call.
-    _db_loader_proc.abort()
-    _db_loader_proc = loader_proc = _DbLoaderProc()
+    loader_proc = _db_abort_process()
 
     db = app_mongodb_conn
     col = db['observatory']
@@ -360,16 +365,6 @@ class Client(vuespa.Client):
                             if not part.startswith('<'):
                                 s.write(part.encode('utf-8'))
                                 await s.drain()
-                            elif part == '<obsgroups>':
-                                async for d in app_mongodb_conn['obsgroups'].find():
-                                    prefix = d['_id']
-                                    for k, v in d.items():
-                                        if k.startswith('_'):
-                                            continue
-                                        s.write((json.dumps({
-                                                'id': prefix + k,
-                                                'files': v}) + '\n').encode('utf-8'))
-                                        await s.drain()
                             elif part == '<referenceDecisions>':
                                 for q in reference_decisions:
                                     s.write((json.dumps(q) + '\n').encode('utf-8'))
@@ -415,34 +410,31 @@ class Client(vuespa.Client):
 
     async def api_decisions_get(self):
         groups = {}
-        async for g in app_mongodb_conn['obsgroups'].find():
-            prefix = g['_id']
+        async for g in app_mongodb_conn['statsbyfile'].find():
             for k, v in g.items():
-                if k.startswith('_'):
-                    if k == '_NULL':
-                        # Prefix only
-                        k = ''
-                    else:
-                        continue
-                groups[prefix + k] = v
+                if k.startswith('_'): continue
+                grp = groups.get(k)
+                if grp is None:
+                    groups[k] = grp = []
+                grp.append(g['_id'])
 
         return groups
 
 
     async def api_clear_db(self):
+        _db_abort_process()
         await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
         self.reprocess_db()
 
 
     async def api_reparse_db(self):
+        _db_abort_process()
         await app_mongodb_conn.drop_collection('observatory')
         # A more robust method would be fixing queue_client to remove a
         # document from the groups to which it belongs, but this works since
         # the UI always re-processes the full DB at the moment.
-        await app_mongodb_conn.drop_collection('obsgroups')
         await app_mongodb_conn.drop_collection('invocationsparsed')
         await app_mongodb_conn.drop_collection('statsbyfile')
-        await app_mongodb_conn.drop_collection('statsbypopulation')
         self.reprocess_db()
 
 

@@ -566,20 +566,13 @@ outputs:  \n\
                 * <mongo> -- "host:port/db" pointer to the mongo database.
 
                     There are several available collections; the easiest to use
-                    is `statsbyfile`, the most efficient is `obsgroups`, and
-                    the most detailed is `rawinvocations`.
+                    is `statsbyfile`, and the most detailed is `rawinvocations`.
 
                     Available collections:
                         * statsbyfile -- `_id` is path to file within
                             <filesPath>. Outside of that, each key is a
                             feature present in the file, and each value is
                             undefined at the moment.
-                        * obsgroups -- Each document is a group of features.
-                            `_id` is the prefix, and any key starting with a
-                            character which is not `_` is a suffix (e.g., the
-                            full feature is `doc['_id'] + key`).  The value
-                            associated with the key is a list of files which
-                            had that feature.
                         * rawinvocations -- Keyed by `doc['invoker']['invName']`
                             and `doc['file']` (which is `filesPath + '/' + file`),
                             rawinvocations contains the raw parser stdout, stderr,
@@ -612,10 +605,6 @@ outputs:  \n\
                 needing to interact with mongo.
 
                 Template options:
-                * <obsgroups> Each line is a JSON object; this is a lightly
-                    processed version of the DB entries:
-
-                    `{"id": "feature", "files": ["file1", "file2", ...]}`.
                 * <referenceDecisions> Each line is a JSON object, whose value
                     is one row of the current reference decision list.
                 * <statsbyfile> Each line is a JSON object:
