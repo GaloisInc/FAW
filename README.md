@@ -38,6 +38,12 @@ live reload functionality and to mount the distribution's folder into
 `/home/` in a way which allows for making changes without stopping and starting
 the development server.
 
+--development live-reloads all plugins, including parsers, file views, and
+decision views. For file or decision views, simply re-run the plugin from the
+UI. For plugins, edit `config.json5` to change the `version` field of the
+modified parser. Then, in the UI, press "Reset DB -> Reset Most..." to trigger
+the re-execution of that parser.
+
 To build a standalone workbench in `build/label`, run:
 
     python3 workbench.py pdf build/label

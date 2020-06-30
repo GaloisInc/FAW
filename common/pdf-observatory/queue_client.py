@@ -131,20 +131,40 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
     # not time out, the parsers may be re-run without re-running the tools.
-    coll_resolver(mongo_db + '/rawinvocations').delete_many(
-            {'file': os.path.join(pdf_dir, doc['_id']),
-                'result._cons': 'Timeout'})
+    delete_or_clause = []
+    fpath = os.path.join(pdf_dir, doc['_id'])
+    delete_or_clause.append({'file': fpath, 'result._cons': 'Timeout'})
+    # Clear previous raw invocations whose versions do not match the expected
+    # tool versions.
+    invokers_whitelist = []
+    for k, v in app_config['parsers'].items():
+        if v.get('disabled'):
+            continue
+        invokers_whitelist.append(k)
+        delete_or_clause.append({'file': fpath, 'invoker.invName': k,
+                'invoker.version': {'$ne': v['version']}})
+    delete_or_clause.append({'file': fpath,
+            'invoker.invName': {'$nin': invokers_whitelist}})
+
+    # Run delete
+    if len(delete_or_clause) == 1:
+        query = delete_or_clause[0]
+    else:
+        query = {'$or': delete_or_clause}
+    db_coll = coll_resolver(mongo_db + '/rawinvocations')
+    db_coll.delete_many(query)
+
+    invs_seen = [r['invoker']['invName']
+            for r in db_coll.find({'file': fpath}, {'invoker.invName': True})]
 
     # Produce raw invocations
     host_port, db = mongo_db.split('/')
-    pdf_file = os.path.join(pdf_dir, doc['_id'])
     args = ['pdf-etl-tool', '-s', host_port, '-d', db,
             '-c', 'rawinvocations',
             '--invokersfile', '/home/pdf-etl-tools/invokers.cfg',
             'add-raw',
             # Deliberately allow existing data which did not time out
             '--absentonly',
-            '-i', 'ALL',
     ]
     # If we're retrying errors, use as much time as possible, but allow
     # timeouts to produce detectable errors rather than
@@ -156,14 +176,20 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
         # a file didn't error out because of time, use a ridiculous value.
         # This way, timeouts will obviously show up as errors.
         args.extend(['--timeout', str(math.ceil(timeout * 2 + 5))])
-    args.append(pdf_file)
-    call(args,
-            cwd='/home/dist',
-            timeout=timeout)
+
+    # This used to rely on `-i ALL` behavior of pdf-etl-tool, but the spin-up
+    # was very slow. Faster to do this.
+    for k, v in app_config['parsers'].items():
+        if v.get('disabled') or k in invs_seen:
+            continue
+        aargs = args + ['-i', k, fpath]
+        call(aargs,
+                cwd='/home/dist',
+                timeout=timeout)
 
     # For each raw invocation, parse it.
     _load_document_parse(doc['_id'],
-            tools_pdf_name=pdf_file,
+            tools_pdf_name=fpath,
             coll_resolver=coll_resolver,
             mongo_db=mongo_db)
 
