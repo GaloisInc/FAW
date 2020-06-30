@@ -410,15 +410,19 @@ class Client(vuespa.Client):
 
     async def api_decisions_get(self):
         groups = {}
+        files = []
+        r = {'groups': groups, 'files': files}
         async for g in app_mongodb_conn['statsbyfile'].find():
+            gid = len(files)
+            files.append(g['_id'])
             for k, v in g.items():
                 if k.startswith('_'): continue
                 grp = groups.get(k)
                 if grp is None:
                     groups[k] = grp = []
-                grp.append(g['_id'])
+                grp.append(gid)
 
-        return groups
+        return r
 
 
     async def api_clear_db(self):

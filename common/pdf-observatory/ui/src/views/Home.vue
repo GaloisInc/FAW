@@ -101,7 +101,7 @@
                             checkmark(status="rejected")
                             span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
                         v-list
-                          v-list-item(v-for="ex of pdfGroups[f[0]].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
+                          v-list-item(v-for="ex of pdfGroups.groups[f[0]].slice(0, 10)" :key="ex" @click="showFile(pdfGroups.files[ex])") {{pdfGroups.files[ex]}}
                     .decision-reason(v-if="(failReasons.get(decisionAspectSelected) || []).length > 20")
                       checkmark(status="ignore")
                       span ...{{failReasons.get(decisionAspectSelected).length - 20}} additional rows
@@ -350,7 +350,8 @@ export enum DbView {
   Stats = 3,
 }
 
-export type PdfGroups = {[message: string]: Array<string>};
+export type PdfGroups = {groups: {[message: string]: Array<number>},
+    files: Array<string>};
 
 export class LoadingStatus {
   config_mtime: number = 0;
@@ -406,7 +407,7 @@ export default Vue.extend({
       pdfsToShowReference: [] as readonly PdfDecision[],
       // Number of PDFs to show in lists -- performance issue when too large.
       pdfsToShowMax: 20,
-      pdfGroups: {} as PdfGroups,
+      pdfGroups: {groups: {}, files: []} as PdfGroups,
       pdfGroupsDirty: false,
       pluginIframeLoading: 0,
       pluginIframeLoadingNext: 1,
@@ -703,12 +704,13 @@ export default Vue.extend({
 
       // Build file: message list
       const fileMessages = new Map<string, Set<string>>();
-      for (const [k, files] of Object.entries(this.pdfGroups)) {
+      for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
         for (const f of files) {
-          let u = fileMessages.get(f);
+          const ff = this.pdfGroups.files[f];
+          let u = fileMessages.get(ff);
           if (!u) {
             u = new Set<string>();
-            fileMessages.set(f, u);
+            fileMessages.set(ff, u);
           }
           u!.add(k);
         }
@@ -945,12 +947,12 @@ export default Vue.extend({
 
       // Build file list
       const newPdfs = [];
-      const pdfMap = new Map<string, PdfDecision>();
-      for (const [k, files] of Object.entries(this.pdfGroups)) {
+      const pdfMap = new Map<number, PdfDecision>();
+      for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
         for (const f of files) {
           if (pdfMap.has(f)) continue;
           const dec = {
-                testfile: f,
+                testfile: this.pdfGroups.files[f],
                 info: [],
           };
           newPdfs.push(dec);
@@ -959,10 +961,10 @@ export default Vue.extend({
       }
 
       // Build sets of filter groups
-      const pdfGroups = new Map<string, Set<string>>();
+      const pdfGroups = new Map<string, Set<number>>();
       const pdfGroupIsNegative = new Map<string, boolean>();
       for (const f of dd.filters) {
-        const result = new Set<string>();
+        const result = new Set<number>();
         pdfGroups.set(f.name, result);
 
         if (f.all) {
@@ -974,7 +976,7 @@ export default Vue.extend({
 
         const rs = f.patterns.map(p => new RegExp(p,
             f.caseInsensitive ? 'i' : undefined));
-        for (const [k, files] of Object.entries(this.pdfGroups)) {
+        for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
           let matched = false;
           for (const r of rs) {
             if (r.test(k)) {
