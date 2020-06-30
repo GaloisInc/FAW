@@ -46,6 +46,16 @@
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
                   v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not tool invocations
 
+          v-sheet.working-subset(:elevation="3" style="padding: 0 1em; margin: 1em; display: flex; flex-direction: row;")
+            v-checkbox(label="Use Working Subset" :style="{'flex-grow': 0}" v-model="workingSubset")
+            v-text-field(v-show="workingSubset" label="File regex (initial ^ assumed)" hide-details="auto"
+                v-model="workingSubsetRegex")
+            v-text-field(v-show="workingSubset" label="Maximum working set size" hide-details="auto"
+                v-model="workingSubsetSizeStr" :rules="[v => !isNaN(parseInt(v)) || 'Must be integer']")
+            v-text-field(v-show="workingSubset" :label="'Partition number (0 to less than ' + workingSubsetPartitionCount + ')'" hide-details="auto"
+                v-model="workingSubsetPartitionStr" :rules="[v => !isNaN(parseInt(v)) && parseInt(v) >= 0 && parseInt(v) < Math.ceil(workingSubsetPartitionCount) || 'Must be integer in range']")
+
+
           v-expansion-panels(inset :style="{'margin-top': '1em'}")
             v-expansion-panel
               v-expansion-panel-header(:class="{'grey lighten-2': true}") Decision Plugins
@@ -268,6 +278,10 @@
       }
     }
 
+    .working-subset {
+      .v-input { margin-left: 1em; }
+    }
+
     .filter-special-rows {
       display: flex;
       flex-direction: row;
@@ -421,6 +435,10 @@ export default Vue.extend({
       reprocessInnerPdfGroups: true,
       resetDbDialog: false,
       vuespaUrl: null as string|null,
+      workingSubset: true,
+      workingSubsetSize: 1000,
+      workingSubsetRegex: '',
+      workingSubsetPartition: 0,
     };
   },
   computed: {
@@ -474,6 +492,29 @@ export default Vue.extend({
           this.scrollToFileDetails();
         }
       },
+    },
+    workingSubsetSizeStr: {
+      get(): string {
+        return this.workingSubsetSize.toString();
+      },
+      set(v: string) {
+        const u = parseInt(v);
+        this.workingSubsetSize = isNaN(u) ? 1 : u;
+      },
+    },
+    workingSubsetPartitionStr: {
+      get(): string {
+        return this.workingSubsetPartition.toString();
+      },
+      set(v: string) {
+        const u = parseInt(v);
+        this.workingSubsetPartition = isNaN(u) ? 0 : u;
+      },
+    },
+    workingSubsetPartitionCount(): number {
+      if (this.workingSubsetSize === 0) return 1;
+      return Math.ceil((this.loadingStatus.files_done - this.loadingStatus.files_err)
+          / this.workingSubsetSize);
     },
   },
   watch: {
@@ -566,6 +607,18 @@ export default Vue.extend({
       }
       (this.$refs.pluginIframe as any).src = URL.createObjectURL(new Blob([u8], {type: this.pluginIframeSrcMimeType}));
     },
+    workingSubset() {
+      this.pdfGroupsDirty = true;
+    },
+    workingSubsetSize() {
+      if (this.workingSubset) this.pdfGroupsDirty = true;
+    },
+    workingSubsetRegex() {
+      if (this.workingSubset) this.pdfGroupsDirty = true;
+    },
+    workingSubsetPartition() {
+      if (this.workingSubset) this.pdfGroupsDirty = true;
+    },
   },
   mounted() {
     this.beforeDestroyFns.push(this.$vuespa.httpHandler(
@@ -583,7 +636,8 @@ export default Vue.extend({
     const checkLoad = async () => {
       const oldConfig = this.loadingStatus.config_mtime;
       const oldDone = this.loadingStatus.files_done;
-      await this.$vuespa.update('loadingStatus', 'loading_get');
+      await this.$vuespa.update('loadingStatus', 'loading_get',
+          {subsetRegex: this.workingSubset ? '^' + this.workingSubsetRegex : ''});
       if (oldDone < this.loadingStatus.files_done) {
         this.pdfGroupsDirty = true;
       }
@@ -597,7 +651,7 @@ export default Vue.extend({
       try {
         await Promise.all([
             // `pdfGroups` loading triggers `reprocess`
-            this.$vuespa.update('pdfGroups', 'decisions_get'),
+            this._pdfGroupsUpdate(),
             // Config provides information only for plugins.
             this.$vuespa.update('config', 'config_get'),
         ]);
@@ -857,7 +911,7 @@ export default Vue.extend({
           }
           // Run plugin
           const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey, 
-              this.vuespaUrl, jsonArgs, refDecs);
+              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions());
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
           this.pdfs = Object.freeze(r.decisions);
@@ -920,7 +974,7 @@ export default Vue.extend({
         this.pdfGroupsDirty = false;
         // Limit to one repeat of cleaning pdfGroups
         this.reprocessInnerPdfGroups = true;
-        await this.$vuespa.update('pdfGroups', 'decisions_get');
+        await this._pdfGroupsUpdate();
         // watcher for pdfGroups will trigger reprocess.
         return;
       }
@@ -1177,7 +1231,9 @@ export default Vue.extend({
           }
         }
         if (p === null) {
-          this.error = "PDF selected not found?";
+          // Probably a PDF that was in the working subset but is no longer
+          // there. Simply unset the search
+          this.pdfsSearched = null;
         }
         else {
           this.pdfsToShow = [p];
@@ -1217,6 +1273,26 @@ export default Vue.extend({
               this.pdfsReference = Object.freeze(objs);
             } else this.pdfsReferenceFileError = "JSON does not match required format.";
           } else this.pdfsReferenceFileError = "Unable to read file contents.";
+        };
+      }
+    },
+    async _pdfGroupsUpdate() {
+      const opts = this._pdfGroupsSubsetOptions();
+      await this.$vuespa.update('pdfGroups', 'decisions_get', opts);
+    },
+    _pdfGroupsSubsetOptions() {
+      if (this.workingSubset) {
+        return {
+          subsetSize: this.workingSubsetSize,
+          subsetRegex: '^' + this.workingSubsetRegex,
+          subsetPartition: this.workingSubsetPartition,
+        };
+      }
+      else {
+        return {
+          subsetSize: 0,
+          subsetRegex: '',
+          subsetPartition: 0,
         };
       }
     },

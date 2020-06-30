@@ -97,26 +97,23 @@ export default Vue.extend({
       this.$emit('view', ex[0]);
     },
     update() {
-      let sawUndefined = false;
-      const dVals: Array<string|undefined> = [undefined];
-      const rVals: Array<string|undefined> = [undefined];
+      const dVals: Array<string> = [];
       const counts = new Array<Array<number>>();
       const examples = new Array<Array<Array<string>>>();
 
       const map = new Map<string, number>();
 
       const asp = this.decisionAspectSelected;
-      for (const [count, v, arr] of [[false, dVals, this.pdfs], [true, rVals, this.pdfsReference]] as [boolean, Array<string|undefined>, Array<PdfDecision>][]) {
+      const undefinedStr = 'undefined';
+      for (const [count, v, arr] of [[false, dVals, this.pdfsReference], [true, dVals, this.pdfs]] as [boolean, Array<string|undefined>, Array<PdfDecision>][]) {
         for (const a of arr) {
-          const av = a[asp];
+          let av = a[asp];
+          if (av === undefined) av = undefinedStr;
+
           let i = v.indexOf(av);
           if (i === -1) {
             i = v.length;
             v.push(av);
-          }
-
-          if (av === undefined) {
-            sawUndefined = true;
           }
 
           if (!count) {
@@ -125,45 +122,41 @@ export default Vue.extend({
           else {
             let di = map.get(a.testfile);
             if (di === undefined) {
-              di = 0;
+              // A real-world file which has no matching reference file.
+              di = v.indexOf(undefinedStr);
+              if (di === -1) {
+                di = v.length;
+                v.push(undefinedStr);
+              }
             }
-            
-            while (counts.length <= di) {
+
+            while (counts.length <= Math.max(i, di)) {
               counts.push([]);
               examples.push([]);
             }
-            const dc = counts[di];
-            const de = examples[di];
-            while (dc.length <= i) {
+            const dc = counts[i];
+            const de = examples[i];
+            while (dc.length <= di) {
               dc.push(0);
               de.push([]);
             }
-            dc[i] += 1;
-            if (de[i].length < 10) {
-              de[i].push(a.testfile);
+            dc[di] += 1;
+            if (de[di].length < 10) {
+              de[di].push(a.testfile);
             }
           }
         }
       }
 
       // Sort, squarify so diagonal is always right.
-      const u = Array.from(new Set([...dVals, ...rVals]));
-      if (!sawUndefined) {
-        u.splice(u.indexOf(undefined), 1);
-      }
-      u.sort();
-      
+      const u = dVals.slice();
+      u.sort((a, b) => a === undefinedStr ? 1 : b === undefinedStr ? -1 : a.toString().localeCompare(b.toString()));
+
       let countsNew: Array<Array<number>> = [], examplesNew: Array<Array<Array<string>>> = [];
       for (let i = 0, m = u.length; i < m; i++) {
         const di = dVals.indexOf(u[i]);
-        if (di === -1) {
-          countsNew.push([]);
-          examplesNew.push([]);
-        }
-        else {
-          countsNew.push(counts[di]);
-          examplesNew.push(examples[di]);
-        }
+        countsNew.push(counts[di]);
+        examplesNew.push(examples[di]);
       }
 
       for (let i = 0, m = u.length; i < m; i++) {
@@ -172,7 +165,7 @@ export default Vue.extend({
         const ccNew = [];
         const eeNew = [];
         for (let j = 0, k = u.length; j < k; j++) {
-          const ri = rVals.indexOf(u[j]);
+          const ri = dVals.indexOf(u[j]);
           if (ri === -1) {
             ccNew.push(0);
             eeNew.push([]);
@@ -183,7 +176,7 @@ export default Vue.extend({
           }
         }
         // Also port to percentages
-        countsNew[i] = ccNew.map(x => x * 100 / this.pdfsReference.length);
+        countsNew[i] = ccNew.map(x => x * 100 / this.pdfs.length);
         examplesNew[i] = eeNew;
       }
 

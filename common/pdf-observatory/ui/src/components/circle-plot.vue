@@ -14,24 +14,24 @@ type Status = string;
 type Aspect = string;
 
 interface Statuses {
-  [aspect: string]: Map<any, number>;
+  [aspect: string]: Map<any, number> | undefined;
 }
 
 interface Centers {
   [aspect: string]: {
-    [statusId: number]: number;
-  };
+    [statusId: number]: number | undefined;
+  } | undefined;
 }
 interface Colors {
   [aspect: string]: {
-    [statusId: number]: string;
-  };
+    [statusId: number]: string | undefined;
+  } | undefined;
 }
 interface NodeStatuses {
-  [testfile: string]: { [aspect: string]: StatusId };
+  [testfile: string]: { [aspect: string]: StatusId | undefined } | undefined;
 }
 interface FakeColorToNode {
-  [color: string]: Node;
+  [color: string]: Node | undefined;
 }
 interface Node {
   testfile: string;
@@ -88,6 +88,20 @@ export default Vue.extend({
   mounted() {
     this.populateParams(this.decisionDefinition);
     this.node = this.nodeInit(this.statuses);
+    this.selections.canvas = d3
+      .select(this.$el)
+      .append("canvas")
+      .attr("width", width)
+      .attr("height", height)
+      .on("click", this.onClick)
+      .on("mousemove", this.onMouseOver);
+    this.selections.hiddenCanvas = d3
+      .select(this.$el)
+      .append("canvas")
+      .attr("width", width)
+      .attr("height", height)
+      .style("display", "none");
+
     this.canvasRender(this.node.nodes);
   },
   watch: {
@@ -97,29 +111,21 @@ export default Vue.extend({
     pdfs(new_pdfs, old_pdfs) {
       if (this.decisionDefinitionDirty) {
         this.populateParams(this.decisionDefinition);
-        this.updateNodeFeatures();
-        this.node.statuses = this.updateNodeStatuses(
-          new_pdfs,
-          this.node.statuses
-        );
-        this.decisionDefinitionDirty = false;
-      } else {
-        this.node.statuses = this.updateNodeStatuses_selected(
-          new_pdfs,
-          this.node.statuses
-        );
       }
-      this.canvasUpdate(this.node.nodes);
+
+      this.node = this.nodeInit(this.statuses);
+      this.canvasRender(this.node.nodes);
     },
     pdfsMouseOver() {
       this.tick();
     },
     pdfsReference(new_refs, old_refs) {
-      this.node.ref_statuses = this.updateNodeStatuses_selected(
-        new_refs,
-        this.node.ref_statuses
-      );
-      this.canvasUpdate(this.node.nodes);
+      if (this.decisionDefinitionDirty) {
+        this.populateParams(this.decisionDefinition);
+      }
+
+      this.node = this.nodeInit(this.statuses);
+      this.canvasRender(this.node.nodes);
     },
     pdfsSearched() {
       this.tick();
@@ -136,26 +142,11 @@ export default Vue.extend({
       simulation.force("x").initialize(nodes);
     },
     canvasRender(nodes: Node[]) {
-      this.selections.canvas = d3
-        .select(this.$el)
-        .append("canvas")
-        .attr("width", width)
-        .attr("height", height)
-        .on("click", this.onClick)
-        .on("mousemove", this.onMouseOver);
-
       var canvas = this.selections.canvas;
 
       var context = canvas.node().getContext("2d");
       context.clearRect(0, 0, width, height);
       this.selections.context = context;
-
-      this.selections.hiddenCanvas = d3
-        .select(this.$el)
-        .append("canvas")
-        .attr("width", width)
-        .attr("height", height)
-        .style("display", "none");
 
       var hiddenCanvas = this.selections.hiddenCanvas;
 
@@ -163,6 +154,9 @@ export default Vue.extend({
       context.clearRect(0, 0, width, height);
       this.selections.hiddenContext = hiddenContext;
 
+      if (this.simulation !== null) {
+        this.simulation.stop();
+      }
       this.simulation = d3
         .forceSimulation(nodes)
         .force("collision", d3.forceCollide(6).iterations(2))
@@ -241,12 +235,13 @@ export default Vue.extend({
     },
     annotationObject(nodes: any, aspect: string) {
       const ss = this.statuses[aspect];
+      if (ss === undefined) return [];
 
       const points = Array.from(ss.entries()).map(e => {
         const [status, statusId] = e;
         return nodes
           .filter(
-            (d: any) => this.node.statuses[d.testfile][aspect] === statusId
+            (d: any) => this.node.statuses[d.testfile]?.[aspect] === statusId
           )
           .map((d: any) => ({ x: d.x, y: d.y, r: 5 }));
       });
@@ -255,12 +250,12 @@ export default Vue.extend({
           return d3.packEnclose(p);
         } else {
           // Default when there are no elements with a particular status
-          return { x: this.centers[aspect][i], y: y_center, r: 2 };
+          return { x: this.centers[aspect]?.[i] || 0, y: y_center, r: 2 };
         }
       });
       const annotes = Array.from(ss.entries()).map(v => {
         const [status, statusId] = v;
-        const color = this.colors[aspect][statusId];
+        const color = this.colors[aspect]?.[statusId];
         return {
           label: status,
           dy: 50,
@@ -327,8 +322,9 @@ export default Vue.extend({
       const das = Object.keys(this.statuses);
       for (const d of data) {
         for (let da of das) {
-          const id = this.statuses[da].get(d[da]);
-          status_obj[d.testfile][da] = id ? id : 0;
+          const id = this.statuses[da]?.get(d[da]) || 0;
+          const objToSet = status_obj[d.testfile];
+          if (objToSet) objToSet[da] = id;
         }
       }
       this.pdfsMouseOver = null;
@@ -337,10 +333,9 @@ export default Vue.extend({
     updateNodeStatuses_selected(data: PdfDecision[], status_obj: NodeStatuses) {
       const da = this.decisionAspectSelected;
       for (const d of data) {
-        const id = this.statuses[da].get(d[da]);
-        if (status_obj[d.testfile]) {
-          status_obj[d.testfile][da] = id ? id : 0;
-        }
+        const id = this.statuses[da]?.get(d[da]) || 0;
+        const objToSet = status_obj[d.testfile];
+        if (objToSet) objToSet[da] = id;
       }
       this.pdfsMouseOver = null;
       return status_obj;
@@ -352,20 +347,25 @@ export default Vue.extend({
       }
     },
     nodeColor(node: any) {
-      const status_id = this.node.ref_statuses[node.testfile][
+      const bad_color = 'rgb(255, 255, 255)';
+      const status_id = this.node.ref_statuses[node.testfile]?.[
         this.decisionAspectSelected
       ];
-      return this.colors[this.decisionAspectSelected][status_id];
+      if (status_id === undefined) return bad_color;
+      const colors = this.colors[this.decisionAspectSelected]?.[status_id];
+      if (colors === undefined) return bad_color;
+      return colors;
     },
-    nodeCenter(node: any) {
-      const status_id = this.node.statuses[node.testfile][
+    nodeCenter(node: any): number {
+      const status_id = this.node.statuses[node.testfile]?.[
         this.decisionAspectSelected
       ];
+      if (status_id === undefined) return 0.;
       const centers = this.centers[this.decisionAspectSelected];
       if (centers === undefined) {
         return 0.;
       }
-      return centers[status_id];
+      return centers[status_id] || 0.;
     },
     nodeInit(statuses: Statuses) {
       let node_statuses: NodeStatuses = {};
@@ -380,7 +380,7 @@ export default Vue.extend({
         var inner: { [aspect: string]: StatusId } = {};
         for (const da of decisionAspects) {
           const st = pdf[da];
-          const id = statuses[da].get(st);
+          const id = statuses[da]?.get(st);
           inner[da] = id ? id : 0;
 
           const elem = da.concat("-", st);
@@ -395,7 +395,8 @@ export default Vue.extend({
             centers: this.centers,
             colors: this.colors,
             x:
-              this.centers[this.decisionAspectSelected][0] + 50 * Math.random(),
+              (this.centers[this.decisionAspectSelected]?.[0] || 0.)
+              + 50 * Math.random(),
             y: y_center + 50 * Math.random(),
             id: i as number
           });
@@ -408,8 +409,8 @@ export default Vue.extend({
         (obj: NodeStatuses, pdf: PdfDecision) => {
           var inner: { [aspect: string]: StatusId } = {};
           for (const da of decisionAspects) {
-            const id = statuses[da].get(pdf[da]);
-            inner[da] = id ? id : 0;
+            const id = statuses[da]?.get(pdf[da]) || 0;
+            inner[da] = id;
           }
           obj[pdf.testfile] = inner;
           return obj;
@@ -444,9 +445,9 @@ export default Vue.extend({
 
       var centers: Centers = {};
       for (let [aspect, ss] of Object.entries(statuses)) {
-        const num_statuses = ss.size;
+        const num_statuses = ss!.size;
         const w = Math.floor(width / (num_statuses + 1));
-        const inner = Array.from(ss.values()).reduce((obj: any, v: number) => {
+        const inner = Array.from(ss!.values()).reduce((obj: any, v: number) => {
           obj[v] = (v + 1) * w;
           return obj;
         }, {});
@@ -457,8 +458,8 @@ export default Vue.extend({
       var spectrum = d3.interpolateCubehelixLong("purple", "orange");
       var colors: Colors = {};
       for (let [aspect, ss] of Object.entries(statuses)) {
-        const num_statuses = ss.size;
-        const inner = Array.from(ss.values()).reduce((obj: any, v: number) => {
+        const num_statuses = ss!.size;
+        const inner = Array.from(ss!.values()).reduce((obj: any, v: number) => {
           obj[v] = spectrum(v / (num_statuses - 1));
           return obj;
         }, {});

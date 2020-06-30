@@ -4,6 +4,7 @@ import bson
 import click
 import importlib.util
 import json
+import math
 import motor.motor_asyncio
 import os
 import pymongo
@@ -296,7 +297,7 @@ class Client(vuespa.Client):
 
 
     async def api_config_plugin_dec_run(self, plugin_key, api_url, json_args,
-            reference_decisions):
+            reference_decisions, subset_options):
         """Runs a decision plugin.
         """
         if not api_url.endswith('/'):
@@ -370,7 +371,8 @@ class Client(vuespa.Client):
                                     s.write((json.dumps(q) + '\n').encode('utf-8'))
                                     await s.drain()
                             elif part == '<statsbyfile>':
-                                async for d in app_mongodb_conn['statsbyfile'].find():
+                                async for d in self._statsbyfile_cursor(
+                                        subset_options):
                                     s.write((json.dumps(d) + '\n').encode('utf-8'))
                                     await s.drain()
                             else:
@@ -408,11 +410,17 @@ class Client(vuespa.Client):
                 os.unlink(output_html.name)
 
 
-    async def api_decisions_get(self):
+    async def api_decisions_get(self, options):
+        """
+        Args:
+            options: {subsetSize, subsetRegex, subsetPartition}.
+        """
         groups = {}
         files = []
         r = {'groups': groups, 'files': files}
-        async for g in app_mongodb_conn['statsbyfile'].find():
+
+        cursor = self._statsbyfile_cursor(options)
+        async for g in cursor:
             gid = len(files)
             files.append(g['_id'])
             for k, v in g.items():
@@ -423,6 +431,39 @@ class Client(vuespa.Client):
                 grp.append(gid)
 
         return r
+
+
+    async def _statsbyfile_cursor(self, options):
+        """Async generator which yields from `statsbyfile` according to the
+        working subsetting options in `options`.
+        """
+        query = {}
+        if options['subsetRegex'] and options['subsetRegex'] != '^':
+            query['_id'] = {'$regex': options['subsetRegex']}
+
+        r_skip = 0
+        r_every = 1
+        if options['subsetSize'] > 0:
+            max_docs = await app_mongodb_conn['statsbyfile'].count_documents(query)
+            max_subset = max_docs // options['subsetSize']
+            if options['subsetPartition'] > max_subset:
+                raise ValueError(f'Found {max_docs} docs, '
+                        f'max partition {max_subset}, '
+                        f'but partition {options["subsetPartition"]} was requested.')
+
+            r_skip = options['subsetPartition']
+            r_every = int(math.ceil(max_docs / options['subsetSize']))
+
+        gi = 0
+        cursor = app_mongodb_conn['statsbyfile'].find(query).sort('_id')
+        if r_skip > 0:
+            cursor = cursor.skip(r_skip)
+        async for g in cursor:
+            gi += 1
+            if r_every > 1 and gi % r_every != 1:
+                continue
+
+            yield g
 
 
     async def api_clear_db(self):
@@ -446,13 +487,21 @@ class Client(vuespa.Client):
         self.reprocess_db(retry_errors=True)
 
 
-    async def api_loading_get(self):
+    async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
+
+        options: {subsetRegex}
         """
         col = app_mongodb_conn['observatory']
-        pdfs_max = await col.count_documents({})
-        pdfs_done = await col.count_documents({'queueStop': {'$ne': None}})
-        pdfs_err = await col.count_documents({'queueErr': {'$ne': None}})
+        query = {}
+        if options['subsetRegex'] and options['subsetRegex'] != '^':
+            query['_id'] = {'$regex': options['subsetRegex']}
+
+        pdfs_max = await col.count_documents(query)
+        pdfs_done = await col.count_documents(dict(**query,
+                **{'queueStop': {'$ne': None}}))
+        pdfs_err = await col.count_documents(dict(**query,
+                **{'queueErr': {'$ne': None}}))
         return {
                 'config_mtime': app_config_loaded,
                 'files_done': pdfs_done,
