@@ -447,14 +447,14 @@ class Client(vuespa.Client):
         r_every = 1
         if options['subsetSize'] > 0:
             max_docs = await app_mongodb_conn['statsbyfile'].count_documents(query)
-            max_subset = max_docs // options['subsetSize']
-            if options['subsetPartition'] > max_subset:
+            max_subset = max(1, int(math.ceil(max_docs / options['subsetSize'])))
+            if options['subsetPartition'] >= max_subset:
                 raise ValueError(f'Found {max_docs} docs, '
                         f'max partition {max_subset}, '
                         f'but partition {options["subsetPartition"]} was requested.')
 
             r_skip = options['subsetPartition']
-            r_every = int(math.ceil(max_docs / options['subsetSize']))
+            r_every = max_subset
 
         gi = 0
         cursor = app_mongodb_conn['statsbyfile'].find(query).sort('_id')

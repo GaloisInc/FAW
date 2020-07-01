@@ -516,6 +516,14 @@ export default Vue.extend({
       return Math.ceil((this.loadingStatus.files_done - this.loadingStatus.files_err)
           / this.workingSubsetSize);
     },
+    /** Maximum expected partition size -- some partitions may have exactly one
+        fewer than this number.
+        */
+    workingSubsetPartitionExpectedSize(): number {
+      const c = this.workingSubsetPartitionCount;
+      const nf = this.loadingStatus.files_done - this.loadingStatus.files_err;
+      return Math.ceil(nf / c);
+    },
   },
   watch: {
     decisionAspectSelected() {
@@ -528,7 +536,7 @@ export default Vue.extend({
       // Clear old display values
       this.pluginIframeLoading = 0;
       this.pluginIframeSrc = null;
-      
+
       // Update related decisionReference!
       let decRef = null, dslRef = null;
       const testfile = this.decisionSelected.testfile;
@@ -643,7 +651,8 @@ export default Vue.extend({
           // Makes debugging during long loads much more manageable.
           && (
             !this.workingSubset
-            || this.workingSubsetSize > this.pdfs.length)) {
+            // Add 1 to this.pdfs.length for rounding errors.
+            || this.workingSubsetPartitionExpectedSize > this.pdfs.length + 1)) {
         this.pdfGroupsDirty = true;
       }
       if (oldConfig < this.loadingStatus.config_mtime) {
