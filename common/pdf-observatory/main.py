@@ -185,6 +185,8 @@ async def init_check_pdfs(retry_errors=False):
     # queueStop == None
     await asyncio.wait([
         col.create_index([('queueErr', pymongo.ASCENDING)]),
+        # Partial index isn't used for count, unfortunately.
+        col.create_index([('queueStop', pymongo.ASCENDING)]),
     ])
 
     for path, subfolders, files in os.walk(app_pdf_dir):
@@ -498,16 +500,16 @@ class Client(vuespa.Client):
             query['_id'] = {'$regex': options['subsetRegex']}
 
         pdfs_max = await col.count_documents(query)
-        pdfs_done = await col.count_documents(dict(**query,
-                **{'queueStop': {'$ne': None}}))
-        pdfs_err = await col.count_documents(dict(**query,
-                **{'queueErr': {'$ne': None}}))
+        pdfs_not_done = await col.count_documents(dict(**query,
+                **{'queueStop': {'$type': 10}}))
+        pdfs_not_err = await col.count_documents(dict(**query,
+                **{'queueErr': {'$type': 10}}))
         return {
                 'config_mtime': app_config_loaded,
-                'files_done': pdfs_done,
+                'files_done': pdfs_max - pdfs_not_done,
                 'files_max': pdfs_max,
-                'files_err': pdfs_err,
-                'message': f'{pdfs_done} / {pdfs_max}; {pdfs_err} errors',
+                'files_err': pdfs_max - pdfs_not_err,
+                'message': f'{pdfs_max - pdfs_not_done} / {pdfs_max}; {pdfs_max - pdfs_not_err} errors',
         }
 
 
