@@ -275,14 +275,22 @@ def _check_config_file(config):
     import pyjson5, schema as s
     config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             'config.json5')))
+
+    # Pull in parser-specific schema
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('etl_parse',
+            os.path.join(faw_dir, 'common', 'pdf-etl-parse', 'parse_schema.py'))
+    etl_parse = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(etl_parse)
+
     # NOTE -- primary schema validation is here, but NOT for submodules such
     # as pdf-etl-parse.
     sch = s.Schema({
         'name': s.And(str, s.Regex(r'^[a-zA-Z0-9-]+$')),
         # parsers validated by pdf-etl-parse
-        'parsers': object,
+        'parsers': etl_parse.schema_get(),
         'decision_default': str,
-        'decision_views': {
+        'decision_views': s.Or({}, {
             str: {
                 'label': str,
                 'type': 'program',
@@ -298,15 +306,15 @@ def _check_config_file(config):
                     error="Must be string with any <'s being one of: "
                         "<statsbyfile>"),
             },
-        },
-        'file_detail_views': {
+        }),
+        'file_detail_views': s.Or({}, {
             str: {
                 'label': str,
                 'type': 'program_to_html',
                 'exec': [str],
                 s.Optional('outputMimeType', default='text/html'): str,
             },
-        },
+        }),
         'build': {
             'stages': {
                 str: {

@@ -1,5 +1,6 @@
 # Local imports
 import mongo_queue_helper
+import parse_schema
 
 # System imports
 import click
@@ -7,7 +8,6 @@ import functools
 import logging
 import pyjson5
 import re
-import schema
 
 QUEUE_PROCESSING_TIMEOUT = 60
 """Max seconds a parser might be active.  This should be several standard
@@ -68,34 +68,7 @@ def config_load(config):
 def config_schema(config):
     """Takes a 'parsers' node from config, and applies the expected schema.
     """
-    s = schema
-    regex_counter_stream_handler_type = s.Or({str: {
-        s.Optional('nameGroup', default=0): s.Or(int, str),
-        s.Optional('nameReplace', default={}): s.Or({str: str}, {}),
-        s.Optional('countGroup', default=0): s.Or(int, str),
-        s.Optional('countReplace', default={}): s.Or({str: str}, {}),
-        s.Optional('countAsMissing', default=[]): [str],
-    }}, {})
-    sch = s.Schema({
-            s.And(str, lambda x: '_' not in x): {
-                s.Optional('disabled', default=False): True,
-                'exec': [str],
-                s.Optional('timeoutScale', default=1): int,
-                'version': s.Or(str, float),
-                'parse': s.Or(
-                    # Run an external program with the stdout+stderr, which
-                    # should output a json encoding
-                    {'type': 'program', 'exec': [str]},
-
-                    # Run a custom, limited program to get counts.
-                    {'type': 'regex-counter',
-                        s.Optional('stdstar', default={}): regex_counter_stream_handler_type,
-                        s.Optional('stdout', default={}): regex_counter_stream_handler_type,
-                        s.Optional('stderr', default={}): regex_counter_stream_handler_type,
-                    },
-                ),
-            },
-    })
+    sch = parse_schema.schema_get()
     return sch.validate(config)
 
 
