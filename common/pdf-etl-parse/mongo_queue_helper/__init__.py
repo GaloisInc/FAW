@@ -371,6 +371,13 @@ def handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue):
         exc_task = e
         exc_task_str = traceback.format_exc()
         log.exception(f'exception handling {doc["_id"]}')
+    except:
+        # Catch e.g. SIGINT -- very important we set exc_task_str so that
+        # the below call to `find_one_and_update` doesn't make it look like this
+        # task succeeded
+        exc_task = Exception(f'Unknown, external exception handling {doc["_id"]}')
+        exc_task_str = ''.join(traceback.format_stack() + [str(exc_task)])
+        log.error(exc_task_str)
     finally:
         # Mark that we've finished, and whether or not there was an error
         time_end = datetime.datetime.utcnow().timestamp()
