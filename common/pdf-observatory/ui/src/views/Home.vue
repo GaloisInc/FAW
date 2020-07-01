@@ -638,7 +638,12 @@ export default Vue.extend({
       const oldDone = this.loadingStatus.files_done;
       await this.$vuespa.update('loadingStatus', 'loading_get',
           {subsetRegex: this.workingSubset ? '^' + this.workingSubsetRegex : ''});
-      if (oldDone < this.loadingStatus.files_done) {
+      if (oldDone < this.loadingStatus.files_done
+          // Don't re-load every reprocess once we have a full working subset.
+          // Makes debugging during long loads much more manageable.
+          && (
+            !this.workingSubset
+            || this.workingSubsetSize > this.pdfs.length)) {
         this.pdfGroupsDirty = true;
       }
       if (oldConfig < this.loadingStatus.config_mtime) {
