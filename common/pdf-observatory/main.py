@@ -535,6 +535,7 @@ class Client(vuespa.Client):
 
 
     def reprocess_db(self, *args, **kwargs):
+        global app_init
         loop = asyncio.get_event_loop()
         app_init = loop.create_task(init_check_pdfs(*args, **kwargs))
 
