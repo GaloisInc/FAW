@@ -159,6 +159,7 @@ def run(live_mode, processes, threads, clean, db_src, db_queue,
             'processing_timeout': processing_timeout,
             'handle_queue_callback': handle_queue_callback,
             'allow_exceptions': allow_exceptions,
+            'parent_pid': os.getpid(),
     }
     procs = (
             [
@@ -247,7 +248,8 @@ def handle_queue_stubs(live_mode, db_src, db_queue, run_one):
 
 
 def handle_queue_process(live_mode, threads, db_src, db_queue,
-        processing_timeout, handle_queue_callback, allow_exceptions):
+        processing_timeout, handle_queue_callback, allow_exceptions,
+        parent_pid):
     """Multiprocessing target - runs ``threads`` which process invocations
     stored in ``db_src``, whose metadata for queueing is stored in ``db_queue``,
     and create results in some other collection.
@@ -257,6 +259,15 @@ def handle_queue_process(live_mode, threads, db_src, db_queue,
     conn_queue = _db_collection(db_queue)
     _db_collection_init_queue(conn_queue)
 
+    def die_predicate():
+        # Interestingly, the "Reprocess DB Errors" button would not halt other
+        # processing before. This was a direct result of the fact that these
+        # processes keep running after their parent process dies. We could rely
+        # on prctl(PR_SET_PDEATHSIG), but there's a window of time during which
+        # that result is invalid, so relying on the passed `parent_pid` is more
+        # reliable.
+        return os.getppid() != parent_pid
+
     kw = {
             'live_mode': live_mode,
             'db_src': db_src,
@@ -264,6 +275,7 @@ def handle_queue_process(live_mode, threads, db_src, db_queue,
             'processing_timeout': processing_timeout,
             'handle_queue_callback': handle_queue_callback,
             'allow_exceptions': allow_exceptions,
+            'die_predicate': die_predicate,
     }
     thread_objs = []
     for i in range(threads):
@@ -275,14 +287,15 @@ def handle_queue_process(live_mode, threads, db_src, db_queue,
 
 
 def handle_queue_thread(live_mode, thread_id, db_src, db_queue,
-        processing_timeout, handle_queue_callback, allow_exceptions):
+        processing_timeout, handle_queue_callback, allow_exceptions,
+        die_predicate):
     log = logging.getLogger(f'handler-{os.getpid()}-{thread_id}')
 
     conn_src = _db_collection(db_src)
     conn_queue = _db_collection(db_queue)
 
     log.debug('starting')
-    while True:
+    while not die_predicate():
         time_start = datetime.datetime.utcnow().timestamp()
         doc = conn_queue.find_one_and_update(
                 {
@@ -308,7 +321,8 @@ def handle_queue_thread(live_mode, thread_id, db_src, db_queue,
             # Lower CPU usage
             time.sleep(1)
             continue
-        e = handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue)
+        e = handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue,
+                die_predicate)
         if not allow_exceptions and e is not None:
             raise ValueError(f'Handling failed for {doc["_id"]}') from e
 
@@ -342,15 +356,23 @@ def handle_queue_one(doc_id, db_src, db_queue, handle_queue_callback):
     if doc is None:
         raise ValueError(f'No such doc in {conn_queue}? {doc_id}.  Note that '
                 f'`run_one` should not be co-specified with `clean`.')
-    e = handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue)
+    die_predicate = lambda: False
+    e = handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue,
+            die_predicate)
     if e is not None:
         raise Exception('Handling failed; see above')
 
 
-def handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue):
+def handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue,
+        die_predicate):
     """Given a doc in the db_queue collection (``doc``), and a user-space
     callback for dealing with queue data (``handle_queue_callback``), fetch
     needed information from the source collection and run the user code.
+
+    Args:
+        die_predicate: Checked before writing successful result to DB. If True,
+                then instead of writing successful result, roll back queue
+                document to all None before continue. This is distributed-safe.
 
     Returns the Exception raised in processing the document, if any.
     """
@@ -379,18 +401,28 @@ def handle_queue_doc(log, doc, handle_queue_callback, db_src, db_queue):
         exc_task_str = ''.join(traceback.format_stack() + [str(exc_task)])
         log.error(exc_task_str)
     finally:
-        # Mark that we've finished, and whether or not there was an error
-        time_end = datetime.datetime.utcnow().timestamp()
         conn_queue = _db_collection(db_queue)
-        conn_queue.find_one_and_update(
-                # If someone else finished first, that's OK, keep their
-                # data.
-                {'_id': doc['_id'], 'queueStop': {'$type': 10}},
-                update={'$set': {
-                    'queueStop': time_end,
-                    'queueErr': exc_task_str,
-                }},
-        )
+        if die_predicate():
+            # Die, do NOT write result (whether success or fail)
+            conn_queue.find_one_and_update(
+                    {'_id': doc['_id'], 'queueStop': {'$type': 10}},
+                    update={'$set': {
+                        'queueStart': None,
+                        'queueErr': None,
+                    }},
+            )
+        else:
+            # Mark that we've finished, and whether or not there was an error
+            time_end = datetime.datetime.utcnow().timestamp()
+            conn_queue.find_one_and_update(
+                    # If someone else finished first, that's OK, keep their
+                    # data.
+                    {'_id': doc['_id'], 'queueStop': {'$type': 10}},
+                    update={'$set': {
+                        'queueStop': time_end,
+                        'queueErr': exc_task_str,
+                    }},
+            )
     return exc_task
 
 
