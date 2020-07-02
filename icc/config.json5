@@ -33,10 +33,13 @@
         },
         littleCms: {
           exec: ['psicc', '-c', '2', '-b', '-i', '<inputFile>'],
-          version: 'test',
+          version: 'test-limit-output2',
           parse: {
             type: 'regex-counter',
             stdstar: {
+              '^\\[?<?[a-f0-9]+>?': {
+                nameGroup: '',
+              },
               '.*': {
                 nameReplace: {'[0-9]': ''},
               },
@@ -78,7 +81,7 @@
 filters:  \n\
   # Filters are defined as groups of regular expressions.  \n\
 \n\
-  S1 all:  \n\
+  S1:  \n\
     test regex  \n\
   \n\
 outputs:  \n\
