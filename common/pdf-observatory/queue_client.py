@@ -143,8 +143,14 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
         invokers_whitelist.append(k)
         delete_or_clause.append({'file': fpath, 'invoker.invName': k,
                 'invoker.version': {'$ne': v['version']}})
-    delete_or_clause.append({'file': fpath,
-            'invoker.invName': {'$nin': invokers_whitelist}})
+    # Used to clear out old parser data. However... since private distributions,
+    # e.g. `./workbench.py ../modified-pdf ...`, it doesn't really make sense
+    # to clear out the old information on the off chance it will be re-used.
+    # Since that's the main situation in which this deletion would be triggered,
+    # it doesn't make sense for deleting extraneous parser information to be the
+    # default behavior.
+    #delete_or_clause.append({'file': fpath,
+    #        'invoker.invName': {'$nin': invokers_whitelist}})
 
     # Run delete
     if len(delete_or_clause) == 1:
