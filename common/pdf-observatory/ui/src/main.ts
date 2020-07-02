@@ -3,6 +3,9 @@ import App from './App.vue'
 import router from './router'
 import vuetify from './plugins/vuetify';
 
+import VClipboard from 'v-clipboard';
+Vue.use(VClipboard);
+
 import JsonTree from '@/components/json-tree.vue';
 Vue.component('json-tree', JsonTree);
 

@@ -34,17 +34,16 @@
                     ) Reprocess decisions
               span(v-if="!decisionDefinition") Fix filter definition first.
             v-btn.download(@click="download") Download decisions
-            v-btn(@click="resetDbErrors") Reprocess DB errors
-            v-dialog(v-model="resetDbDialog" persistent max-width="390")
+            v-dialog(v-model="resetDbDialog" persistent max-width="800")
               template(v-slot:activator="{on}")
                 v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
               v-card
                 v-card-title Reset entire DB, re-running all tools and parsers?
-                v-card-actions
-                  v-spacer
+                v-card-actions(:style={'flex-wrap': 'wrap'})
                   v-btn(@click="resetDbDialog=false") Cancel
-                  v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
+                  v-btn(@click="resetDbErrors(); resetDbDialog=false") Reprocess DB errors
                   v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not tool invocations
+                  v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
           v-sheet.working-subset(:elevation="3" style="padding: 0 1em; margin: 1em; display: flex; flex-direction: row;")
             v-checkbox(label="Use Working Subset" :style="{'flex-grow': 0}" v-model="workingSubset")
@@ -101,16 +100,19 @@
               v-expansion-panel(:key="0")
                 v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
                 v-expansion-panel-content
-                  .decision-reasons(style="max-height: 7em; padding-bottom: 1em; overflow-y: scroll") Error message: number of files rejected / uniquely rejected
+                  .decision-reasons(style="max-height: 20em; padding-bottom: 1em; overflow-y: scroll") Error message: number of files rejected / uniquely rejected
                     //- (click rejected to accept)
                     div(v-for="f of (failReasons.get(decisionAspectSelected) || []).slice(0, 20)" :key="f[0]"
                         @click="filterToggle(f[0], true)")
-                      v-menu(offset-y)
+                      v-menu(offset-y max-width="700")
                         template(v-slot:activator="{on}")
                           .decision-reason(v-on="on")
                             checkmark(status="rejected")
                             span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
                         v-list
+                          v-list-item
+                            v-btn(v-clipboard="() => regexEscape(f[0])") (Copy regex to clipboard)
+                            v-btn(v-clipboard="() => '^' + regexEscape(f[0]) + '$'") (with ^$)
                           v-list-item(v-for="ex of pdfGroups.groups[f[0]].slice(0, 10)" :key="ex" @click="showFile(pdfGroups.files[ex])") {{pdfGroups.files[ex]}}
                     .decision-reason(v-if="(failReasons.get(decisionAspectSelected) || []).length > 20")
                       checkmark(status="ignore")
@@ -156,10 +158,10 @@
                       //- checkmark(:status="p.status")
                       span {{p[decisionAspectSelected]}}&nbsp;
                       span {{p.testfile}}
-                v-list-item(v-if="pdfs.length > pdfsToShowMax")
+                v-list-item
                   v-list-item-content
                     v-list-item-title
-                      span ...{{pdfs.length - pdfsToShowMax}} other files processed
+                      span(v-if="pdfs.length > pdfsToShowMax") ...{{pdfs.length - pdfsToShowMax}} other files processed
                       v-autocomplete(
                           v-model="pdfsSearchedUserAction"
                           :clearable="true"
@@ -243,6 +245,12 @@
     position: fixed;
     top: 0;
     right: 0;
+  }
+
+  .v-card__actions {
+    > .v-btn {
+      margin: 0.1rem 1rem;
+    }
   }
 
   .home {
@@ -973,6 +981,9 @@ export default Vue.extend({
           }
         }
       });
+    },
+    regexEscape(v: string): string {
+      return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     },
     resetDbErrors() {
       this.asyncTry(async () => {this.$vuespa.call('reset_db_errors');});
