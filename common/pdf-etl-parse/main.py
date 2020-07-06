@@ -157,6 +157,9 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
                 'runtimeerror'):
             d['result']['<<workbench: Exit code missing>>'] = 1
             d['exitcode'] = 'missing'
+
+            # Make timeouts visible to user
+            d['result'][f"<<workbench: Exit status: {doc['result']['_cons']}>>"] = 1
         else:
             d['result'][f"<<workbench: Exit code {int(doc['result']['exitcode'])}>>"] = 1
             d['exitcode'] = int(doc['result']['exitcode'])

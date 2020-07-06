@@ -128,6 +128,11 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
     """
     print(f'Handling {doc["_id"]}')
 
+    time_basis = time.monotonic()
+    # Set aside some amount of the time to guarantee each parser gets a fair
+    # shake.
+    time_fixed = timeout * 0.5
+
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
     # not time out, the parsers may be re-run without re-running the tools.
@@ -170,28 +175,44 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
             '--invokersfile', '/home/pdf-etl-tools/invokers.cfg',
             'add-raw',
             # Deliberately allow existing data which did not time out
-            '--absentonly',
+            # Removed because we now query `invs_seen` beforehand.
+            #'--absentonly',
     ]
-    # If we're retrying errors, use as much time as possible, but allow
-    # timeouts to produce detectable errors rather than
-    if retry_errors:
-        # Note that the --timeout argument is cumulative across all invokers.
-        args.extend(['--timeout', str(math.ceil(max(1, timeout - 5)))])
-    else:
-        # Rather than relying on the internal timeout, which might look like
-        # a file didn't error out because of time, use a ridiculous value.
-        # This way, timeouts will obviously show up as errors.
-        args.extend(['--timeout', str(math.ceil(timeout * 2 + 5))])
 
     # This used to rely on `-i ALL` behavior of pdf-etl-tool, but the spin-up
     # was very slow. Faster to do this.
+    inv_left = len(set(invokers_whitelist).difference(invs_seen))
+    time_fixed_part = time_fixed / max(1, inv_left)
     for k, v in app_config['parsers'].items():
         if v.get('disabled') or k in invs_seen:
             continue
-        aargs = args + ['-i', k, fpath]
+        aargs = args[:]
+
+        # Some time is allowed to "flex" for the most expensive parsers,
+        # whereas rest is evenly divided
+        time_left = time_basis + timeout - time.monotonic()
+        time_fixed -= time_fixed_part
+        time_left -= time_fixed
+        time_left = max(1e-3, time_left)
+        tool_timeout = time_left
+
+        # If we're retrying errors, use as much time as possible, but allow
+        # timeouts to produce detectable errors rather than error out.
+        if retry_errors:
+            aargs.extend(['--timeout', str(math.ceil(max(1, time_left - 1)))])
+
+            # Rely on pdf-etl-tools' timeout
+            tool_timeout = None
+        else:
+            # Rather than relying on the internal timeout, which might look like
+            # a file didn't error out because of time, use a ridiculous value.
+            # This way, timeouts will obviously show up as errors.
+            aargs.extend(['--timeout', str(math.ceil(time_left * 2 + 5))])
+
+        aargs.extend(['-i', k, fpath])
         call(aargs,
                 cwd='/home/dist',
-                timeout=timeout)
+                timeout=tool_timeout)
 
     # For each raw invocation, parse it.
     _load_document_parse(doc['_id'],
