@@ -214,7 +214,8 @@ async def init_check_pdfs(retry_errors=False):
     # depth-first processing of all files
     oargs = []
     if retry_errors:
-        oargs = ['--timeout', '7200', '--retry-errors']
+        oargs = ['--timeout', str(app_config['parserCombinedTimeout']),
+                '--retry-errors']
     try:
         proc = await asyncio.create_subprocess_exec(
                 'python3', '../pdf-observatory/queue_client.py',

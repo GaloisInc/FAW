@@ -18,6 +18,11 @@
     // The name of the docker image to be produced.
     name: 'galois-workbench-pdf',
 
+    // Seconds in which all parsers must finish executing, when "Reprocess
+    // DB Errors" is pressed (initial parserCombinedTimeout is always 60).
+    // Half of this time is evenly divided amongst all parsers. The other half
+    // is "flex" time allowed to the most expensive parser.
+    parserCombinedTimeout: 7200,
     parsers: {
         // Example of running the unix command 'file' on each file to gather
         // information.

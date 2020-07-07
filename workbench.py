@@ -289,6 +289,7 @@ def _check_config_file(config):
         'name': s.And(str, s.Regex(r'^[a-zA-Z0-9-]+$')),
         # parsers validated by pdf-etl-parse
         'parsers': etl_parse.schema_get(),
+        s.Optional('parserCombinedTimeout', default=7200): s.Or(float, int),
         'decision_default': str,
         'decision_views': s.Or({}, {
             str: {
