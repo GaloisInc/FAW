@@ -83,12 +83,15 @@
 
           //- Plot of file statuses
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
-            plot(v-if="pdfs.length && decisionDefinition"
-              v-model="pdfsSearchedUserAction"
-              :pdfs="pdfs"
-              :pdfsReference="pdfsReference"
-              :decisionDefinition="decisionDefinition"
-              :decisionAspectSelected="decisionAspectSelected")
+            div
+              v-checkbox(v-model="plotShow" label="Show plot?")
+            .plot-div(v-if="plotShow")
+              plot(v-if="pdfs.length && decisionDefinition"
+                v-model="pdfsSearchedUserAction"
+                :pdfs="pdfs"
+                :pdfsReference="pdfsReference"
+                :decisionDefinition="decisionDefinition"
+                :decisionAspectSelected="decisionAspectSelected")
             ConfusionMatrix(v-if="pdfs.length"
               @view="showFile($event)"
               :pdfs="pdfs"
@@ -100,23 +103,24 @@
               v-expansion-panel(:key="0")
                 v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
                 v-expansion-panel-content
-                  .decision-reasons(style="max-height: 20em; padding-bottom: 1em; overflow-y: scroll") Error message: number of files rejected / uniquely rejected
-                    //- (click rejected to accept)
-                    div(v-for="f of (failReasons.get(decisionAspectSelected) || []).slice(0, 20)" :key="f[0]"
-                        @click="filterToggle(f[0], true)")
-                      v-menu(offset-y max-width="700")
-                        template(v-slot:activator="{on}")
-                          .decision-reason(v-on="on")
-                            checkmark(status="rejected")
-                            span {{f[0]}}: {{f[1][0].size}} / {{f[1][1].size}}
-                        v-list
-                          v-list-item
-                            v-btn(v-clipboard="() => regexEscape(f[0])") (Copy regex to clipboard)
-                            v-btn(v-clipboard="() => '^' + regexEscape(f[0]) + '$'") (with ^$)
-                          v-list-item(v-for="ex of pdfGroups.groups[f[0]].slice(0, 10)" :key="ex" @click="showFile(pdfGroups.files[ex])") {{pdfGroups.files[ex]}}
-                    .decision-reason(v-if="(failReasons.get(decisionAspectSelected) || []).length > 20")
-                      checkmark(status="ignore")
-                      span ...{{failReasons.get(decisionAspectSelected).length - 20}} additional rows
+                  .decision-reasons(style="padding-bottom: 1em;") {{(failReasons.get(decisionAspectSelected) || []).length}} error messages: number of files rejected / uniquely rejected
+                    v-virtual-scroll(
+                        :bench="10"
+                        :items="failReasons.get(decisionAspectSelected) || []"
+                        height="200"
+                        item-height="25"
+                        )
+                      template(v-slot="{item}")
+                        v-menu(offset-y max-width="700")
+                          template(v-slot:activator="{on}")
+                            .decision-reason(v-on="on")
+                              checkmark(status="rejected")
+                              span {{item[0]}}: {{item[1][0].size}} / {{item[1][1].size}}
+                          v-list
+                            v-list-item
+                              v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
+                              v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
+                            v-list-item(v-for="ex of pdfGroups.groups[item[0]].slice(0, 10)" :key="ex" @click="showFile(pdfGroups.files[ex])") {{pdfGroups.files[ex]}}
 
       v-expansion-panel(:key="1")
         //-
@@ -412,7 +416,7 @@ export default Vue.extend({
       decisionSelectedDsl: {} as PdfDecision,
       error: false as any,
       expansionPanels: [0, 1, 2],
-      failReasons: new Map<string, Array<[string, [Set<string>, Set<string>]]>>(),
+      failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
       fileSelected: 0,
       holdReferences: true,
       initReferences: false,
@@ -431,6 +435,7 @@ export default Vue.extend({
       pdfsToShowMax: 20,
       pdfGroups: {groups: {}, files: []} as PdfGroups,
       pdfGroupsDirty: false,
+      plotShow: true,
       pluginIframeLoading: 0,
       pluginIframeLoadingNext: 1,
       pluginIframeSrc: null as string|null,
@@ -679,6 +684,9 @@ export default Vue.extend({
         ]);
         this.decisionCode = this.config.decision_default;
         this.decisionCodeUpdated_handled = true;
+        await new Promise((resolve, reject) => {
+          setTimeout(resolve, 1);
+        });
         this.decisionCodeUpdated_inner();
       }
       finally {
@@ -714,7 +722,10 @@ export default Vue.extend({
     },
     decisionCodeUpdated() {
       if (this.decisionCodeUpdated_handled) {
+        // This change to `decisionCode` was already handled.
         this.decisionCodeUpdated_handled = false;
+        this.decisionCodeTimeout && clearTimeout(this.decisionCodeTimeout);
+        return;
       }
       this.decisionCodeTimeout && clearTimeout(this.decisionCodeTimeout);
       this.decisionCodeTimeout = setTimeout(
@@ -1217,7 +1228,7 @@ export default Vue.extend({
         filtData.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
         frMap.set(`filter-${filt}`, filtData);
       }
-      this.failReasons = frMap;
+      this.failReasons = Object.freeze(frMap);
     },
     updatePdfsChanged() {
       const refs = {} as any;
