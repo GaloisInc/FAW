@@ -79,7 +79,14 @@ function generateDslParser() {
         = leader:[A-Z] trailer:ID_CHARS { return leader + trailer; }
 
       filters_pattern
-        = INDENT_CHECK pattern:[^\\n]+ WS_LINES { return pattern.join('').trim(); }
+        = INDENT_CHECK pattern:[^\\n]+ WS_LINES { 
+          let pat = pattern.join('').trim();
+          try { new RegExp(pat); }
+          catch (e) {
+            expected('Valid regular expression ((' + e + '))');
+          }
+          return pat;
+        }
 
       outputs_expr
         = INDENT_CHECK "outputs:" WS_LINES
