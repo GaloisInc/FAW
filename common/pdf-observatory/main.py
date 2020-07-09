@@ -116,8 +116,10 @@ def _config_reload():
                 return {
                         '<inputFile>': 'InputFile',
                 }[v]
-            v = v.replace('"', '\\"')
-            return f'Str "{v}"'
+
+            # Haskell requires double quote delimiters, which JSON works with
+            vrepr = json.dumps(v)
+            return f'Str {vrepr}'
         first_rec = True
         for i, (inv_name, inv_cfg) in enumerate(app_config['parsers'].items()):
             if inv_cfg.get('disabled'):
