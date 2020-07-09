@@ -1,0 +1,250 @@
+{
+    // The workbench consists of UI connected to a number of external plugins,
+    // which are organized into 'parsers', 'file_detail_views', and
+    // 'decision_views'.  These are  supported through the defining of the
+    // "build" environment.
+    //
+    // The reason this is a custom format instead of a standard Dockerfile is
+    // so that the entire deployment might be specified in a single location.
+    // Dockerfile is necessary because many external plugins have their own
+    // requirements, etc.
+    //
+    // Everything in this file except 'build' is live-reloaded when used with
+    // the --development flag. This applies mostly to plugins, but can also
+    // apply to 'parsers' when the DB is reset through the UI (use on small
+    // collections of files only).
+
+
+    // The name of the docker image to be produced.
+    name: 'galois-workbench-icc2',
+
+    parsers: {
+        cgArgyllCms: {
+          exec: ['bash', '-c',
+            ' \
+            valgrind --tool=callgrind --callgrind-out-file=$1 iccdump -v 3 $0 > /dev/null 2>&1 \
+            ; callgrind_annotate --tree=both --threshold=100 $1 \
+              | grep -P " +\\d+ +\\* " | sed -n "s/.*\\*  \\(.*\\)/\\1/p" \
+            ',
+            '<inputFile>',
+            '<tempFile>'],
+          version: 'test',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '.*': {},
+            },
+          },
+        },
+        argyllCms: {
+          exec: ['iccdump', '-v', '3', '<inputFile>'],
+          version: 'test',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '.*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+        littleCms: {
+          exec: ['psicc', '-c', '2', '-b', '-i', '<inputFile>'],
+          version: 'test-limit-output2',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '^\\[?<?[a-f0-9]+>?': {
+                nameGroup: '',
+              },
+              '.*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+        refIccMax: {
+          exec: ['/opt/reficcmax/bin/iccDumpProfile', '-v', '<inputFile>'],
+          timeoutScale: 18,
+          version: 'test',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '.*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+        refIccMaxToXml: {
+          exec: ['bash', '-c',
+              '/opt/reficcmax/bin/iccToXml "$0" "$1" ; /opt/reficcmax/bin/iccFromXml "$1" "$2"',
+              '<inputFile>', '<tempFile .xml>', '<tempFile .icc>'],
+          timeoutScale: 18,
+          version: 'test6',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '.*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+    },
+
+    decision_default: '\
+# Any line beginning with a hash is a comment.  \n\
+filters:  \n\
+  # Filters are defined as groups of regular expressions.  \n\
+\n\
+  S1:  \n\
+    test regex  \n\
+  \n\
+outputs:  \n\
+  # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
+  # otherwise "rejected".  \n\
+  status:  \n\
+    "valid" is S1  \n\
+    "rejected" else  \n\
+  ',
+
+    decision_views: {
+      decideLogic: {
+        label: "Template Decider",
+        type: 'program',
+        exec: ['python3', 'decideLogic.py', '<outputHtml>'],
+        execStdin: '<statsbyfile>',
+      },
+    },
+
+    file_detail_views: {
+    },
+
+    build: {
+        // The software environment must be defined.  It optionally may be grouped
+        // into different build stages, which map to stages in docker.
+        stages: {
+            // Defining docker stages -- there MUST be a 'base' stage, which is
+            // automatically included in final output.
+            // Other stages with `copy_output` defined will also be included
+            // in the final output.
+            // Stages are written to the Dockerfile in order.  Most plugins will
+            // only need to modify the 'final' stage's commands.
+
+            // The base stage must have a 'from', which defines the base
+            // image.  Other stages may also specify 'from'; otherwise,
+            // `from: 'base'` is implied.
+
+            // The 'final' stage is special -- it only allows commands, and
+            // any commands executed are executed only in the final image.
+
+            // Each stage may have a 'copy_output', which defines the outputs
+            // produced by the stage.  The key is the absolute path to the file
+            // or directory to be copied (may have asterisk wildcards), and the
+            // value is either `true` to copy to the same absolute path, or a
+            // new copy destination.  When specifying a new destination,
+            // if that destination is a directory, append a trailing slash.
+
+            // Each stage may have a 'commands', which specifies commands to
+            // run.
+
+            // Optimization note: every time 'base' gets updated, there may
+            // be a long recompilation process. Ideally, most development work
+            // should not touch 'base'. One way around this is for other images
+            // to specify their own 'from' keys.
+
+            base: {
+                'from': 'ubuntu:18.04',
+                commands: [
+                    // Base packages
+                    'RUN apt-get update && apt-get install -y \
+                        curl \
+                        python3 \
+                        python3-pip \
+                        xpdf \
+                        wget \
+                        ',
+                    // Note that we will *also* install a newer version of poppler in /usr/local/bin
+                    'RUN apt-get update && apt-get install -y \
+                        poppler-utils \
+                        ',
+                    // Documented caradoc dependencies
+                    'RUN apt-get update && apt-get install -y \
+                        ocaml \
+                        opam \
+                        zlib1g-dev \
+                        ',
+                    // Undocumented caradoc dependencies
+                    'RUN apt-get update && apt-get install -y \
+                        m4 \
+                        pkg-config \
+                        libgmp3-dev \
+                        ',
+                    // Requirements for building poppler utils from source
+                    // No effort has been made to distinguish what's required only
+                    // for the build, so we install them all up front.
+                    'RUN apt-get update && apt-get install -y \
+                        uuid-dev \
+                        gperf \
+                        libtool \
+                        gettext \
+                        autopoint \
+                        autoconf \
+                        python3-dev \
+                        libssl-dev \
+                        cmake \
+                        libfreetype6-dev \
+                        libxcb-composite0-dev \
+                        libxml2-dev \
+                        ',
+                    // Needed to build pdftocairo target in poppler
+                    'RUN apt-get update && apt-get install -y \
+                        libcairo2-dev \
+                        ',
+                    // Needed to build qpdf
+                    'RUN apt-get update && apt-get install -y \
+                        libjpeg-dev \
+                        ',
+                ],
+            },
+
+            callgrind: {
+              copy_output: {
+                '/usr/bin/callgrind*': '/usr/bin/',
+                '/usr/bin/valgrind*': '/usr/bin/',
+                '/usr/bin/vgdb': true,
+                '/usr/lib/valgrind': true,
+              },
+              commands: [
+                'RUN apt-get update && apt-get install -y valgrind',
+              ],
+            },
+
+            refIccMax: {
+              copy_output: {
+                '/opt/reficcmax': true,
+                '/opt/reficcmax/lib': '/usr/lib',
+              },
+              commands: [
+                'RUN git clone https://github.com/InternationalColorConsortium/RefIccMAX \
+                  && cd RefIccMAX && mkdir build && cd build \
+                  && cmake -DCMAKE_INSTALL_PREFIX=/opt/reficcmax ../Build/Cmake \
+                  && make \
+                  && make install',
+              ],
+            },
+
+            // final is a special stage which runs in the final image.  Useful
+            // for installing dependencies for downstream tools, without needing
+            // to rebuild all of the other workbench internals.
+            final: {
+                commands: [
+                    // Note that {dist} gets replaced in Dockerfile commands with
+                    // the directory containing `config.json5`
+                    'RUN apt-get update && apt-get install -y argyll liblcms2-utils',
+               ],
+            },
+        },
+    },
+}
