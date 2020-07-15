@@ -1,12 +1,19 @@
-This README documents the Galois Format Analysis Workbench (GFAW) for developers
-creating their own distributions of the workbench. The core workbench source
-in `common` should remain unchanged, but distribution creators are encouraged to
-develop their own plugins to support new file formats or enhance support for
-existing formats.
+# Format Analysis Workbench (FAW)
 
-To create a new distribution, create a new subfolder, modeled off of the `pdf`
-base distribution. Available options are documented in `config.json5` within
-that folder.
+The Format Analysis Workbench (FAW) is a platform for running and analyzing the
+output from any number of parsers dealing with a single file format. It is meant
+to be a workbench for developing tools which aid in understanding the de facto
+formats which naturally emerge from open standards.
+
+## Example Screenshots
+
+Main overview of decisions
+![Main overview](./common/readme/screenshot-main.png)
+
+Decision DSL excerpt
+![DSL excerpt](./common/readme/screenshot-dsl.png)
+
+## Getting Started
 
 To get started, run:
 
@@ -16,6 +23,18 @@ To get started, run:
 The first invocation will take a long time (up to an hour or two). After that,
 it will be quite fast. Once it's loaded, point your browser at
 http://localhost:8123
+
+## Creating a new distribution
+
+This README documents the Galois Format Analysis Workbench (GFAW) for developers
+creating their own distributions of the workbench. The core workbench source
+in `common` should remain unchanged, but distribution creators are encouraged to
+develop their own plugins to support new file formats or enhance support for
+existing formats.
+
+To create a new distribution, create a new subfolder, modeled off of the `pdf`
+base distribution. Available options are documented in `config.json5` within
+that folder.
 
 Please do not add other files directly to this folder. For development purposes,
 such as keeping a private workbench distribution, the configuration for a
