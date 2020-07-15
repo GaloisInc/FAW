@@ -13,6 +13,8 @@ def main():
     for l in sys.stdin:
         f = json.loads(l)
         for k in f.keys():
+            if not k.startswith('cg'):
+                continue
             prop_counts[k] = prop_counts.get(k, 0) + 1
         files.append(f)
 

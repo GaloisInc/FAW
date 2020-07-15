@@ -36,9 +36,31 @@
             },
           },
         },
-        argyllCms: {
-          exec: ['iccdump', '-v', '3', '<inputFile>'],
+        ltraceRefIccMax: {
+          exec: ['bash', '-c',
+            '\
+              ltrace -o $1 -e "malloc+free-@/libstdc.*/" /opt/reficcmax/bin/iccDumpProfile -v $0 > /dev/null 2>&1  \
+              ; cat $1  \
+            ',
+            '<inputFile>',
+            '<tempFile>',
+          ],
           version: 'test',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '^(.*) += +': {
+                nameGroup: 1,
+                nameReplace: {
+                  '0x[0-9a-f]+': '',
+                },
+              },
+            },
+          },
+        },
+        argyllCms: {
+          exec: ['iccdump', '<inputFile>'],
+          version: 'test2',
           parse: {
             type: 'regex-counter',
             stdstar: {
@@ -97,23 +119,32 @@
 # Any line beginning with a hash is a comment.  \n\
 filters:  \n\
   # Filters are defined as groups of regular expressions.  \n\
-\n\
+  \n\
   S1:  \n\
     test regex  \n\
+  \n\
+  ExampleCallgrind:  \n\
+    cgArgyllCms_\\?\\?\\?:0x00000000000035d0  \n\
   \n\
 outputs:  \n\
   # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
   # otherwise "rejected".  \n\
   status:  \n\
-    "valid" is S1  \n\
-    "rejected" else  \n\
+    "rejected" is ExampleCallgrind  \n\
+    "valid" else  \n\
   ',
 
     decision_views: {
-      decideLogic: {
-        label: "Template Decider",
+      callgrindLogic: {
+        label: "Callgrind Decider",
         type: 'program',
-        exec: ['python3', 'decideLogic.py', '<outputHtml>'],
+        exec: ['python3', 'callgrindLogic.py', '<outputHtml>'],
+        execStdin: '<statsbyfile>',
+      },
+      ltraceLogic: {
+        label: "Ltrace Decider",
+        type: 'program',
+        exec: ['python3', 'ltraceLogic.py', '<outputHtml>'],
         execStdin: '<statsbyfile>',
       },
     },
@@ -212,12 +243,13 @@ outputs:  \n\
             callgrind: {
               copy_output: {
                 '/usr/bin/callgrind*': '/usr/bin/',
+                '/usr/bin/ltrace': true,
                 '/usr/bin/valgrind*': '/usr/bin/',
                 '/usr/bin/vgdb': true,
                 '/usr/lib/valgrind': true,
               },
               commands: [
-                'RUN apt-get update && apt-get install -y valgrind',
+                'RUN apt-get update && apt-get install -y ltrace valgrind',
               ],
             },
 
