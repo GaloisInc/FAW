@@ -609,7 +609,7 @@ outputs:  \n\
                 provided as a convenience, to prevent decision programs from
                 needing to interact with mongo.
 
-                Template options:
+                Template substitution options:
                 * <referenceDecisions> Each line is a JSON object, whose value
                     is one row of the current reference decision list.
                 * <statsbyfile> Each line is a JSON object:
@@ -823,7 +823,7 @@ with open(sys.argv[1], 'w') as html: \n\
                   'RUN mkdir pdfium && cd pdfium && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git && gclient sync',
                   // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
                   'RUN cd pdfium/pdfium \
-                    && git checkout chromium/4180 \
+                    && git checkout chromium/4260 \
                     && echo Not needed: ./build/install-build-deps.sh \
                     && EDITOR="python3 -c \'import sys; f = open(sys.argv[1], \\"w\\"); f.write(\\"pdf_is_standalone = true\\\\npdf_enable_xfa = true\\\\npdf_enable_v8 = true\\\\n\\"); f.close()\'" gn args out/Workbench \
                     && ninja -C out/Workbench pdfium_test \
