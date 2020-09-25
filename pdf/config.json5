@@ -179,6 +179,22 @@
             },
         },
 
+        pdftotext: {
+          exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
+          timeoutScale: 18,
+          version: 'pdftotext1',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              // We do NOT want the observatory to pick these up, so just ignore
+              // every message. pdftotext must be searched via mongo!
+              '^.*$': {
+                nameGroup: '',
+              },
+            },
+          },
+        },
+
         polyfile: {
             exec: ['polyfile', '-m', '<inputFile>'],
             timeoutScale: 18,
