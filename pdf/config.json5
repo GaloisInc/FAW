@@ -179,6 +179,28 @@
             },
         },
 
+        polyfile: {
+            exec: ['polyfile', '-m', '<inputFile>'],
+            timeoutScale: 18,
+            version: 'polyfile1',
+            parse: {
+              type: 'regex-counter',
+              stderr: {
+                '^Found a file of type.*': {
+                  nameReplace: {'[0-9]': ''},
+                },
+                '^.*$': {
+                  nameGroup: 'ignored stderr',
+                },
+              },
+              stdout: {
+                '^.*$': {
+                  nameGroup: 'ignored stdout',
+                },
+              },
+            },
+        },
+
         'qpdf-check': {
             exec: ['qpdf', '--check', '<inputFile>'],
             timeoutScale: 18,
@@ -506,11 +528,14 @@ filters:  \n\
     ^pdfinfo_Syntax Error \\(\\): Dictionary key must be a name object  \n\
     ^mutool-convert-pdf_warning: non-page object in page tree  \n\
   \n\
+  Polyglot: \n\
+    ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\
+  \n\
 outputs:  \n\
   # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
   # otherwise "rejected".  \n\
   status:  \n\
-    "valid" is !(RejectedBad | RejectedAmbiguousBad | ValidWarningsXrefRebuild & XrefIsAmbiguous)  \n\
+    "valid" is !(RejectedBad | RejectedAmbiguousBad | ValidWarningsXrefRebuild & XrefIsAmbiguous | Polyglot)  \n\
     "rejected" else  \n\
   \n\
   # Mark anything that is linearized as "rejected-unsafe", and otherwise  \n\
@@ -523,7 +548,7 @@ outputs:  \n\
     "rejected-unsafe"  \n\
   \n\
   safety-status:  \n\
-    "unsafe"  \n\
+    "unsafe" is Polyglot  \n\
     "unsafe-warnings" is UnsafeWarnings  \n\
     "safe-warnings" is SafeWarnings  \n\
     "safe" else  \n\
