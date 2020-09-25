@@ -354,6 +354,22 @@
             },
         },
 
+        'schizo-test': {
+          exec: ['schizo_test/main.py', '<inputFile>'],
+          timeoutScale: 18,
+          version: 'schizo-test11',
+          parse: {
+            type: 'regex-counter',
+            stdstar: {
+              '^.*$': {
+                nameReplace: {
+                  '[0-9]': '',
+                },
+              },
+            },
+          },
+        },
+
         'caradoc-stats': {
             exec: ['caradoc', 'stats', '<inputFile>'],
             timeoutScale: 18,
@@ -544,14 +560,15 @@ filters:  \n\
     ^pdfinfo_Syntax Error \\(\\): Dictionary key must be a name object  \n\
     ^mutool-convert-pdf_warning: non-page object in page tree  \n\
   \n\
-  Polyglot: \n\
+  Unsafe: \n\
     ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\
+    ^schizo\-test_Schizophrenic:  \n\
   \n\
 outputs:  \n\
   # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
   # otherwise "rejected".  \n\
   status:  \n\
-    "valid" is !(RejectedBad | RejectedAmbiguousBad | ValidWarningsXrefRebuild & XrefIsAmbiguous | Polyglot)  \n\
+    "valid" is !(RejectedBad | RejectedAmbiguousBad | ValidWarningsXrefRebuild & XrefIsAmbiguous | Unsafe)  \n\
     "rejected" else  \n\
   \n\
   # Mark anything that is linearized as "rejected-unsafe", and otherwise  \n\
@@ -564,7 +581,7 @@ outputs:  \n\
     "rejected-unsafe"  \n\
   \n\
   safety-status:  \n\
-    "unsafe" is Polyglot  \n\
+    "unsafe" is Unsafe  \n\
     "unsafe-warnings" is UnsafeWarnings  \n\
     "safe-warnings" is SafeWarnings  \n\
     "safe" else  \n\
@@ -700,6 +717,12 @@ with open(sys.argv[1], 'w') as html: \n\
             exec: ['polyfile', '--html', '<outputFile>', '<inputFile>'],
         },
 
+        schizo: {
+            label: 'Schizophrenic Comparison',
+            type: 'program_to_html',
+            exec: ['schizo_test/main.py', '<inputFile>', '--html'],
+        },
+
         viewer: {
             label: 'View PDF in browser',
             type: 'program_to_html',
@@ -808,7 +831,9 @@ with open(sys.argv[1], 'w') as html: \n\
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
+                    'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
+                    'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install polyfile',
                 ],
             },

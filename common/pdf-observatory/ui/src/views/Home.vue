@@ -42,7 +42,7 @@
                 v-card-actions(:style={'flex-wrap': 'wrap'})
                   v-btn(@click="resetDbDialog=false") Cancel
                   v-btn(@click="resetDbErrors(); resetDbDialog=false") Reprocess DB errors
-                  v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not tool invocations
+                  v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
           v-sheet.working-subset(:elevation="3" style="padding: 0 1em; margin: 1em; display: flex; flex-direction: row;")
