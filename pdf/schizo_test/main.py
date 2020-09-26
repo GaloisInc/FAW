@@ -3,6 +3,7 @@
 import base64
 import imageio
 import io
+import numpy as np
 import os
 import scipy.ndimage
 import shutil
@@ -10,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-RMSE_FOR_SCHIZO = 15.  # Out of 255
+RMSE_FOR_SCHIZO = 10.  # Out of 255
 
 def main():
     fname = sys.argv[1]
@@ -64,14 +65,31 @@ def main():
 
                 diff = None
                 if base is not None:
-                    # "diff" only exists if base has been set!
-                    diff = abs(img - base)
-
-                    # Text aliasing effects are annoying -- be optimistic about
-                    # local diffs.
                     filt_sz = 2
-                    diff = scipy.ndimage.filters.minimum_filter(diff,
-                            size=(filt_sz, filt_sz, 1))
+                    if False:
+                        # Old, erode filter
+                        # "diff" only exists if base has been set!
+                        diff = abs(img - base)
+
+                        # Text aliasing effects are annoying -- be optimistic about
+                        # local diffs.
+                        diff = scipy.ndimage.filters.minimum_filter(diff,
+                                size=(filt_sz, filt_sz, 1))
+                    else:
+                        # New, box-difference filter. Handles aliasing better.
+                        img_mn = scipy.ndimage.filters.minimum_filter(img,
+                                size=(filt_sz, filt_sz, 1))
+                        img_mx = scipy.ndimage.filters.maximum_filter(img,
+                                size=(filt_sz, filt_sz, 1))
+                        base_mn = scipy.ndimage.filters.minimum_filter(base,
+                                size=(filt_sz, filt_sz, 1))
+                        base_mx = scipy.ndimage.filters.maximum_filter(base,
+                                size=(filt_sz, filt_sz, 1))
+
+                        diff = np.maximum(
+                                img_mn - base_mx,
+                                base_mn - img_mx)
+                        diff = np.clip(diff, 0., None)
 
                 if html_out:
                     if diff is not None:
