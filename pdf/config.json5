@@ -559,6 +559,7 @@ filters:  \n\
     ^pdfid_/OpenAction  \n\
     ^pdfinfo_Syntax Error \\(\\): Dictionary key must be a name object  \n\
     ^mutool-convert-pdf_warning: non-page object in page tree  \n\
+    ^schizo\-test_Unable to read image  \n\
   \n\
   Unsafe: \n\
     ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\
