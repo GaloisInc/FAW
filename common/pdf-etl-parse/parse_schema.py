@@ -11,6 +11,7 @@ def schema_get():
         s.Optional('countGroup', default=0): s.Or(int, str),
         s.Optional('countReplace', default={}): s.Or({str: str}, {}),
         s.Optional('countAsMissing', default=[]): [str],
+        s.Optional('countAsNumber', default=False): bool,
     }}, {})
     sch = s.Schema({
             s.And(str, lambda x: '_' not in x): {

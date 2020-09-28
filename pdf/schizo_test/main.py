@@ -49,6 +49,7 @@ def main():
                 pages_by_tool[(t, pageno)] = f
 
         pageno = 1
+        rmse_max = 0.
         while True:
             existed = set()
             base = None
@@ -142,6 +143,7 @@ def main():
                     base_tool = t
                 else:
                     rmse = (diff ** 2).mean() ** 0.5
+                    rmse_max = max(rmse, rmse_max)
 
                     # RMSE's units are pixels difference; remember, black is 0
                     # and white is 255.
@@ -169,6 +171,8 @@ def main():
 
         if html_out:
             print('</table></body></html>')
+
+        print(f'Max RMSE: {rmse_max:.4f}', file=sys.stderr)
 
 
 class TempDir:

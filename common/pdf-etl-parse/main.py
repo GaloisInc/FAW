@@ -133,7 +133,23 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
 
                         count_val = count.lower().strip()
                         if count_val and count_val not in r_result['countAsMissing']:
-                            parse_fts[name] = parse_fts.get(name, 0) + 1
+                            if r_result['countAsNumber']:
+                                # Errors aren't well-tolerated here (2020-09-28),
+                                # so instead be safe and aggregate into a few
+                                # columns.
+                                is_nan = False
+                                try:
+                                    cv = float(count_val)
+                                except ValueError:
+                                    is_nan = True
+                                    cv = 0.
+                                parse_fts[name] = parse_fts.get(name, 0) + 1
+                                parse_fts[name + '_sum'] = parse_fts.get(name + '_sum', 0) + cv
+                                parse_fts[name + '_nan'] = parse_fts.get(name + '_nan', 0) + (1 if is_nan else 0)
+                            else:
+                                # Not a number, count only
+                                if count_val not in r_result['countAsMissing']:
+                                    parse_fts[name] = parse_fts.get(name, 0) + 1
 
                         break
                     else:

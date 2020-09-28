@@ -64,13 +64,24 @@
                 // 'stdstar' applies to both, and is tried after the
                 // more-specific 'stdout' and 'stderr' arguments.
                 stdout: {
+                    '^File size: *(.*) bytes$': {
+                      nameGroup: 'File size',
+                      countGroup: 1,
+                      countAsNumber: true,
+                    },
                     '^([a-zA-Z0-9_ ]+): *(.*)$': {
                         nameGroup: 1,
                         nameReplace: {
                             '[0-9]': '',
                         },
                         countGroup: 2,
+                        // countAsMissing can be used to
                         countAsMissing: ['no', 'none', '0', '0.0'],
+                        // countAsNumber can be used to also add '_sum' to the
+                        // database, which is handy for aggregating numeric
+                        // values. Requires that `countGroup` points to
+                        // a string which may be cast to a number, though.
+                        //countAsNumber: true,
                     },
 
                     '.*': {
@@ -361,6 +372,11 @@
           parse: {
             type: 'regex-counter',
             stdstar: {
+              '^Max RMSE: (.*)': {
+                nameGroup: 'Max RMSE',
+                countGroup: 1,
+                countAsNumber: true,
+              },
               '^.*$': {
                 nameReplace: {
                   '[0-9]': '',
