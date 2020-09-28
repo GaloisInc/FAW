@@ -18,11 +18,9 @@
     // The name of the docker image to be produced.
     name: 'galois-workbench-pdf',
 
-    // Seconds in which all parsers must finish executing, when "Reprocess
-    // DB Errors" is pressed (initial parserCombinedTimeout is always 60).
-    // Half of this time is evenly divided amongst all parsers. The other half
-    // is "flex" time allowed to the most expensive parser.
-    parserCombinedTimeout: 7200,
+    // Seconds in which each parser must finish executing. Defaults to 30
+    // seconds per parser.
+    parserDefaultTimeout: 30,
     parsers: {
         // Example of running the unix command 'file' on each file to gather
         // information.
@@ -30,7 +28,6 @@
             // Any disabled parser has no effect -- comment this line to enable
             disabled: true,
             exec: ['file', '<inputFile>'],
-            timeoutScale: 1,
             version: '1',
             parse: {
                 type: 'regex-counter',
@@ -49,7 +46,8 @@
         // want to specify `pdf-etl-parse` toolchain here.
         pdfinfo: {
             exec: ['/usr/local/bin/pdfinfo', '<inputFile>'],
-            timeoutScale: 3,
+            // Could specify a timeout for this parser specifically (seconds):
+            //timeout: 10,
             version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
@@ -103,7 +101,6 @@
 
         "pdfinfo-meta": {
             exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
-            timeoutScale: 3,
             version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
@@ -117,7 +114,6 @@
 
         "pdfinfo-struct": {
             exec: ['/usr/local/bin/pdfinfo', '-struct', '<inputFile>'],
-            timeoutScale: 18,
             version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
@@ -150,7 +146,6 @@
 
         "pdfium": {
             exec: ['/opt/pdfium/pdfium_test', '<inputFile>'],
-            timeoutScale: 18,
             version: 'chromium-4180',
             parse: {
                 type: 'regex-counter',
@@ -164,7 +159,6 @@
 
         "pdftocairo-pdf": {
             exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
-            timeoutScale: 18,
             version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
@@ -178,7 +172,6 @@
 
         pdftops: {
             exec: ['/usr/local/bin/pdftops', '<inputFile>', '<tempFile>'],
-            timeoutScale: 18,
             version: 'poppler-0.89.0',
             parse: {
                 type: 'regex-counter',
@@ -192,7 +185,6 @@
 
         pdftotext: {
           exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
-          timeoutScale: 18,
           version: 'pdftotext1',
           parse: {
             type: 'regex-counter',
@@ -209,7 +201,6 @@
         polyfile: {
             // Prevent DB clutter
             exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
-            timeoutScale: 18,
             version: 'polyfile4',
             parse: {
               type: 'regex-counter',
@@ -231,7 +222,6 @@
 
         'qpdf-check': {
             exec: ['qpdf', '--check', '<inputFile>'],
-            timeoutScale: 18,
             version: '10.0.1',
             parse: {
                 type: 'regex-counter',
@@ -329,7 +319,6 @@
             exec: ['python', 'lib/pdfid_v0_2_7/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
-            timeoutScale: 18,
             version: 'pdfid_v0_2_7',
             parse: {
                 type: 'regex-counter',
@@ -368,7 +357,6 @@
 
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
-          timeoutScale: 18,
           version: 'schizo-test12',
           parse: {
             type: 'regex-counter',
@@ -389,7 +377,6 @@
 
         'caradoc-stats': {
             exec: ['caradoc', 'stats', '<inputFile>'],
-            timeoutScale: 18,
             version: 'caradoc-0.3',
             parse: {
                 type: 'regex-counter',
@@ -419,7 +406,6 @@
 
         'caradoc-strict': {
             exec: ['caradoc', 'stats', '--strict', '<inputFile>'],
-            timeoutScale: 18,
             version: 'caradoc-0.3',
             parse: {
                 type: 'regex-counter',
@@ -449,7 +435,6 @@
 
         'mutool-convert-pdf': {
             exec: ['mutool', 'convert', '-F', 'pdf', '-o', '<tempFile .pdf>', '<inputFile>'],
-            timeoutScale: 18,
             version: 'mupdf-1.17',
             parse: {
                 type: 'regex-counter',
@@ -465,7 +450,6 @@
         'mutool-clean': {
             // "mutool clean -s" requires a .pdf extension, or it hangs
             exec: ['mutool', 'clean', '-s', '<inputFile>', '<tempFile .pdf>'],
-            timeoutScale: 18,
             version: 'mupdf-1.17',
             parse: {
                 type: 'regex-counter',
@@ -478,9 +462,37 @@
             },
         },
 
+        'mutool-clean-zipbomb': {
+          // Time = seconds, mem = kilobytes
+          exec: ['timeout_pshved', '-t', '5', '-m', '1000000', 'mutool',
+              'clean', '-s', '<inputFile>'],
+          version: 'mupdf-1.17',
+          parse: {
+            type: 'regex-counter',
+            stdout: {
+              '.*': {
+                nameGroup: '',
+              },
+            },
+            stderr: {
+              '^MEM CPU .* MEM .* MAXMEM': {
+                nameGroup: 'Possible zip bomb -- >1G RAM in 5 CPU seconds',
+                fallthrough: true,
+              },
+              '^.*CPU .* MEM .* MAXMEM ([^ ]+)': {
+                nameGroup: 'Memory at 5s',
+                countGroup: 1,
+                countAsNumber: true,
+              },
+              '.*': {
+                nameGroup: '',
+              },
+            },
+          },
+        },
+
         'mutool-draw': {
             exec: ['mutool', 'draw', '-F', 'png', '-o', '<tempFile>', '<inputFile>'],
-            timeoutScale: 18,
             version: 'mupdf-1.17',
             parse: {
                 type: 'regex-counter',
@@ -577,6 +589,7 @@ filters:  \n\
     ^pdfinfo_Syntax Error \\(\\): Dictionary key must be a name object  \n\
     ^mutool-convert-pdf_warning: non-page object in page tree  \n\
     ^schizo\-test_Unable to read image  \n\
+    ^mutool-clean-zipbomb_Possible zip bomb  \n\
   \n\
   Unsafe: \n\
     ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\

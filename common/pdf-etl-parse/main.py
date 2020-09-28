@@ -128,6 +128,11 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
                             return r.strip()
                         name = text_from_spec(r_result['nameGroup'],
                                 r_result['nameReplace'])
+                        if not name:
+                            if r_result['fallthrough']:
+                                continue
+                            break
+
                         count = text_from_spec(r_result['countGroup'],
                                 r_result['countReplace'])
 
@@ -151,6 +156,8 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
                                 if count_val not in r_result['countAsMissing']:
                                     parse_fts[name] = parse_fts.get(name, 0) + 1
 
+                        if r_result['fallthrough']:
+                            continue
                         break
                     else:
                         placeholder = f'<<workbench: unhandled {sname}>> '

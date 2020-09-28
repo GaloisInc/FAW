@@ -126,14 +126,13 @@ def _config_reload():
                 continue
 
             assert inv_cfg.get('exec'), inv_name
-            assert inv_cfg.get('timeoutScale'), inv_name
             assert inv_cfg.get('version'), inv_name
 
             hdr = ', ' if not first_rec else ''
             first_rec = False
             lines.append(f'{hdr}Invoker')
             exec_args = ', '.join([exec_encode(a) for a in inv_cfg['exec']])
-            timeout = inv_cfg['timeoutScale']
+            timeout = 20  # We no longer use this feature, so fix it to a large value
             version = inv_cfg['version']
             lines.append(f'  {{ exec = [ {exec_args} ]')
             lines.append(f'  , timeoutScale = Just {timeout}')
@@ -216,8 +215,7 @@ async def init_check_pdfs(retry_errors=False):
     # depth-first processing of all files
     oargs = []
     if retry_errors:
-        oargs = ['--timeout', str(app_config['parserCombinedTimeout']),
-                '--retry-errors']
+        oargs = ['--retry-errors']
     try:
         proc = await asyncio.create_subprocess_exec(
                 'python3', '../pdf-observatory/queue_client.py',

@@ -39,18 +39,20 @@ app_config = None
         "containing PDFs.")
 @click.option('--config', type=str, required=True, help="Path to JSON file "
         "specifying parsers.")
-@click.option('--timeout', default=60, type=float, help="Increase execution "
-        "timeout.")
 @click.option('--retry-errors/--no-retry-errors', default=False,
         help="Forcibly mark documents which have errors for retry.")
 @click.option('--clean/--no-clean', default=False,
         help="Trigger re-processing of all documents.")
-def main(mongo_db, pdf_dir, config, clean, timeout, retry_errors):
+def main(mongo_db, pdf_dir, config, clean, retry_errors):
     assert len(mongo_db.split('/')) == 2, mongo_db
 
     global app_config
     app_config = json.load(open(config))
     app_config['parsers'] = pdf_etl_parse.config_schema(app_config['parsers'])
+
+    timeout_default = app_config['parserDefaultTimeout']
+    timeout_total = sum([p['timeout'] or timeout_default
+            for p in app_config['parsers'].values()])
 
     # Before running, ensure that pdf-etl-tool is built
     assert os.path.lexists('/usr/local/bin/pdf-etl-tool'), \
@@ -62,11 +64,11 @@ def main(mongo_db, pdf_dir, config, clean, timeout, retry_errors):
     mongo_col = mongo_db + '/observatory'
     mongo_queue_helper.run(live_mode=False, processes=0, threads=2,
             clean=clean, db_src=mongo_col, db_queue=mongo_col,
-            processing_timeout=timeout*1.5,
+            processing_timeout=timeout_total*1.5,
             handle_init_callback=functools.partial(db_init, mongo_db=mongo_db,
                 pdf_dir=pdf_dir, retry_errors=retry_errors),
             handle_queue_callback=functools.partial(load_document,
-                pdf_dir=pdf_dir, mongo_db=mongo_db, timeout=timeout,
+                pdf_dir=pdf_dir, mongo_db=mongo_db,
                 retry_errors=retry_errors),
             # PDF observatory can show exceptions
             allow_exceptions=True)
@@ -122,16 +124,10 @@ def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
                             'queueStop': None}})
 
 
-def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
-        retry_errors):
+def load_document(doc, coll_resolver, pdf_dir, mongo_db, retry_errors):
     """
     """
     print(f'Handling {doc["_id"]}')
-
-    time_basis = time.monotonic()
-    # Set aside some amount of the time to guarantee each parser gets a fair
-    # shake.
-    time_fixed = timeout * 0.5
 
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
@@ -182,32 +178,21 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, timeout,
     # This used to rely on `-i ALL` behavior of pdf-etl-tool, but the spin-up
     # was very slow. Faster to do this.
     inv_left = len(set(invokers_whitelist).difference(invs_seen))
-    time_fixed_part = time_fixed / max(1, inv_left)
+    timeout_default = app_config['parserDefaultTimeout']
     for k, v in app_config['parsers'].items():
         if v.get('disabled') or k in invs_seen:
             continue
         aargs = args[:]
 
-        # Some time is allowed to "flex" for the most expensive parsers,
-        # whereas rest is evenly divided
-        time_left = time_basis + timeout - time.monotonic()
-        time_fixed -= time_fixed_part
-        time_left -= time_fixed
-        time_left = max(1e-3, time_left)
-        tool_timeout = time_left
+        tool_timeout = v['timeout'] or timeout_default
 
-        # If we're retrying errors, use as much time as possible, but allow
-        # timeouts to produce detectable errors rather than error out.
-        if retry_errors:
-            aargs.extend(['--timeout', str(math.ceil(max(1, time_left - 1)))])
+        # Use as much time as possible, but allow timeouts to produce detectable
+        # errors rather than time out.
+        aargs.extend(['--timeout', str(math.ceil(max(1, tool_timeout - 1)))])
 
-            # Rely on pdf-etl-tools' timeout
-            tool_timeout = None
-        else:
-            # Rather than relying on the internal timeout, which might look like
-            # a file didn't error out because of time, use a ridiculous value.
-            # This way, timeouts will obviously show up as errors.
-            aargs.extend(['--timeout', str(math.ceil(time_left * 2 + 5))])
+        # Rely on pdf-etl-tools' timeout. If using our own, it would show up as
+        # a DB error. This is somewhat antiquated code.
+        tool_timeout = None
 
         aargs.extend(['-i', k, fpath])
         call(aargs,

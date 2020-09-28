@@ -48,7 +48,6 @@
         },
         refIccMax: {
           exec: ['/opt/reficcmax/bin/iccDumpProfile', '-v', '<inputFile>'],
-          timeoutScale: 18,
           version: 'test',
           parse: {
             type: 'regex-counter',
@@ -63,7 +62,6 @@
           exec: ['bash', '-c',
               '/opt/reficcmax/bin/iccToXml "$0" "$1" ; /opt/reficcmax/bin/iccFromXml "$1" "$2"',
               '<inputFile>', '<tempFile .xml>', '<tempFile .icc>'],
-          timeoutScale: 18,
           version: 'test6',
           parse: {
             type: 'regex-counter',

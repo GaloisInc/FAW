@@ -289,7 +289,7 @@ def _check_config_file(config):
         'name': s.And(str, s.Regex(r'^[a-zA-Z0-9-]+$')),
         # parsers validated by pdf-etl-parse
         'parsers': etl_parse.schema_get(),
-        s.Optional('parserCombinedTimeout', default=7200): s.Or(float, int),
+        s.Optional('parserDefaultTimeout', default=30): s.Or(float, int),
         'decision_default': str,
         'decision_views': s.Or({}, {
             str: {
@@ -558,6 +558,12 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                     && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --host 0.0.0.0 --port 8123 ${{OBS_PRODUCTION}} --config ../config.json' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
                 && echo OK
+
+            # Add 'timeout' script to /usr/bin, for collecting memory + CPU time
+            # information.
+            COPY {build_faw_dir}/common/timeout-master /home/timeout
+            RUN chmod a+x /home/timeout/timeout \
+                && ln -s /home/timeout/timeout /usr/bin/timeout_pshved
 
             # Container runtime properties
             ENV LC_ALL C.UTF-8

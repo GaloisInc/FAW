@@ -12,12 +12,13 @@ def schema_get():
         s.Optional('countReplace', default={}): s.Or({str: str}, {}),
         s.Optional('countAsMissing', default=[]): [str],
         s.Optional('countAsNumber', default=False): bool,
+        s.Optional('fallthrough', default=False): bool,
     }}, {})
     sch = s.Schema({
             s.And(str, lambda x: '_' not in x): {
                 s.Optional('disabled', default=False): s.Or(True, False),
                 'exec': [str],
-                s.Optional('timeoutScale', default=1): int,
+                s.Optional('timeout', default=None): s.Or(float, int, None),
                 'version': s.Or(str, float),
                 'parse': s.Or(
                     # Run an external program with the stdout+stderr, which
