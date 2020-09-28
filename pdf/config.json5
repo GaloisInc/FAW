@@ -207,22 +207,23 @@
         },
 
         polyfile: {
-            exec: ['polyfile', '-m', '<inputFile>'],
+            // Prevent DB clutter
+            exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
             timeoutScale: 18,
-            version: 'polyfile1',
+            version: 'polyfile4',
             parse: {
               type: 'regex-counter',
-              stderr: {
+              stdout: {
                 '^Found a file of type.*': {
                   nameReplace: {'[0-9]': ''},
                 },
                 '^.*$': {
-                  nameGroup: 'ignored stderr',
+                  nameGroup: 'ignored stdout',
                 },
               },
-              stdout: {
+              stderr: {
                 '^.*$': {
-                  nameGroup: 'ignored stdout',
+                  nameGroup: 'ignored stderr',
                 },
               },
             },
