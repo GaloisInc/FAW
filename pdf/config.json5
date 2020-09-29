@@ -653,7 +653,7 @@ outputs:  \n\
                     itself will NOT use this feature, but the `<outputHtml>`
                     may leverage the value of `<workbenchApiUrl>` to re-run
                     a decision with new parameters, via e.g.
-                    `workbenchApiUrl + '/decideAgain?arg1=1&arg2=2'` to
+                    `workbenchApiUrl + '/redecide?arg1=1&arg2=2'` to
                     re-trigger this decider with
                     `jsonArguments={'arg1': '1', 'arg2': '2'}`.
 
@@ -683,9 +683,12 @@ outputs:  \n\
                     lead the workbench to display the given file.
 
                     APIs:
-                        * decide?arg1=1&arg2=2&... - Re-run this decision
+                        * redecide?arg1=1&arg2=2&... - Re-run this decision
                             plugin, with `<jsonArguments>` containing a dict:
                             `{'arg1': '1', 'arg2': '2'}`.
+                        * redetail?arg1=1&... - Re-run current file detail view
+                            plugin, with `<jsonArguments>` containing a dict:
+                            `{'arg1': '1', ...}`.
                         * showFile?id=file - Show details for `file` in the
                             workbench.
 
@@ -742,10 +745,10 @@ with open(sys.argv[1], 'w') as html: \n\
             label: 'Polyfile',
             // 'type' denotes the way this detail view should be shown in the
             // UI, and how the underlying program gets run.  'program_to_html'
-            // runs a program and opens '<outputFile>' in something like an
+            // runs a program and opens '<outputHtml>' in something like an
             // IFrame.
             type: 'program_to_html',
-            exec: ['polyfile', '--html', '<outputFile>', '<inputFile>'],
+            exec: ['polyfile', '--html', '<outputHtml>', '<inputFile>'],
         },
 
         schizo: {

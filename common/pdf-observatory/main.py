@@ -252,7 +252,8 @@ class Client(vuespa.Client):
         return app_config
 
 
-    async def api_config_plugin_run(self, plugin_key, input_spec):
+    async def api_config_plugin_run(self, plugin_key, vuespa_url, json_args,
+            input_spec):
         plugin_def = app_config['file_detail_views'].get(plugin_key, {})
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
@@ -265,15 +266,21 @@ class Client(vuespa.Client):
 
             cmd = plugin_def.get('exec')
             assert cmd is not None, cmd
-            cmd = [c if c != '<inputFile>' else input_spec for c in cmd]
 
             file_out = None
-            if '<outputFile>' in cmd:
+            def get_output_html():
+                nonlocal file_out
+                assert file_out is None, 'Cannot use <outputHtml> twice'
                 file_out = tempfile.NamedTemporaryFile(delete=False)
                 file_out.close()
+                return file_out.name
+            cmd = self._cmd_plugin_template_replace(cmd, vuespa_url, {
+                    '<inputFile>': lambda: input_spec,
+                    '<jsonArguments>': lambda: json.dumps(json_args),
+                    '<outputHtml>': get_output_html,
+            })
 
             try:
-                cmd = [c if c != '<outputFile>' else file_out.name for c in cmd]
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         cwd=os.path.join(etl_path, 'dist'),
@@ -303,22 +310,13 @@ class Client(vuespa.Client):
             reference_decisions, subset_options):
         """Runs a decision plugin.
         """
-        if not api_url.endswith('/'):
-            api_url = api_url+ '/'
-
         output_html = None
         def get_output_html():
             nonlocal output_html
+            assert output_html is None, 'Cannot use <outputHtml> twice'
             output_html = tempfile.NamedTemporaryFile(delete=False)
             output_html.close()
             return output_html.name
-        template_vals = {
-                '<filesPath>': lambda: app_pdf_dir,
-                '<jsonArguments>': lambda: json.dumps(json_args),
-                '<mongo>': lambda: app_mongodb,
-                '<outputHtml>': get_output_html,
-                '<workbenchApiUrl>': lambda: api_url,
-        }
 
         plugin_def = app_config['decision_views'].get(plugin_key, {})
         t = plugin_def.get('type')
@@ -328,7 +326,10 @@ class Client(vuespa.Client):
             if t == 'program':
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, 'exec'
-                cmd = [template_vals.get(c, lambda: c)() for c in cmd]
+                cmd = self._cmd_plugin_template_replace(cmd, api_url, {
+                        '<jsonArguments>': lambda: json.dumps(json_args),
+                        '<outputHtml>': get_output_html,
+                })
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         cwd=os.path.join(etl_path, 'dist'),
@@ -434,6 +435,22 @@ class Client(vuespa.Client):
                 grp.append(gid)
 
         return r
+
+
+    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars):
+        if not api_url.endswith('/'):
+            api_url = api_url+ '/'
+
+        template_vals = {
+                '<filesPath>': lambda: app_pdf_dir,
+                '<mongo>': lambda: app_mongodb,
+                '<workbenchApiUrl>': lambda: api_url,
+        }
+        for k, v in extra_template_vars.items():
+            if k in template_vals:
+                raise ValueError(f'Cannot overwrite {k}')
+            template_vals[k] = v
+        return [template_vals.get(c, lambda: c)() for c in cmd]
 
 
     async def _statsbyfile_cursor(self, options):

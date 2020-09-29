@@ -223,7 +223,7 @@
                     v-expansion-panel-content
                       v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.file_detail_views || {})"
                           :key="pluginKey"
-                          @click="pluginFileDetailView(pluginKey)") {{plugin.label}}
+                          @click="pluginFileDetailView(pluginKey, {})") {{plugin.label}}
                       v-btn(v-show="pluginIframeSrc != null || pluginIframeLoading" @click="pluginIframeSrc = null; pluginIframeLoading = 0") (Close current plugin)
                       div(v-show="pluginIframeSrc != null || pluginIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
                         v-progress-circular(v-show="pluginIframeLoading" :indeterminate="true")
@@ -436,6 +436,7 @@ export default Vue.extend({
       pdfGroups: {groups: {}, files: []} as PdfGroups,
       pdfGroupsDirty: false,
       plotShow: true,
+      pluginIframeLast: '',
       pluginIframeLoading: 0,
       pluginIframeLoadingNext: 1,
       pluginIframeSrc: null as string|null,
@@ -647,6 +648,9 @@ export default Vue.extend({
         {
           'redecide': (args: {[key: string]: any}) => {
             this.pluginDecisionView(this.pluginDecIframeLast, args);
+          },
+          'redetail': (args: {[key: string]: any}) => {
+            this.pluginFileDetailView(this.pluginIframeLast, args);
           },
           'showFile': (args: {id: string}) => {
             this.showFile(args.id);
@@ -960,17 +964,19 @@ export default Vue.extend({
         }
       });
     },
-    pluginFileDetailView(pluginKey: string) {
+    pluginFileDetailView(pluginKey: string, jsonArgs: {[key: string]: any}) {
       if (this.pluginIframeLoading) {
         return;
       }
 
       const loadKey = this.pluginIframeLoadingNext++;
+      this.pluginIframeLast = pluginKey;
       this.pluginIframeLoading = loadKey;
       this.pluginIframeSrc = null;
       this.asyncTry(async () => {
         try {
-          const r = await this.$vuespa.call('config_plugin_run', pluginKey, this.decisionSelected.testfile);
+          const r = await this.$vuespa.call('config_plugin_run', pluginKey,
+              this.vuespaUrl, jsonArgs, this.decisionSelected.testfile);
           if (this.pluginIframeLoading !== loadKey) {
             // User aborted this load.
             return;
