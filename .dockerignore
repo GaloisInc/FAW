@@ -2,4 +2,5 @@
 # assume it is in its current location.
 **/build
 **/node_modules
+**/.mypy_cache
 
