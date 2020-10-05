@@ -134,7 +134,8 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, retry_errors):
     # not time out, the parsers may be re-run without re-running the tools.
     delete_or_clause = []
     fpath = os.path.join(pdf_dir, doc['_id'])
-    delete_or_clause.append({'file': fpath, 'result._cons': 'Timeout'})
+    if retry_errors:
+        delete_or_clause.append({'file': fpath, 'result._cons': 'Timeout'})
     # Clear previous raw invocations whose versions do not match the expected
     # tool versions.
     invokers_whitelist = []
@@ -153,13 +154,15 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, retry_errors):
     #delete_or_clause.append({'file': fpath,
     #        'invoker.invName': {'$nin': invokers_whitelist}})
 
-    # Run delete
-    if len(delete_or_clause) == 1:
-        query = delete_or_clause[0]
-    else:
-        query = {'$or': delete_or_clause}
     db_coll = coll_resolver(mongo_db + '/rawinvocations')
-    db_coll.delete_many(query)
+
+    # Run delete
+    if delete_or_clause:
+        if len(delete_or_clause) == 1:
+            query = delete_or_clause[0]
+        else:
+            query = {'$or': delete_or_clause}
+        db_coll.delete_many(query)
 
     invs_seen = [r['invoker']['invName']
             for r in db_coll.find({'file': fpath}, {'invoker.invName': True})]
