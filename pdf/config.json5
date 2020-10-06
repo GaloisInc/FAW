@@ -20,7 +20,7 @@
 
     // Seconds in which each parser must finish executing. Defaults to 30
     // seconds per parser.
-    parserDefaultTimeout: 30,
+    parserDefaultTimeout: 600,
     parsers: {
         // Example of running the unix command 'file' on each file to gather
         // information.
@@ -357,7 +357,7 @@
 
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
-          version: 'schizo-test12',
+          version: 'schizo-test21',
           parse: {
             type: 'regex-counter',
             stdstar: {

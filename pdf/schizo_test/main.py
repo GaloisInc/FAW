@@ -11,13 +11,14 @@ import subprocess
 import sys
 import tempfile
 
-RMSE_FOR_SCHIZO = 2.  # Out of 255
+DPI = 100
+RMSE_FOR_SCHIZO = 0.4  # Out of 255
 
 def main():
     fname = sys.argv[1]
     html_out = len(sys.argv) > 2 and sys.argv[2] == '--html'
 
-    res = '100'  # DPI
+    res = str(DPI)
     img_attrs = 'width="400"'
     with TempDir() as dname:
         tools = ['mutool', 'pdftocairo']
@@ -50,6 +51,7 @@ def main():
 
         pageno = 1
         rmse_max = 0.
+        any_schizo = False
         while True:
             existed = set()
             base = None
@@ -86,49 +88,45 @@ def main():
                 diff = None
                 if base is not None:
                     filt_sz = 3
-                    if False:
-                        # Old, erode filter
-                        # "diff" only exists if base has been set!
-                        diff = abs(img - base)
 
-                        # Text aliasing effects are annoying -- be optimistic about
-                        # local diffs.
-                        diff = scipy.ndimage.filters.minimum_filter(diff,
-                                size=(filt_sz, filt_sz, 1))
-                    else:
-                        # New, box-difference filter. Handles aliasing better.
-                        img_mn = scipy.ndimage.filters.minimum_filter(img,
-                                size=(filt_sz, filt_sz, 1))
-                        img_mx = scipy.ndimage.filters.maximum_filter(img,
-                                size=(filt_sz, filt_sz, 1))
-                        base_mn = scipy.ndimage.filters.minimum_filter(base,
-                                size=(filt_sz, filt_sz, 1))
-                        base_mx = scipy.ndimage.filters.maximum_filter(base,
-                                size=(filt_sz, filt_sz, 1))
+                    # Ok, a blur filter captures gross differences, whereas
+                    # a box-difference filter captures high-frequency
+                    # differences while ignoring aliasing.
 
-                        if True:
-                            # Post-processing. Box-difference with filt_sz 2
-                            # missed some alignment errors, but filt_sz 3
-                            # is overly forgiving, as some letters are less than
-                            # 2px wide. Therefore, do a soft min/max based on
-                            # current pixel value with variance explained by
-                            # local min/max.
-                            u = 0.85
-                            img_mn *= u
-                            img_mx *= u
-                            base_mn *= u
-                            base_mx *= u
+                    # The box-difference on its own is very susceptible to
+                    # font kerning differences. Modulating the box-difference
+                    # filter by the blur filter addresses this shortcoming.
 
-                            uu = 1 - u
-                            img_mn += uu * img
-                            img_mx += uu * img
-                            base_mn += uu * base
-                            base_mx += uu * base
+                    # (Cannot just use blur, as modified text wouldn't show,
+                    # and we still want the high-pass filter for minor color
+                    # space differences)
+                    blur_sz = 40
+                    img_blur = scipy.ndimage.filters.gaussian_filter(img,
+                            blur_sz * 0.5)
+                    base_blur = scipy.ndimage.filters.gaussian_filter(base,
+                            blur_sz * 0.5)
+                    diff_blur = abs(img_blur - base_blur)
 
-                        diff = np.maximum(
-                                img_mn - base_mx,
-                                base_mn - img_mx)
-                        diff = np.clip(diff, 0., None)
+                    # Box difference filter
+                    img_mn = scipy.ndimage.filters.minimum_filter(img,
+                            size=(filt_sz, filt_sz, 1))
+                    img_mx = scipy.ndimage.filters.maximum_filter(img,
+                            size=(filt_sz, filt_sz, 1))
+                    base_mn = scipy.ndimage.filters.minimum_filter(base,
+                            size=(filt_sz, filt_sz, 1))
+                    base_mx = scipy.ndimage.filters.maximum_filter(base,
+                            size=(filt_sz, filt_sz, 1))
+                    diff_box = np.maximum(
+                            img_mn - base_mx,
+                            base_mn - img_mx)
+                    diff_box = np.clip(diff_box, 0., None)
+                    # High-pass filter
+                    diff_box[:-1, :-1] -= diff_box[1:, 1:]
+                    diff_box[-1, :] = diff_box[:, -1] = 0.
+                    diff_box = np.clip(diff_box, 0., None)
+
+                    diff = diff_box * diff_blur / 255.
+                    #diff = diff_blur
 
                 if html_out:
                     if diff is not None:
@@ -152,6 +150,7 @@ def main():
                     if rmse > RMSE_FOR_SCHIZO:
                         print(f'Schizophrenic: page {pageno} from {t} to {base_tool}',
                                 file=sys.stderr)
+                        any_schizo = True
 
                     if html_out:
                         print(f', RMSE {rmse:.4f}')
@@ -167,10 +166,14 @@ def main():
             if len(tools) != len(existed):
                 print(f'Schizophrenic: page {pageno} only existed in some tools: {existed}',
                         file=sys.stderr)
+                any_schizo = True
             pageno += 1
 
         if html_out:
-            print('</table></body></html>')
+            print('</table>')
+            if any_schizo:
+                print('Schizophrenic pages detected; see HTML report above.')
+            print('</body></html>')
 
         print(f'Max RMSE: {rmse_max:.4f}', file=sys.stderr)
 
