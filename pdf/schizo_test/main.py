@@ -13,6 +13,7 @@ import tempfile
 
 DPI = 100
 RMSE_FOR_SCHIZO = 0.4  # Out of 255
+DIFF_FOR_SCHIZO = 12.
 
 def main():
     fname = sys.argv[1]
@@ -50,7 +51,8 @@ def main():
                 pages_by_tool[(t, pageno)] = f
 
         pageno = 1
-        rmse_max = 0.
+        all_rmse_max = 0.
+        all_diff_max = 0.
         any_schizo = False
         while True:
             existed = set()
@@ -86,8 +88,16 @@ def main():
                 img = img.astype(float)
 
                 diff = None
-                if base is not None:
-                    filt_sz = 3
+                if base is not None and base.shape != img.shape:
+                    print(f'Schizophrenic: page {pageno} was size '
+                            f'{base.shape} in {base_tool}, and '
+                            f'{img.shape} in {t}', file=sys.stderr)
+                    any_schizo = True
+
+                    if html_out:
+                        print(f'<br />Size mismatch: {base.shape} != {img.shape}')
+                elif base is not None:
+                    filt_sz = 2
 
                     # Ok, a blur filter captures gross differences, whereas
                     # a box-difference filter captures high-frequency
@@ -100,7 +110,7 @@ def main():
                     # (Cannot just use blur, as modified text wouldn't show,
                     # and we still want the high-pass filter for minor color
                     # space differences)
-                    blur_sz = 40
+                    blur_sz = 80
                     img_blur = scipy.ndimage.filters.gaussian_filter(img,
                             blur_sz * 0.5)
                     base_blur = scipy.ndimage.filters.gaussian_filter(base,
@@ -116,44 +126,64 @@ def main():
                             size=(filt_sz, filt_sz, 1))
                     base_mx = scipy.ndimage.filters.maximum_filter(base,
                             size=(filt_sz, filt_sz, 1))
+
+                    u = 0.8
+                    for arr in [img_mn, img_mx]:
+                        arr *= u
+                        arr += (1 - u) * img
+                    for arr in [base_mn, base_mx]:
+                        arr *= u
+                        arr += (1 - u) * base
+
                     diff_box = np.maximum(
                             img_mn - base_mx,
                             base_mn - img_mx)
                     diff_box = np.clip(diff_box, 0., None)
+
                     # High-pass filter
                     diff_box[:-1, :-1] -= diff_box[1:, 1:]
                     diff_box[-1, :] = diff_box[:, -1] = 0.
-                    diff_box = np.clip(diff_box, 0., None)
+                    diff_box = abs(diff_box)
 
-                    diff = diff_box * diff_blur / 255.
+                    dw = 1
+                    bw = 1
+                    diff = diff_box ** dw * diff_blur ** bw * 255 / 255 ** dw / 255. ** bw
                     #diff = diff_blur
 
                 if html_out:
                     if diff is not None:
                         buf = io.BytesIO()
-                        imgdat = imageio.imwrite(buf, 255 - diff, 'png')
+                        imgdat = imageio.imwrite(buf, 255 - diff,
+                                'png')
                         buf.seek(0)
                         b64 = base64.b64encode(buf.read()).decode('latin1')
                         print(f'<img src="data:image/png;base64,{b64}" {img_attrs} />')
                     print(f'<br />{t}')
-                if base is None:
+
+                if diff is None:
                     base = img
                     base_tool = t
                 else:
                     rmse = (diff ** 2).mean() ** 0.5
-                    rmse_max = max(rmse, rmse_max)
+                    all_rmse_max = max(rmse, all_rmse_max)
+
+                    diff_max = diff.max()
+                    all_diff_max = max(diff_max, all_diff_max)
 
                     # RMSE's units are pixels difference; remember, black is 0
                     # and white is 255.
                     print(f'Page {pageno} RMSE from {t} to {base_tool} was {rmse:.4f}',
                             file=sys.stderr)
-                    if rmse > RMSE_FOR_SCHIZO:
+                    print(f'Page {pageno} max diff from {t} to {base_tool} was {diff_max:.4f}',
+                            file=sys.stderr)
+                    if rmse > RMSE_FOR_SCHIZO and diff_max > DIFF_FOR_SCHIZO:
                         print(f'Schizophrenic: page {pageno} from {t} to {base_tool}',
                                 file=sys.stderr)
                         any_schizo = True
 
                     if html_out:
                         print(f', RMSE {rmse:.4f}')
+                        print(f', max diff {diff.max():.4f}')
                 if html_out:
                     print('</td>')
 
@@ -175,7 +205,8 @@ def main():
                 print('Schizophrenic pages detected; see HTML report above.')
             print('</body></html>')
 
-        print(f'Max RMSE: {rmse_max:.4f}', file=sys.stderr)
+        print(f'Max RMSE: {all_rmse_max:.4f}', file=sys.stderr)
+        print(f'Max diff: {all_diff_max:.4f}', file=sys.stderr)
 
 
 class TempDir:

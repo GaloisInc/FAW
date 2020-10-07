@@ -357,12 +357,17 @@
 
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
-          version: 'schizo-test21',
+          version: 'schizo-test25',
           parse: {
             type: 'regex-counter',
             stdstar: {
               '^Max RMSE: (.*)': {
                 nameGroup: 'Max RMSE',
+                countGroup: 1,
+                countAsNumber: true,
+              },
+              '^Max diff: (.*)': {
+                nameGroup: 'Max diff',
                 countGroup: 1,
                 countAsNumber: true,
               },
