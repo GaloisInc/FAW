@@ -48,7 +48,7 @@
             exec: ['/usr/local/bin/pdfinfo', '<inputFile>'],
             // Could specify a timeout for this parser specifically (seconds):
             //timeout: 10,
-            version: 'poppler-0.89.0',
+            version: 'poppler-20.09.0',
             parse: {
                 type: 'regex-counter',
                 // The 'regex-counter' type generates a small program which
@@ -101,7 +101,7 @@
 
         "pdfinfo-meta": {
             exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
-            version: 'poppler-0.89.0',
+            version: 'poppler-20.09.0',
             parse: {
                 type: 'regex-counter',
                 stdstar: {
@@ -114,7 +114,7 @@
 
         "pdfinfo-struct": {
             exec: ['/usr/local/bin/pdfinfo', '-struct', '<inputFile>'],
-            version: 'poppler-0.89.0',
+            version: 'poppler-20.09.0',
             parse: {
                 type: 'regex-counter',
                 stdout: {
@@ -159,7 +159,7 @@
 
         "pdftocairo-pdf": {
             exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
-            version: 'poppler-0.89.0',
+            version: 'poppler-20.09.0',
             parse: {
                 type: 'regex-counter',
                 stderr: {
@@ -172,7 +172,7 @@
 
         pdftops: {
             exec: ['/usr/local/bin/pdftops', '<inputFile>', '<tempFile>'],
-            version: 'poppler-0.89.0',
+            version: 'poppler-20.09.0',
             parse: {
                 type: 'regex-counter',
                 stdstar: {
@@ -815,7 +815,7 @@ with open(sys.argv[1], 'w') as html: \n\
                         ',
                     // Note that we will *also* install a newer version of poppler in /usr/local/bin
                     'RUN apt-get update && apt-get install -y \
-                        poppler-utils \
+                        poppler-utils libopenjp2-7 \
                         ',
                     // Documented caradoc dependencies
                     'RUN apt-get update && apt-get install -y \
@@ -987,11 +987,11 @@ with open(sys.argv[1], 'w') as html: \n\
                     // ==== build poppler-utils ====
                     'WORKDIR /src/',
 
-                    // Poppler 0.89.0
-                    'RUN wget https://poppler.freedesktop.org/poppler-0.89.0.tar.xz',
-                    'RUN tar -xvf poppler-0.89.0.tar.xz',
+                    // Poppler 20.09 for parity w/ EvalTwo
+                    'RUN wget https://poppler.freedesktop.org/poppler-20.09.0.tar.xz',
+                    'RUN tar -xvf poppler-20.09.0.tar.xz',
 
-                    'WORKDIR /src/poppler-0.89.0',
+                    'WORKDIR /src/poppler-20.09.0',
                     // 'RUN cmake -DBUILD_SHARED_LIBS=OFF -DENABLE_LIBOPENJPEG=unmaintained -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang ..',
 
                     'WORKDIR build',
