@@ -87,6 +87,20 @@ def main():
                     continue
                 img = img.astype(float)
 
+                # Can we fix rounding differences?
+                if base is not None and img.shape != base.shape and (
+                        abs(img.shape[0] - base.shape[0]) < 2
+                        and abs(img.shape[1] - base.shape[1]) < 2
+                        and img.shape[2] == base.shape[2]):
+                    if img.shape[0] < base.shape[0]:
+                        img = np.concat((img, np.zeros(base.shape[0] - img.shape[0], img.shape[1], img.shape[2])), 0)
+                    elif img.shape[0] > base.shape[0]:
+                        img = img[:base.shape[0]]
+                    if img.shape[1] < base.shape[1]:
+                        img = np.concat((img, np.zeros(img.shape[0], base.shape[1] - img.shape[1], img.shape[2])), 1)
+                    elif img.shape[1] > base.shape[1]:
+                        img = img[:, :base.shape[1]]
+
                 diff = None
                 if base is not None and base.shape != img.shape:
                     print(f'Schizophrenic: page {pageno} was size '
