@@ -139,6 +139,13 @@ def write_html(template_file, vars, html_out):
     parser = pypugjs.parser.Parser(template)
     block = parser.parse()
     compiler = pypugjs.ext.html.Compiler(block)
+    # Fix 5.9.4 and before
+    def interpolate_replacement(self, text, escape=True):
+        esc = lambda x: x
+        if escape:
+            esc = lambda x: x.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        return self._interpolate(text, lambda x: esc(str(self._do_eval(x))))
+    pypugjs.ext.html.Compiler.interpolate = interpolate_replacement
     compiler.global_context = vars
     with open(html_out, 'w') as f:
         f.write(compiler.compile())
