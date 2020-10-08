@@ -26,10 +26,12 @@ def main():
     threshold = dec_args.get('threshold', 0.98)
     use_refs = dec_args.get('use_refs', False)
     topk_shown = dec_args.get('topk_shown', 10)
+    file_features = dec_args.get('file_features', False)
     html_vars = {
             'threshold': threshold,
             'use_refs': use_refs,
             'topk_shown': topk_shown,
+            'file_features': file_features,
             'old_args': json.dumps(dec_args),
             'api_url': args.api_url,
     }
@@ -121,8 +123,11 @@ def main():
             fts = []
         html_vars['files'].append({
                 'name': file_names[i],
-                'topk': sorted([(ft_names[j], i_fts[j]) for j in fts],
-                    key=lambda m: -m[1]),
+                'topk': (
+                    sorted([(ft_names[j], i_fts[j]) for j in fts],
+                        key=lambda m: -m[1])
+                    if file_features
+                    else []),
         })
 
     # Compute most relevant features across all interesting files.

@@ -41,6 +41,9 @@ html
       span features
       input(type="button" value="Change topk shown"
           onclick="reprocess({topk_shown: parseInt(document.getElementById('topk_shown').value)})")
+    p Show features per file?
+      input(id="file_features" type="checkbox" checked=file_features
+          onclick="reprocess({file_features: !!document.getElementById('file_features').checked})")
     p Compare with reference decisions?
       input(id="compareReference" type="checkbox" checked=use_refs
           onclick="reprocess({use_refs: !!document.getElementById('compareReference').checked})")
