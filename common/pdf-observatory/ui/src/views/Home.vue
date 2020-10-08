@@ -111,7 +111,7 @@
                         item-height="25"
                         )
                       template(v-slot="{item}")
-                        v-menu(offset-y max-width="700")
+                        v-menu(offset-y max-width="700" :key="item[0] + decisionAspectSelected + decisionSearchCustom")
                           template(v-slot:activator="{on}")
                             .decision-reason(v-on="on")
                               checkmark(status="rejected")
@@ -120,6 +120,7 @@
                             v-list-item
                               v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
                               v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
+                              v-btn(v-clipboard="() => JSON.stringify(pdfGroups.groups[item[0]].map(x => pdfGroups.files[x]))") (Copy file list as JSON)
                             v-list-item(v-for="ex of pdfGroups.groups[item[0]].slice(0, 10)" :key="ex" @click="showFile(pdfGroups.files[ex])") {{pdfGroups.files[ex]}}
 
       v-expansion-panel(:key="1")

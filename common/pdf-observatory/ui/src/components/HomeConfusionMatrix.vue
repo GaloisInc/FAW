@@ -5,18 +5,20 @@
       td(v-for="r of references" :key="r") {{r === undefined ? 'undefined' : r}}
     tr(v-for="d, di of decisions" :key="d")
       td {{d === undefined ? 'undefined' : d}}
-      td(v-for="r, ri of references"
-          :class="{clickable: counts[di][ri]}"
-          :style="(di !== ri) ? 'background-color: ' + spectrum(counts[di][ri]) : 'background-color: #ddf'"
-          @click="onClick(di, ri)"
-          )
+
+      template(v-for="r, ri of references")
         template(v-if="counts[di][ri]")
-          v-menu(offset-y)
+          v-menu(offset-y :key="r")
             template(v-slot:activator="{on}")
-              span(v-on="on")  {{counts[di][ri].toFixed(1)}}%
+              td.clickable(
+                  v-on="on"
+                  :style="(di !== ri) ? 'background-color: ' + spectrum(counts[di][ri]) : 'background-color: #ddf'"
+                  )  {{counts[di][ri].toFixed(1)}}%
             v-list
-              v-list-item(v-for="ex of examples[di][ri]" :key="ex" @click="$emit('view', ex)") {{ex}}
-        span(v-else) 0
+              v-list-item
+                v-btn(v-clipboard="() => JSON.stringify(examples[di][ri])") (Copy file list as JSON)
+              v-list-item(v-for="ex of examples[di][ri].slice(0, 10)" :key="ex" @click="$emit('view', ex)") {{ex}}
+        td(v-else) 0
 </template>
 
 <style scoped lang="scss">
@@ -88,14 +90,6 @@ export default Vue.extend({
     this.update();
   },
   methods: {
-    onClick(di: number, ri: number) {
-      const ex = this.examples[di][ri];
-      if (!ex || !ex.length) {
-        return;
-      }
-
-      this.$emit('view', ex[0]);
-    },
     update() {
       const dVals: Array<string> = [];
       const counts = new Array<Array<number>>();
@@ -141,9 +135,7 @@ export default Vue.extend({
               de.push([]);
             }
             dc[di] += 1;
-            if (de[di].length < 10) {
-              de[di].push(a.testfile);
-            }
+            de[di].push(a.testfile);
           }
         }
       }
