@@ -1,6 +1,6 @@
 motor
 pyjson5
 strictyaml
-vuespa >= 0.3.4
+vuespa >= 0.3.5
 #git+https://github.com/wwoods/python-vuespa@master
 # v20

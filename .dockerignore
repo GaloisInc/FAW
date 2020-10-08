@@ -3,4 +3,5 @@
 **/build
 **/node_modules
 **/.mypy_cache
+**/__pycache__
 

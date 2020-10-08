@@ -723,6 +723,13 @@ outputs:  \n\
             execStdin: '<statsbyfile>',
         },
 
+        bernoulli_test: {
+          label: 'Bernoulli Test',
+          type: 'program',
+          exec: ['python3', 'bernoulli_test/main.py', '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>'],
+          execStdin: '<statsbyfile>\nREFERENCES\n<referenceDecisions>',
+        },
+
         example2: {
             label: 'Flip reference decisions',
             type: 'program',
@@ -870,9 +877,11 @@ with open(sys.argv[1], 'w') as html: \n\
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
-                    'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
+                    'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
+                    'COPY {dist}/bernoulli_test/requirements.txt /home/dist/bernoulli_test/requirements.txt',
+                    'RUN pip3 install -r /home/dist/bernoulli_test/requirements.txt',
                     'RUN pip3 install polyfile',
                 ],
             },
