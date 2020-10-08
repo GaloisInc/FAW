@@ -11,6 +11,7 @@ import json
 import numpy as np
 import os
 import pypugjs
+import re
 import sys
 
 _path = os.path.dirname(os.path.abspath(__file__))
@@ -27,14 +28,20 @@ def main():
     use_refs = dec_args.get('use_refs', False)
     topk_shown = dec_args.get('topk_shown', 10)
     file_features = dec_args.get('file_features', False)
+    feature_regex = dec_args.get('feature_regex', '')
+    feature_regex_insensitive = dec_args.get('feature_regex_insensitive', True)
     html_vars = {
             'threshold': threshold,
             'use_refs': use_refs,
             'topk_shown': topk_shown,
             'file_features': file_features,
+            'feature_regex': feature_regex,
+            'feature_regex_insensitive': feature_regex_insensitive,
             'old_args': json.dumps(dec_args),
             'api_url': args.api_url,
     }
+
+    ft_re = re.compile(feature_regex, flags=re.I if feature_regex_insensitive else 0)
 
     file_names = []
     file_names_backward = {}
@@ -57,6 +64,9 @@ def main():
             file_names_backward[file_names[-1]] = len(file_names) - 1
             matrix.append({})
             for k, v in obj.items():
+                if not ft_re.search(k):
+                    continue
+
                 ft_i = ft_lookup.get(k)
                 if ft_i is None:
                     ft_i = ft_lookup[k] = len(ft_names)
@@ -132,7 +142,12 @@ def main():
 
     # Compute most relevant features across all interesting files.
     ft_weights = interesting_fts.mean(0)
-    ft_order = np.argpartition(ft_weights, -topk_shown)[-topk_shown:]
+    if topk_shown > len(ft_weights):
+        ft_order = range(len(ft_weights))
+    elif topk_shown > 0:
+        ft_order = np.argpartition(ft_weights, -topk_shown)[-topk_shown:]
+    else:
+        ft_order = []
     html_vars['features'] = sorted(
             [(ft_names[i], ft_weights[i]) for i in ft_order],
             key=lambda m: -m[1])

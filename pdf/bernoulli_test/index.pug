@@ -8,6 +8,10 @@ html
         text-decoration: underline;
       }
 
+      .specific {
+        white-space: pre-wrap;
+      }
+
     script(type="text/javascript")="let api_url = '" + api_url + "'; let old_args = JSON.parse('" + old_args.replace('\\', '\\\\').replace("'", "\\'") + "');"
 
     script(type="text/javascript").
@@ -41,6 +45,14 @@ html
       span features
       input(type="button" value="Change topk shown"
           onclick="reprocess({topk_shown: parseInt(document.getElementById('topk_shown').value)})")
+    p Filter features on regex (Python syntax):
+      input(id="feature_regex" value=feature_regex)
+      span
+        span (case insensitive?
+        input(id="feature_regex_insensitive" type="checkbox" checked=feature_regex_insensitive)
+        span )
+      input(type="button" value="Change regex"
+          onclick="reprocess({feature_regex: document.getElementById('feature_regex').value, feature_regex_insensitive: !!document.getElementById('feature_regex_insensitive').checked})")
     p Show features per file?
       input(id="file_features" type="checkbox" checked=file_features
           onclick="reprocess({file_features: !!document.getElementById('file_features').checked})")
@@ -51,7 +63,7 @@ html
     p Suspicious features (avg'd across suspicious files)
     ul
       each ft in features
-        li #{ft[1]} #{ft[0]}
+        li.specific #{ft[1]} #{ft[0]}
     p Suspicious Files
     ul
       each file in files
@@ -59,5 +71,5 @@ html
           a(onclick="showFile('"+file['name']+"')") #{file['name']}
           ul
             each topkFt in file['topk']
-              li #{topkFt[1]} #{topkFt[0]}
+              li.specific #{topkFt[1]} #{topkFt[0]}
 
