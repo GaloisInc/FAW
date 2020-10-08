@@ -45,6 +45,10 @@ html
       input(id="compareReference" type="checkbox" checked=use_refs
           onclick="reprocess({use_refs: !!document.getElementById('compareReference').checked})")
       span Looks for statuses other than "valid", and sees which "valid" decisions should have been something else.
+    p Suspicious features (avg'd across suspicious files)
+    ul
+      each ft in features
+        li #{ft[1]} #{ft[0]}
     p Suspicious Files
     ul
       each file in files

@@ -124,7 +124,13 @@ def main():
                 'topk': sorted([(ft_names[j], i_fts[j]) for j in fts],
                     key=lambda m: -m[1]),
         })
-    html_vars['features'] = [ft_names[i] for i in ft_i_sorted]
+
+    # Compute most relevant features across all interesting files.
+    ft_weights = interesting_fts.mean(0)
+    ft_order = np.argpartition(ft_weights, -topk_shown)[-topk_shown:]
+    html_vars['features'] = sorted(
+            [(ft_names[i], ft_weights[i]) for i in ft_order],
+            key=lambda m: -m[1])
 
     write_html(os.path.join(_path, 'index.pug'), html_vars, args.html_out)
 
