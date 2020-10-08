@@ -23,11 +23,13 @@ def main():
     args = ap.parse_args()
 
     dec_args = json.loads(args.json_arguments)
-    threshold = dec_args.get('threshold', 0.8)
+    threshold = dec_args.get('threshold', 0.98)
     use_refs = dec_args.get('use_refs', False)
+    topk_shown = dec_args.get('topk_shown', 10)
     html_vars = {
             'threshold': threshold,
             'use_refs': use_refs,
+            'topk_shown': topk_shown,
             'old_args': json.dumps(dec_args),
             'api_url': args.api_url,
     }
@@ -108,8 +110,20 @@ def main():
         mat1 = mat1.T
 
     # Pass to bernoulli
-    interesting = run_bernoulli_test(threshold, mat1, mat2)
-    html_vars['files'] = [file_names[i] for i in interesting]
+    interesting, interesting_fts = run_bernoulli_test(threshold, mat1, mat2)
+    html_vars['files'] = []
+    for i, i_fts in zip(interesting, interesting_fts):
+        if topk_shown > len(i_fts):
+            fts = range(len(i_fts))
+        elif topk_shown > 0:
+            fts = np.argpartition(i_fts, -topk_shown)[-topk_shown:]
+        else:
+            fts = []
+        html_vars['files'].append({
+                'name': file_names[i],
+                'topk': sorted([(ft_names[j], i_fts[j]) for j in fts],
+                    key=lambda m: -m[1]),
+        })
     html_vars['features'] = [ft_names[i] for i in ft_i_sorted]
 
     write_html(os.path.join(_path, 'index.pug'), html_vars, args.html_out)

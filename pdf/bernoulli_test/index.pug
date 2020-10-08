@@ -36,14 +36,21 @@ html
       input(id="thresholdField" type="text" value=threshold)
       input(type="button" value="Change threshold"
           onclick="reprocess({threshold: parseFloat(document.getElementById('thresholdField').value)})")
+    p Show top
+      input(id="topk_shown" type="text" value=topk_shown)
+      span features
+      input(type="button" value="Change topk shown"
+          onclick="reprocess({topk_shown: parseInt(document.getElementById('topk_shown').value)})")
     p Compare with reference decisions?
       input(id="compareReference" type="checkbox" checked=use_refs
           onclick="reprocess({use_refs: !!document.getElementById('compareReference').checked})")
       span Looks for statuses other than "valid", and sees which "valid" decisions should have been something else.
     p Suspicious Files
-    p Old args: #{old_args}
     ul
       each file in files
         li
-          a(onclick="showFile('"+file+"')") #{file}
+          a(onclick="showFile('"+file['name']+"')") #{file['name']}
+          ul
+            each topkFt in file['topk']
+              li #{topkFt[1]} #{topkFt[0]}
 

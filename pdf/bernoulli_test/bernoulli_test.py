@@ -31,6 +31,8 @@ def run_bernoulli_test(threshold,set1_relation_mat,set2_relation_mat):
       set2_relation_mat : matrix of rows (variables) and columns (observations)
     Output:
        np.array of integer indices of columns of set1_relation_mat (observations) that better match the statistics of set2_relation_mat
+       np.array of float[num interesting, num feature] relative importance of each feature for each interesting file. Try e.g.
+            np.argpartition(vals, -4)[-4:] for the top 4 features.
 
     Note: Lower thresholds result in more columns being returned.
     '''
@@ -46,22 +48,21 @@ def run_bernoulli_test(threshold,set1_relation_mat,set2_relation_mat):
         s2p = s1p
 
     # Bernoulli likelihood functions for each file and under both correct and misclassified hypotheses
-    set1_bern_likely_correct=np.sum(np.log(1e-30 + s1p*set1_relation_mat+(1-s1p)*(1-set1_relation_mat)),axis=0)
-    set1_bern_likely_incorrect=np.sum(np.log(1e-30 + s2p*set1_relation_mat+(1-s2p)*(1-set1_relation_mat)),axis=0)
+    set1_bern_likely_correct=np.log(1e-30 + s1p*set1_relation_mat+(1-s1p)*(1-set1_relation_mat))
+    set1_bern_likely_incorrect=np.log(1e-30 + s2p*set1_relation_mat+(1-s2p)*(1-set1_relation_mat))
 
     # Compute likelihood ratio
-    bern_lr=set1_bern_likely_incorrect-set1_bern_likely_correct
+    bern_lr=-set1_bern_likely_correct
+    if set2_relation_mat is not None:
+        bern_lr += set1_bern_likely_incorrect
 
-    # Clean up any faulty entries
-    bern_lr[np.logical_not(np.isfinite(bern_lr))]=np.inf
-
-    bern_detect = bern_lr if set2_relation_mat is not None else -set1_bern_likely_correct
+    bern_detect = np.sum(bern_lr, axis=0)
 
     # Normalize the threshold based on percentage
-    thres=np.sort(bern_detect)[int(threshold*len(bern_lr))]
+    thres=np.sort(bern_detect)[int(threshold*len(bern_detect))]
     # Postprocessing/thresholding
     idx=np.where(np.logical_and(np.isfinite(bern_detect),bern_detect>thres))[0]
-    return idx
+    return idx, bern_lr.T[idx]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Identify rows in file1 that that probably should have been in file2.  Both files need to have the same number of entries in each row.')
@@ -80,8 +81,10 @@ if __name__ == '__main__':
         set2_relation_mat = None
 
     # Run the test
-    idx=run_bernoulli_test(args.threshold,set1_relation_mat,set2_relation_mat)
+    idx,fts=run_bernoulli_test(args.threshold,set1_relation_mat,set2_relation_mat)
 
     # Dump to stdout
-    for i in idx:
+    for i, i_fts in zip(idx, fts):
         print(i)
+        topk = np.argpartition(i_fts, -3)[-3:]
+        print(f'* {topk} / {i_fts[topk]}')
