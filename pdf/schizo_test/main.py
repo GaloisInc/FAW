@@ -12,37 +12,52 @@ import sys
 import tempfile
 
 DPI = 100
-RMSE_FOR_SCHIZO = 0.4  # Out of 255
-DIFF_FOR_SCHIZO = 12.
+RMSE_WINDOW_SIZE = 50
+RMSE_FOR_SCHIZO = 30.  # Out of 255
+DIFF_FOR_SCHIZO = -12.  # Negative means disabled
+
+tools = [
+        # File prefix must always be f'{name}-{page}.ext'
+        # Can optionally take 'env'
+        # Lambda function takes output directory
+        # '<inputFile>' replaced with input file name.
+        {
+            'name': 'mutool',
+            'exec': ['mutool', 'draw', '-r', str(DPI), '-o',
+                lambda dname: os.path.join(dname, 'mutool-%d.png'),
+                '<inputFile>'],
+        },
+        {
+            'name': 'pdftoppm',
+            'exec': ['pdftoppm', '-png', '-r', str(DPI), '<inputFile>',
+                lambda dname: os.path.join(dname, 'pdftoppm')],
+        },
+]
 
 def main():
     fname = sys.argv[1]
     html_out = len(sys.argv) > 2 and sys.argv[2] == '--html'
 
+    tool_names = [tool['name'] for tool in tools]
+
     res = str(DPI)
     img_attrs = 'width="400"'
     with TempDir() as dname:
-        tools = ['mutool', 'pdftocairo']
-
-        subprocess.check_call(
-                ['mutool', 'draw', '-r', res, '-o',
-                    os.path.join(dname, 'mutool-%d.png'), fname],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                )
-        subprocess.check_call(
-                ['pdftocairo', '-png', '-r', res, fname,
-                    os.path.join(dname, 'pdftocairo')],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                )
+        for t in tools:
+            ex = t['exec']
+            ex = [e if e != '<inputFile>' else fname for e in ex]
+            ex = [e if not callable(e) else e(dname) for e in ex]
+            env = os.environ.copy()
+            env.update(t.get('env', {}))
+            subprocess.check_call(ex, env=env, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE)
 
         if html_out:
             print('<!DOCTYPE html><html><title>Schizo Test</title><body><table>')
 
         pages_by_tool = {}
         for f in os.listdir(dname):
-            for t in tools:
+            for t in tool_names:
                 prefix = f'{t}-'
                 if not f.startswith(prefix):
                     continue
@@ -62,7 +77,7 @@ def main():
             if html_out:
                 print(f'<tr><td>Page {pageno}</td>')
 
-            for t in tools:
+            for t in tool_names:
                 pagename = pages_by_tool.get((t, pageno))
                 if pagename is None:
                     if html_out:
@@ -124,12 +139,13 @@ def main():
                     # (Cannot just use blur, as modified text wouldn't show,
                     # and we still want the high-pass filter for minor color
                     # space differences)
-                    blur_sz = 80
-                    img_blur = scipy.ndimage.filters.gaussian_filter(img,
-                            blur_sz * 0.5)
-                    base_blur = scipy.ndimage.filters.gaussian_filter(base,
-                            blur_sz * 0.5)
-                    diff_blur = abs(img_blur - base_blur)
+                    blur_sz = DPI
+                    if False:
+                        img_blur = scipy.ndimage.filters.gaussian_filter(img,
+                                blur_sz * 0.5)
+                        base_blur = scipy.ndimage.filters.gaussian_filter(base,
+                                blur_sz * 0.5)
+                        diff_blur = abs(img_blur - base_blur)
 
                     # Box difference filter
                     img_mn = scipy.ndimage.filters.minimum_filter(img,
@@ -161,7 +177,8 @@ def main():
 
                     dw = 1
                     bw = 1
-                    diff = diff_box ** dw * diff_blur ** bw * 255 / 255 ** dw / 255. ** bw
+                    #diff = diff_box ** dw * diff_blur ** bw * 255 / 255 ** dw / 255. ** bw
+                    diff = diff_box
                     #diff = diff_blur
 
                 if html_out:
@@ -178,7 +195,11 @@ def main():
                     base = img
                     base_tool = t
                 else:
-                    rmse = (diff ** 2).mean() ** 0.5
+                    # Abs needed to prevent rounding errors
+                    rmse = abs(scipy.ndimage.filters.uniform_filter(
+                            (diff ** 2).mean(2),
+                            size=(RMSE_WINDOW_SIZE, RMSE_WINDOW_SIZE))) ** 0.5
+                    rmse = rmse.max()
                     all_rmse_max = max(rmse, all_rmse_max)
 
                     diff_max = diff.max()
