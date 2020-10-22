@@ -13,7 +13,12 @@ export interface DslFilter {
   name: string;
   all: boolean;
   caseInsensitive?: boolean;
-  patterns: Array<string>;
+  patterns: Array<DslFilterPattern>;
+}
+
+export interface DslFilterPattern {
+  pat: string;
+  check: any | null;
 }
 
 export type DslOutput = Array<[string, DslExpression | null]>;
@@ -79,14 +84,50 @@ function generateDslParser() {
         = leader:[A-Z] trailer:ID_CHARS { return leader + trailer; }
 
       filters_pattern
-        = INDENT_CHECK pattern:[^\\n]+ WS_LINES { 
+        = INDENT_CHECK pattern:[^\\n]+ WS_LINES patternCheck:filters_pattern_check? {
           let pat = pattern.join('').trim();
           try { new RegExp(pat); }
           catch (e) {
             expected('Valid regular expression ((' + e + '))');
           }
-          return pat;
+          return {pat: pat, check: patternCheck};
         }
+
+      filters_pattern_check
+        = &{ return indentPush(); } inner:(INDENT INDENT_CHECK filters_pattern_check_expr)? &{ indentPop(); return inner; } WS_LINES
+            { return inner[2]; }
+
+      filters_pattern_check_expr
+        = left:filters_pattern_check_expr_and WS* "|" WS* right:filters_pattern_check_expr { return {type: 'or', id1: left, id2: right}; }
+        / filters_pattern_check_expr_and
+
+      filters_pattern_check_expr_and
+        = left:filters_pattern_check_expr_compare WS* "&" WS* right:filters_pattern_check_expr_and { return {type: 'and', id1: left, id2: right}; }
+        / filters_pattern_check_expr_compare
+
+      filters_pattern_check_expr_compare
+        = left:filters_pattern_check_expr_add WS* symb:(">" / ">=" / "<" / "<=" / "==") WS* right:filters_pattern_check_expr_add
+            { return {type: symb, id1: left, id2: right}; }
+
+      filters_pattern_check_expr_add
+        = left:filters_pattern_check_expr_mul WS* symb:("+" / "-") WS* right:filters_pattern_check_expr_add
+            { return {type: symb, id1: left, id2: right}; }
+        / filters_pattern_check_expr_mul
+
+      filters_pattern_check_expr_mul
+        = left:filters_pattern_check_expr_neg WS* symb:("*" / "/") WS* right:filters_pattern_check_expr_mul
+            { return {type: symb, id1: left, id2: right}; }
+        / filters_pattern_check_expr_neg
+
+      filters_pattern_check_expr_neg
+        = symb:"-" left:filters_pattern_check_expr_id
+            { return {type: 'neg', id1: left}; }
+        / filters_pattern_check_expr_id
+
+      filters_pattern_check_expr_id
+        = name:("sum" / "count") { return {type: 'id', id1: name}; }
+        / val:("-"? [0-9]+ ("." [0-9]+)? ("e" "-"? [0-9]+)?) { return {type: 'number', id1: parseFloat(text())}; }
+        / "(" WS* left:filters_pattern_check_expr_add WS* ")" { return left; }
 
       outputs_expr
         = INDENT_CHECK "outputs:" WS_LINES

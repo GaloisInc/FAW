@@ -599,7 +599,9 @@ filters:  \n\
   \n\
   Unsafe: \n\
     ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\
-    ^schizo\-test_Schizophrenic:  \n\
+    ^schizo\-test_Schizophrenic: page  was size \n\
+    ^schizo\-test_Max RMSE \n\
+      sum > 80 \n\
   \n\
 outputs:  \n\
   # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
@@ -875,14 +877,23 @@ with open(sys.argv[1], 'w') as html: \n\
             // to rebuild all of the other workbench internals.
             final: {
                 commands: [
+                    // Interestingly, some packages (e.g. opencv-python) require
+                    // an updated pip.
+                    'RUN pip3 install --upgrade pip',
+
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
+
                     'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
+                    // Schizo test additionally requires a few packages for opencv2
+                    'RUN apt-get update && apt-get install -y ffmpeg libsm6 libxext6',
+
                     'COPY {dist}/bernoulli_test/requirements.txt /home/dist/bernoulli_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/bernoulli_test/requirements.txt',
+
                     'RUN pip3 install polyfile',
                 ],
             },

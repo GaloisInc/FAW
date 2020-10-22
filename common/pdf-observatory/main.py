@@ -432,7 +432,7 @@ class Client(vuespa.Client):
                 grp = groups.get(k)
                 if grp is None:
                     groups[k] = grp = []
-                grp.append(gid)
+                grp.append([gid, v])
 
         return r
 

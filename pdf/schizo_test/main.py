@@ -100,7 +100,7 @@ def main():
                         raise
                     print(f'Unable to read image!</td>')
                     continue
-                img = img.astype(float)
+                img = img.astype(np.float32)
 
                 # Can we fix rounding differences?
                 if base is not None and img.shape != base.shape and (
@@ -125,6 +125,58 @@ def main():
 
                     if html_out:
                         print(f'<br />Size mismatch: {base.shape} != {img.shape}')
+                elif base is not None and False:
+                    # Experimental filter, archived here. Production one is
+                    # below.
+
+                    # For both images, do a high pass filter.
+                    def preproc(i):
+                        r = i.copy()
+                        r[:-1, :-1] -= r[1:, 1:]
+                        return r
+                    bb, ii = [base, img]
+
+                    def grayscale(i):
+                        return i[:, :, 0]
+
+                    # Align via cv2, per https://alexanderpacha.com/2018/01/29/aligning-images-an-engineers-solution/
+                    # Doesn't really seem to help, compared to box difference filter
+                    if False:
+                        import cv2
+                        warp_mode = cv2.MOTION_AFFINE
+                        warp_matrix = np.eye(2, 3, dtype=np.float32)
+                        num_iter = 100
+                        threshold_eps = 1e-7
+                        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+                                num_iter, threshold_eps)
+                        try:
+                            (cc, warp_matrix) = cv2.findTransformECC(grayscale(bb), grayscale(ii),
+                                    warp_matrix, warp_mode, criteria, inputMask=None,
+                                    gaussFiltSize=5)
+                        except cv2.error:
+                            if html_out:
+                                print(f'No page alignment: cv2.error <br/>')
+                        iii = cv2.warpAffine(ii, warp_matrix, (img.shape[1], img.shape[0]),
+                                flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+                                borderMode=cv2.BORDER_REPLICATE)
+                    else:
+                        iii = ii
+
+                    # Box difference filter, bloom iii toward bb
+                    filt_sz = 9
+                    img_mn = scipy.ndimage.filters.minimum_filter(iii,
+                            size=(filt_sz, filt_sz, 1))
+                    img_mx = scipy.ndimage.filters.maximum_filter(iii,
+                            size=(filt_sz, filt_sz, 1))
+
+                    diff_box = np.maximum(
+                            img_mn - bb,
+                            bb - img_mx)
+                    diff_box = np.clip(diff_box, 0., None)
+
+                    diff_box = abs(preproc(diff_box))
+
+                    diff = diff_box  # abs(bb - iii)
                 elif base is not None:
                     filt_sz = 2
 

@@ -115,13 +115,13 @@
                           template(v-slot:activator="{on}")
                             .decision-reason(v-on="on")
                               checkmark(status="rejected")
-                              span {{item[0]}}: {{item[1][0].size}} / {{item[1][1].size}}
+                              span {{item[0]}}: {{item[1][0].size + item[1][1].size}} / {{item[1][1].size}}
                           v-list
                             v-list-item
                               v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
                               v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
-                              v-btn(v-clipboard="() => JSON.stringify(pdfGroups.groups[item[0]].map(x => pdfGroups.files[x]))") (Copy file list as JSON)
-                            v-list-item(v-for="ex of pdfGroups.groups[item[0]].slice(0, 10)" :key="ex" @click="showFile(pdfGroups.files[ex])") {{pdfGroups.files[ex]}}
+                              v-btn(v-clipboard="() => JSON.stringify([...Array.from(item[1][1]), ...Array.from(item[1][0])])") (Copy file list as JSON)
+                            v-list-item(v-for="ex of [...sliceIterable(item[1][1], 0, 10), ...sliceIterable(item[1][0], 0, 10)].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
 
       v-expansion-panel(:key="1")
         //-
@@ -377,7 +377,7 @@ export enum DbView {
   Stats = 3,
 }
 
-export type PdfGroups = {groups: {[message: string]: Array<number>},
+export type PdfGroups = {groups: {[message: string]: Array<[number, number]>},
     files: Array<string>};
 
 export class LoadingStatus {
@@ -417,6 +417,7 @@ export default Vue.extend({
       decisionSelectedDsl: {} as PdfDecision,
       error: false as any,
       expansionPanels: [0, 1, 2],
+      // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
       failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
       fileSelected: 0,
       holdReferences: true,
@@ -798,7 +799,7 @@ export default Vue.extend({
       const fileMessages = new Map<string, Set<string>>();
       for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
         for (const f of files) {
-          const ff = this.pdfGroups.files[f];
+          const ff = this.pdfGroups.files[f[0]];
           let u = fileMessages.get(ff);
           if (!u) {
             u = new Set<string>();
@@ -841,7 +842,7 @@ export default Vue.extend({
             dd.filters.push({
                 name: filtName,
                 all: true,
-                patterns: Array.from(messages),
+                patterns: Array.from(messages).map(x => ({pat: x, check: null})),
             });
             vv[1] = {type: 'id', id1: filtName};
           }
@@ -867,7 +868,7 @@ export default Vue.extend({
         add(header);
         indent += 1;
         for (const kk of k.patterns) {
-          add(kk);
+          add(kk.pat);
         }
         indent -= 1;
       }
@@ -1032,7 +1033,7 @@ export default Vue.extend({
           name: 'faw-custom',
           all: false,
           caseInsensitive: this.decisionSearchInsensitive,
-          patterns: [this.decisionSearchCustom],
+          patterns: [{pat: this.decisionSearchCustom, check: null}],
         });
       }
 
@@ -1047,13 +1048,13 @@ export default Vue.extend({
       const pdfMap = new Map<number, PdfDecision>();
       for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
         for (const f of files) {
-          if (pdfMap.has(f)) continue;
+          if (pdfMap.has(f[0])) continue;
           const dec = {
-                testfile: this.pdfGroups.files[f],
+                testfile: this.pdfGroups.files[f[0]],
                 info: [],
           };
           newPdfs.push(dec);
-          pdfMap.set(f, dec);
+          pdfMap.set(f[0], dec);
         }
       }
 
@@ -1071,12 +1072,110 @@ export default Vue.extend({
           pdfGroupIsNegative.set(f.name, false);
         }
 
-        const rs = f.patterns.map(p => new RegExp(p,
-            f.caseInsensitive ? 'i' : undefined));
+        const rs = f.patterns.map(p => ({
+            pat: new RegExp(p.pat, f.caseInsensitive ? 'i' : undefined),
+            check: p.check,
+        }));
         for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
           let matched = false;
+          // Do any of our filter's patterns match this message?
+          let filesSubset = files;
+
+          const evalCheck = (k: string, check: any): Set<number> => {
+            const parts = new Map<string, Array<number>>();
+            for (const [id, suffix] of [['sum', '_sum'], ['nan', '_nan'],
+                ['count', '']]) {
+              let filesWithMsg = this.pdfGroups.groups[k + suffix];
+              if (filesWithMsg === undefined) {
+                if (['sum', 'nan'].indexOf(k.split('_').pop()!) !== -1) {
+                  // If we can't find this, this is NOT a number, but likely a
+                  // subfield of a number (e.g., we're looking at _nan_sum)
+                  // So, act like no match.
+                  return new Set();
+                }
+                throw new Error(`Could not find ${k + suffix}?`);
+              }
+
+              const p = new Array<number>();
+              parts.set(id, p);
+              for (const file of filesWithMsg) {
+                p[file[0]] = file[1];
+              }
+            }
+
+            const evalInner = (check: any): Array<number> => {
+              if (check.type === '<') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l < right[i] ? 1 : 0);
+              }
+              else if (check.type === '>') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l > right[i] ? 1 : 0);
+              }
+              else if (check.type === '<=') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l <= right[i] ? 1 : 0);
+              }
+              else if (check.type === '>=') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l >= right[i] ? 1 : 0);
+              }
+              else if (check.type === 'id') {
+                const r = parts.get(check.id1);
+                if (r === undefined) {
+                  throw new Error(`No such numeric quantity? ${check.id1}`);
+                }
+                return r;
+              }
+              else if (check.type === 'number') {
+                // Inefficient, but that's OK.
+                return parts.get('count')!.map(x => check.id1);
+              }
+              else if (check.type === 'neg') {
+                return evalInner(check.id1).map(x => -x);
+              }
+              else if (check.type === '+') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l + right[i]);
+              }
+              else if (check.type === '-') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l - right[i]);
+              }
+              else if (check.type === '*') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l * right[i]);
+              }
+              else if (check.type === '/') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l / right[i]);
+              }
+
+              console.log(check);
+              throw new Error(`Check type ${check.type}`);
+            };
+
+            const r = evalInner(check);
+            return new Set(r.map((x, i) => [x, i]).filter(x => !!x[0]).map(x => x[1]));
+          };
+
           for (const r of rs) {
-            if (r.test(k)) {
+            if (r.pat.test(k)) {
+              // Do we need to constrain the matching set based on an auxiliary
+              // check?
+              if (r.check !== null) {
+                const group = evalCheck(k, r.check);
+                if (group.size > 0) filesSubset = filesSubset.filter(x => group.has(x[0]));
+                else continue;
+              }
               matched = true;
               break;
             }
@@ -1086,9 +1185,9 @@ export default Vue.extend({
             // If we're matching all, then we want to note the set of PDFs for
             // which any message did not match.
             if (!matched) {
-              for (const file of files) {
-                result.add(file);
-                pdfMap.get(file)!.info.push(`'${f.name}' rejected '${k}'`);
+              for (const file of filesSubset) {
+                result.add(file[0]);
+                pdfMap.get(file[0])!.info.push(`'${f.name}' rejected '${k}'`);
               }
             }
           }
@@ -1096,9 +1195,9 @@ export default Vue.extend({
             // If we're matching any, then we're interested in PDFs where any
             // message did match.
             if (matched) {
-              for (const file of files) {
-                result.add(file);
-                pdfMap.get(file)!.info.push(`'${f.name}' accepted '${k}'`);
+              for (const file of filesSubset) {
+                result.add(file[0]);
+                pdfMap.get(file[0])!.info.push(`'${f.name}' accepted '${k}'`);
               }
             }
           }
@@ -1184,6 +1283,26 @@ export default Vue.extend({
         (p: PdfDecision) => p.testfile === id
       )[0];
     },
+    /** Unfortunately, iterators in javascript don't have a slice() method.
+        But, we have very large sets comprising thousands of files. For UI
+        updates, it's silly to cast that whole set to an array to select the
+        first, arbitrary elements. Instead, use this function.
+        */
+    sliceIterable<T>(set: Set<T>, start: number, end: number) {
+      let i = -1;
+      const r = new Array<T>();
+      if (start >= end) return r;
+
+      const m = end - 1;
+      for (const el of set) {
+        i++;
+        if (i < start) continue;
+
+        r.push(el);
+        if (i === m) break;
+      }
+      return r;
+    },
     /** For "All reasons files were rejected" section */
     updateFailReasons(){
       const failReasons = new Map<string, Map<string, [Set<string>, Set<string>]>>();
@@ -1196,7 +1315,10 @@ export default Vue.extend({
         let onlyFilter: string | undefined = undefined;
         const logOnly = () => {
           if (!only || !onlyFilter || !onlyKey) return;
+          // Reaching here means this file had only one message causing it to
+          // pass a filter.
           failReasons.get(onlyFilter)!.get(onlyKey)![1].add(p.testfile);
+          failReasons.get(onlyFilter)!.get(onlyKey)![0].delete(p.testfile);
         };
         for (const line of p.info) {
           while ((r = re.exec(line)) !== null) {
