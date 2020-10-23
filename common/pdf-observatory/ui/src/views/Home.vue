@@ -1,14 +1,11 @@
 <template lang="pug">
   .home
-    v-dialog(
-        v-model=" \
+    div(
+        v-if=" \
           loadingStatus.files_max === 0 \
           || loadingStatus.files_done !== loadingStatus.files_max \
           || loadingStatus.files_err"
-        hide-overlay
-        persistent
-        width="300"
-        content-class="loadingStatusDialog"
+        class="loadingStatusDialog"
         )
       v-card(color="grey darken-1" dark)
         v-card-text(style="padding-top: 0.5em") {{loadingStatus.message}}
@@ -248,8 +245,10 @@
 
   .loadingStatusDialog {
     position: fixed;
-    top: 0;
-    right: 0;
+    top: 6px;
+    right: 6px;
+    width: 300px;
+    z-index: 999;
   }
 
   .v-card__actions {
