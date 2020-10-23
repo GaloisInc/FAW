@@ -1123,6 +1123,16 @@ export default Vue.extend({
                 const right = evalInner(check.id2);
                 return left.map((l, i) => l >= right[i] ? 1 : 0);
               }
+              else if (check.type === 'and') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l && right[i] ? 1 : 0);
+              }
+              else if (check.type === 'or') {
+                const left = evalInner(check.id1);
+                const right = evalInner(check.id2);
+                return left.map((l, i) => l || right[i] ? 1 : 0);
+              }
               else if (check.type === 'id') {
                 const r = parts.get(check.id1);
                 if (r === undefined) {
