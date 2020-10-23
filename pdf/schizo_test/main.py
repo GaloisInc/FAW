@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-DPI = 100
+DPI = 100  # Too low, and aliasing will make some colors unreachable.
 RMSE_WINDOW_SIZE = 50
 RMSE_FOR_SCHIZO = 30.  # Out of 255
 DIFF_FOR_SCHIZO = -12.  # Negative means disabled
@@ -29,7 +29,12 @@ tools = [
         },
         {
             'name': 'pdftoppm',
-            'exec': ['pdftoppm', '-png', '-r', str(DPI), '<inputFile>',
+            'exec': ['pdftoppm', '-png', '-r', str(DPI),
+                # PDFs can specify a "crop box" apparently. These files render
+                # with a draft border or other issue if this is not specified,
+                # preventing the render from matching e.g. mutool.
+                '-cropbox',
+                '<inputFile>',
                 lambda dname: os.path.join(dname, 'pdftoppm')],
         },
 ]
@@ -40,7 +45,6 @@ def main():
 
     tool_names = [tool['name'] for tool in tools]
 
-    res = str(DPI)
     img_attrs = 'width="400"'
     with TempDir() as dname:
         for t in tools:
@@ -125,7 +129,81 @@ def main():
 
                     if html_out:
                         print(f'<br />Size mismatch: {base.shape} != {img.shape}')
-                elif base is not None and False:
+                elif base is not None and True:
+                    # Experimental covariance filter
+                    def hipass(i):
+                        r = i.copy()
+                        r[:-1, :-1] -= r[1:, 1:]
+                        return r
+                    bb, ii = [base, img]
+
+                    if True:
+                        # Align via cv2, per https://alexanderpacha.com/2018/01/29/aligning-images-an-engineers-solution/
+                        # Some PDFs do have alignment issues, particularly when
+                        # the whole page is an image. So, this is important,
+                        # even though it inflates processing time.
+                        import cv2
+                        warp_mode = cv2.MOTION_AFFINE
+                        warp_matrix = np.eye(2, 3, dtype=np.float32)
+                        num_iter = 100
+                        threshold_eps = 1e-7
+                        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+                                num_iter, threshold_eps)
+                        def grayscale(i):
+                            return i[:, :, 0] * .3 + i[:, :, 1] * .59 + i[:, :, 2] * .11
+                        try:
+                            (cc, warp_matrix) = cv2.findTransformECC(grayscale(bb), grayscale(ii),
+                                    warp_matrix, warp_mode, criteria, inputMask=None,
+                                    gaussFiltSize=5)
+                        except cv2.error:
+                            # Usually happens when page is all-white
+                            print(f'Page {pageno} failed to find alignment: cv2.error',
+                                    file=sys.stderr)
+                            if html_out:
+                                print(f'No page alignment: cv2.error <br/>')
+                        else:
+                            ii = cv2.warpAffine(ii, warp_matrix, (img.shape[1], img.shape[0]),
+                                    flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
+                                    borderMode=cv2.BORDER_REPLICATE)
+
+                    # Use box test to bloom one image into the other, to match
+                    # as closely as possible. Fixes antialiasing differences.
+                    if True:
+                        filt_sz = (3, 3, 1)
+                        ii_mn = scipy.ndimage.filters.minimum_filter(ii,
+                                size=filt_sz)
+                        ii_mx = scipy.ndimage.filters.maximum_filter(ii,
+                                size=filt_sz)
+                    else:
+                        ii_gauss = scipy.ndimage.filters.gaussian_filter(ii,
+                                sigma=2.)
+                        ii_mn = np.minimum(ii_gauss, ii)
+                        ii_mx = np.maximum(ii_gauss, ii)
+                    ii = np.minimum(ii_mx, np.maximum(ii_mn, bb))
+
+                    filt_kw = {'sigma': 2.5}
+                    def covar(img):
+                        #mn = scipy.ndimage.filters.uniform_filter(img,
+                        #        size=filt_sz)
+                        mn = scipy.ndimage.filters.gaussian_filter(img,
+                                **filt_kw)
+                        dev = img - mn
+                        mag = np.clip(scipy.ndimage.filters.gaussian_filter(dev * dev,
+                                **filt_kw), 0, None) ** 0.5
+                        return mn, dev, mag
+
+                    bb_mn, bb_dev, bb_mag = covar(bb)
+                    ii_mn, ii_dev, ii_mag = covar(ii)
+
+                    diff = scipy.ndimage.filters.gaussian_filter(bb_dev * ii_dev,
+                            **filt_kw)
+                    dev_eps = 100 # Max is 255*255.
+                    diff /= dev_eps + bb_mag * ii_mag
+
+                    diff = abs(1. - diff) * np.maximum(bb_mag, ii_mag) + abs(bb_mn - ii_mn) / 255.
+                    diff = abs(hipass(diff))
+
+                elif base is not None and True:
                     # Experimental filter, archived here. Production one is
                     # below.
 
@@ -139,9 +217,9 @@ def main():
                     def grayscale(i):
                         return i[:, :, 0]
 
-                    # Align via cv2, per https://alexanderpacha.com/2018/01/29/aligning-images-an-engineers-solution/
-                    # Doesn't really seem to help, compared to box difference filter
                     if False:
+                        # Align via cv2, per https://alexanderpacha.com/2018/01/29/aligning-images-an-engineers-solution/
+                        # Doesn't really seem to help, compared to box difference filter
                         import cv2
                         warp_mode = cv2.MOTION_AFFINE
                         warp_matrix = np.eye(2, 3, dtype=np.float32)
@@ -162,16 +240,37 @@ def main():
                     else:
                         iii = ii
 
-                    # Box difference filter, bloom iii toward bb
-                    filt_sz = 9
+                    # Box difference filter, bloom iii toward bb, and vice-versa
+                    # for a symmetrical filter.
+                    # This is a pretty large-scale feature, and will certainly
+                    # miss text replacement. Would need OCR for that.
+                    filt_sz = 5
                     img_mn = scipy.ndimage.filters.minimum_filter(iii,
                             size=(filt_sz, filt_sz, 1))
                     img_mx = scipy.ndimage.filters.maximum_filter(iii,
                             size=(filt_sz, filt_sz, 1))
+                    b_mn = scipy.ndimage.filters.minimum_filter(bb,
+                            size=(filt_sz, filt_sz, 1))
+                    b_mx = scipy.ndimage.filters.maximum_filter(bb,
+                            size=(filt_sz, filt_sz, 1))
+
+                    # Important! Aliasing and DPI mean that not all renderers
+                    # will reach the same color for e.g. a black border on a
+                    # white background. So, scale up the variance of each range
+                    # a bit.
+                    for mn, mx in [(img_mn, img_mx), (b_mn, b_mx)]:
+                        mean = (mn + mx) * 0.5
+                        beta = 3.
+                        mn += (mn - mean) * beta
+                        mx += (mx - mean) * beta
 
                     diff_box = np.maximum(
-                            img_mn - bb,
-                            bb - img_mx)
+                            np.maximum(
+                                img_mn - bb,
+                                bb - img_mx),
+                            np.maximum(
+                                b_mn - iii,
+                                iii - b_mx))
                     diff_box = np.clip(diff_box, 0., None)
 
                     diff_box = abs(preproc(diff_box))

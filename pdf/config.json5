@@ -358,7 +358,7 @@
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
           timeout: 1200,
-          version: 'schizo-test30',
+          version: 'schizo-test50',
           parse: {
             type: 'regex-counter',
             stdstar: {
@@ -601,7 +601,7 @@ filters:  \n\
     ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\
     ^schizo\-test_Schizophrenic: page  was size \n\
     ^schizo\-test_Max RMSE \n\
-      sum > 80 \n\
+      sum > 3 \n\
   \n\
 outputs:  \n\
   # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
@@ -877,6 +877,17 @@ with open(sys.argv[1], 'w') as html: \n\
             // to rebuild all of the other workbench internals.
             final: {
                 commands: [
+                    // Ensure poppler has fonts installed and available; installs both MS fonts and
+                    // uses a nuclear option to select all available ubuntu fonts packages.
+                    'RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections',
+                    "RUN apt-get update \
+                      && apt-get install -y ttf-mscorefonts-installer ttf-dejavu-core \
+                      && apt-cache search -n ^fonts- \
+                        | awk '{print $1}' \
+                        | grep -v fonts-mathematica \
+                        | xargs apt-get install -y \
+                      ",
+
                     // Interestingly, some packages (e.g. opencv-python) require
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
@@ -938,15 +949,31 @@ with open(sys.argv[1], 'w') as html: \n\
             },
 
             pdfium: {
+                from: 'ubuntu:18.04',
                 copy_output: {
                   '/src/pdfium/pdfium/out/Workbench': '/opt/pdfium',
                 },
                 commands: [
                   'WORKDIR /src',
+                  'RUN apt-get update && apt-get install -y \
+                      cmake \
+                      curl \
+                      git \
+                      pkg-config \
+                      python2.7 \
+                      python2.7-dev \
+                      python3 \
+                      python3-dev \
+                      python3-pip \
+                      xpdf \
+                      wget \
+                      ',
                   // Setup per https://pdfium.googlesource.com/pdfium/
                   'RUN git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git',
                   'ENV PATH /src/depot_tools:$PATH',
                   'RUN mkdir pdfium && cd pdfium && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git && gclient sync',
+                  // Google tools refer to python as 'python', not 'python3'.
+                  'RUN ln -s /usr/bin/python3 /usr/bin/python',
                   // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
                   'RUN cd pdfium/pdfium \
                     && git checkout chromium/4260 \
@@ -1021,7 +1048,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     // 'RUN cmake -DBUILD_SHARED_LIBS=OFF -DENABLE_LIBOPENJPEG=unmaintained -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang ..',
 
                     'WORKDIR build',
-                    'RUN cmake -DBUILD_SHARED_LIBS=OFF -DBUILD_GTK_TESTS=OFF -DBUILD_QT5_TESTS=OFF -DBUILD_CPP_TESTS=OFF -DENABLE_SPLASH=OFF -DENABLE_CPP=OFF -DENABLE_GLIB=OFF -DENABLE_GTK_DOC=OFF -DENABLE_QT5=OFF -DENABLE_LIBOPENJPEG=unmaintained -DENABLE_CMS=none -DENABLE_LIBCURL=OFF -DENABLE_ZLIB=OFF -DENABLE_DCTDECODER=unmaintained -DENABLE_ZLIB_UNCOMPRESS=OFF -DWITH_JPEG=OFF -DWITH_PNG=ON -DWITH_TIFF=OFF -DWITH_NSS3=OFF -DWITH_Cairo=ON -DWITH_FONTCONFIGURATION_FONTCONFIG=OFF -DCMAKE_EXE_LINKER_FLAGS="-pthread" ../',
+                    'RUN cmake -DBUILD_SHARED_LIBS=OFF -DBUILD_GTK_TESTS=OFF -DBUILD_QT5_TESTS=OFF -DBUILD_CPP_TESTS=OFF -DENABLE_SPLASH=OFF -DENABLE_CPP=OFF -DENABLE_GLIB=OFF -DENABLE_GTK_DOC=OFF -DENABLE_QT5=OFF -DENABLE_LIBOPENJPEG=unmaintained -DENABLE_CMS=none -DENABLE_LIBCURL=OFF -DENABLE_ZLIB=OFF -DENABLE_DCTDECODER=unmaintained -DENABLE_ZLIB_UNCOMPRESS=OFF -DWITH_JPEG=OFF -DWITH_PNG=ON -DWITH_TIFF=OFF -DWITH_NSS3=OFF -DWITH_Cairo=ON -DWITH_FONTCONFIGURATION_FONTCONFIG=ON -DCMAKE_EXE_LINKER_FLAGS="-pthread" ../',
 
                     // installs to /usr/local:
                     'RUN make -j5 install',
@@ -1043,7 +1070,7 @@ with open(sys.argv[1], 'w') as html: \n\
                           ',
                      'WORKDIR /src/qpdf-release-qpdf-10.0.1/',
                      'RUN ./configure',
-                     'RUN make',
+                     'RUN make -j5',
                      'RUN make install',
                 ],
             },
