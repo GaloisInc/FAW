@@ -137,6 +137,11 @@ def main():
                         return r
                     bb, ii = [base, img]
 
+                    # pdftoppm sometimes renders a border wrong. Other renderers
+                    # probably do as well. So, take off border pixels.
+                    bb = bb[1:-1, 1:-1]
+                    ii = ii[1:-1, 1:-1]
+
                     if True:
                         # Align via cv2, per https://alexanderpacha.com/2018/01/29/aligning-images-an-engineers-solution/
                         # Some PDFs do have alignment issues, particularly when
@@ -162,7 +167,7 @@ def main():
                             if html_out:
                                 print(f'No page alignment: cv2.error <br/>')
                         else:
-                            ii = cv2.warpAffine(ii, warp_matrix, (img.shape[1], img.shape[0]),
+                            ii = cv2.warpAffine(ii, warp_matrix, (ii.shape[1], ii.shape[0]),
                                     flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
                                     borderMode=cv2.BORDER_REPLICATE)
 
@@ -202,6 +207,10 @@ def main():
 
                     diff = abs(1. - diff) * np.maximum(bb_mag, ii_mag) + abs(bb_mn - ii_mn) / 255.
                     diff = abs(hipass(diff))
+
+                    # hipass' far borders are invalid.
+                    diff = diff[:-1, :-1]
+
 
                 elif base is not None and True:
                     # Experimental filter, archived here. Production one is
