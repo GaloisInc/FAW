@@ -151,7 +151,7 @@
                 type: 'regex-counter',
                 stdstar: {
                     '^\\s*(/opt|/lib|[#]FailureMessage).*$': {
-                        nameGroup: 'stack trace collapsed'
+                        nameGroup: '<<workbench: stack trace collapsed>>'
                     },
 
                     '^.*$': {
@@ -355,10 +355,6 @@
                         nameGroup: 'PDF Header',
                     },
 
-                    '^Date.*$': {
-                        nameGroup: 'Date',
-                    },
-
                     '^(.*?[Ee]ntropy.*):\\s*(\\d\\.\\d+)\\s+\\(\\s*(\\d+) bytes\\)$': {
                         nameGroup: 1,
                         countGroup: 2,
@@ -412,7 +408,7 @@
             },
             stderr: {
               '^.*$': {
-                nameGroup: 'ERROR'
+                nameGroup: '<<workbench: collapsed errors>>'
               },
             },
           },
