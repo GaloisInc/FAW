@@ -76,7 +76,8 @@ def main():
             "copy of an existing database. Format: localhost:27019/120pdfs")
     parser.add_argument('--development', action='store_true',
             help="Developer option: mount source code over docker image, for "
-            "Vue.js hot reloading.")
+            "Vue.js hot reloading. Also adds `sys_ptrace` capability to docker "
+            "container for profiling purposes.")
     args = parser.parse_args()
     pdf_dir = args.file_dir
     port = args.port
@@ -191,6 +192,9 @@ def main():
     else:
         extra_flags.extend(['-v', f'{faw_dir}/common/pdf-observatory:/home/pdf-observatory'])
         extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
+        # Allow profiling via e.g. py-spy
+        extra_flags.extend(['--cap-add', 'sys_ptrace'])
+
         extra_flags.append(IMAGE_TAG + '-dev')
 
     def open_browser():
