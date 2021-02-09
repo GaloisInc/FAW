@@ -100,6 +100,12 @@ export default Vue.extend({
       const asp = this.decisionAspectSelected;
       const undefinedStr = 'undefined';
       for (const [count, v, arr] of [[false, dVals, this.pdfsReference], [true, dVals, this.pdfs]] as [boolean, Array<string|undefined>, Array<PdfDecision>][]) {
+        if (count) {
+          while (counts.length < v.length) {
+            counts.push([]);
+            examples.push([]);
+          }
+        }
         for (const a of arr) {
           let av = a[asp];
           if (av === undefined) av = undefinedStr;
