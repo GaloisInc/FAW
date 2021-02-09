@@ -99,6 +99,32 @@
             },
         },
 
+        pdffonts: {
+            // `-subst` shows only font substitutions, which are non-embedded
+            // fonts.
+            exec: ['/usr/local/bin/pdffonts', '-subst', '<inputFile>'],
+            version: 'poppler-20.09.0',
+            parse: {
+              type: 'regex-counter',
+              stdout: {
+                '^name ': {
+                  nameGroup: '',
+                },
+                '^----': {
+                  nameGroup: '',
+                },
+                '^([a-zA-Z0-9-]+)': {
+                  nameGroup: 'Unembedded font',
+                },
+              },
+              stderr: {
+                '^.*': {
+                  nameGroup: '',
+                },
+              },
+            },
+        },
+
         "pdfinfo-meta": {
             exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
             version: 'poppler-20.09.0',
@@ -205,14 +231,19 @@
 
         pdftotext: {
           exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
-          version: 'pdftotext1',
+          version: 'pdftotext2',
           parse: {
             type: 'regex-counter',
-            stdstar: {
+            stdout: {
               // We do NOT want the observatory to pick these up, so just ignore
               // every message. pdftotext must be searched via mongo!
               '^.*$': {
                 nameGroup: '',
+              },
+            },
+            stderr: {
+              '^Syntax Error: .*': {
+                nameReplace: {'[0-9]': ''},
               },
             },
           },
@@ -386,29 +417,36 @@
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
           timeout: 1200,
-          version: 'schizo-test53',
+          version: 'schizo-test64',
           parse: {
             type: 'regex-counter',
-            stdout: {
-              '^Max RMSE: (.*)': {
-                nameGroup: 'Max RMSE',
-                countGroup: 1,
+            stdstar: {
+              '^(Max RMSE, .*): (.*)': {
+                nameGroup: 1,
+                countGroup: 2,
                 countAsNumber: true,
               },
-              '^Max diff: (.*)': {
-                nameGroup: 'Max diff',
-                countGroup: 1,
+              '^(Max diff, .*): (.*)': {
+                nameGroup: 1,
+                countGroup: 2,
                 countAsNumber: true,
               },
-              '^.*$': {
+              '^Schizophrenic: .*': {
                 nameReplace: {
                   '[0-9]': '',
                 },
               },
-            },
-            stderr: {
-              '^.*$': {
-                nameGroup: '<<workbench: collapsed errors>>'
+              '^(subprocess\.CalledProcessError)': {
+                nameGroup: 1,
+              },
+              '^Page ': {
+                nameGroup: '',
+              },
+              '^(Traceback|  )': {
+                nameGroup: '<<workbench: collapsed errors>>',
+                nameReplace: {
+                  '[0-9]': '',
+                },
               },
             },
           },
@@ -718,114 +756,45 @@
 # Any line beginning with a hash is a comment.  \n\
 filters:  \n\
   # Filters are defined as groups of regular expressions.  \n\
-\n\
-  S1 all:  \n\
-    # These are our filters from demo 1  \n\
-    # A comment must not be inserted on the same line as a regular expression!  \n\
-    ^caradoc-stats_[a-zA-Z0-9_/ ]+  \n\
-    ^caradoc-strict_[a-zA-Z0-9_/ ]+  \n\
-    ^pdfid[a-zA-Z0-9 _/%]+  \n\
-    ^pdfid_Date:  \n\
-    ^pdfinfo[a-zA-Z0-9 _]+  \n\
-    ^pdfinfo-struct_Syntax Warning  \n\
-    ^pdfinfo-struct_struct  \n\
-    ^pdfinfo-meta_meta not implemented$  \n\
-    ^qpdf-check_.*WARNING.*  \n\
-    ^qpdf-check_[a-z ]+$  \n\
-    ^mutool-clean_  \n\
-    ^mutool-convert-pdf_  \n\
-    <<workbench: Exit code  \n\
   \n\
-  S2:  \n\
-    # We\'ve talked about linearized files being unsafe...  \n\
-    ^qpdf-check_file is linearized$  \n\
+  PdfiumError:  \n\
+    ^pdfium_.*unsuccessful  \n\
+    ^pdfium_.*bad  \n\
   \n\
-  ValidMustHave:  \n\
-    ^pdfid_%%EOF  \n\
+  MutoolCleanAccept:  \n\
+    ^mutool-clean_.*<<workbench:\ Exit\ code\ 0>>  \n\
+  MutoolCleanError:  \n\
+    ^mutool-clean_.*<<workbench:\ Exit\ code\ (?!0)  \n\
+    ^mutool-clean_.*[Ee]rror(?!: cannot recognize version marker)  \n\
+    ^mutool\-clean_warning:\ ignoring\ object\ with\ invalid\ object\ number\ \\(\ \ R\\)  \n\
+  MutoolConvertAccept:  \n\
+    ^mutool-convert_.*<<workbench:\ Exit\ code\ 0>>  \n\
+  MutoolDrawAccept:  \n\
+    ^mutool-draw_.*<<workbench:\ Exit\ code\ 0>>  \n\
+  PdfiumAccept:  \n\
+    ^pdfium_<<workbench:\ Exit\ code\ 0>>$  \n\
+  PdfdriverAccept:  \n\
+    ^pdf-hs-driver_<<workbench:\ Exit\ code\ 0>>$  \n\
+  PdftotextError:  \n\
+    ^pdftotext_Syntax Error  \n\
+  XrefRebuildNeeded:  \n\
+    ^pdftocairo\-pdf_Internal\ Error:\ xref\ num\ \-\ not\ found\ but\ needed\,\ try\ to\ reconstruct<a>  \n\
   \n\
-  ValidCannotHave:  \n\
-    ^pdfinfo-struct_struct  \n\
-    ^qpdf-check_.*ERROR.*  \n\
-    ^qpdf-check_.*WARNING.*  \n\
-  \n\
-  ValidWarningsBad:  \n\
-    ^caradoc-strict_PDF error : Xref table contains object that does not exist in object  \n\
-    ^mutool-convert-pdf_error: cannot find .*  \n\
-    ^mutool-convert-pdf_warning: non-page object in page tree  \n\
-    ^mutool-convert-pdf_error: invalid key in dict  \n\
-    ^mutool-convert-pdf_error: invalid indirect reference in dict  \n\
-    ^mutool-convert-pdf_error: unknown token in dict  \n\
-    #^mutool-convert-pdf_warning: cannot create ToUnicode mapping for  \n\
-  \n\
-  ValidWarningsXrefRebuild:  \n\
-    ^qpdf-check_WARNING: xref not found  \n\
-    ^pdfinfo-struct_Internal Error: xref num  not found but needed, try to reconstruct  \n\
-    ^caradoc-strict_PDF error : Xref does not start at object  in object trailer at offset  \n\
-    ^mutool-convert-pdf_warning: trying to repair broken xref  \n\
-  \n\
-  XrefIsAmbiguous:  \n\
-    shared identifier entries  \n\
-  \n\
-  RejectedAmbiguousBad:  \n\
-    ^qpdf-check_WARNING: loop detected following xref tables  \n\
-    # This one is unreliable, and refers to previous lines in output ^mutool-convert-pdf_warning: unrecoverable error; ignoring rest of page  \n\
-    ^mutool-convert-pdf_error: Unable to read ICC workflow  \n\
-    # This one often applies to xref issues; ^mutool-convert-pdf_warning: repairing PDF document  \n\
-    ^caradoc-stats_PDF error : Lexing error : integer error : integer overflow at offset  \n\
-    ^mutool-convert-pdf_error: malformed page tree  \n\
-  \n\
-  RejectedBad:  \n\
-    ^mutool-convert-pdf_error: no objects found  \n\
-    ^caradoc-stats_PDF error : Lexing error : unexpected character : at offset  \n\
-    ^pdfinfo-struct_Syntax Error \\(\\): Illegal character <> in hex string  \n\
-    ^pdftocairo-pdf_Syntax Error \\(\\): Illegal character \'}\'  \n\
-    ^pdftocairo-pdf_Syntax Error  \n\
-    ^qpdf-check_WARNING: operation for dictionary attempted on object of type null: returning null for attempted key retrieval  \n\
-    ^pdfinfo-struct_Syntax Error: Invalid object stream  \n\
-  \n\
-  SafeWarnings:  \n\
-    ^qpdf-check_WARNING: unknown token while reading object; treating as string  \n\
-    ^pdfid_/URI  \n\
-    ^caradoc-stats_PDF error : Lexing error : integer error : integer overflow at offset  \n\
-    ^caradoc-strict_PDF error : Xref does not start at object  in object trailer at offset  \n\
-    After last %%EOF  \n\
-    /Colors > 2^24  \n\
-  \n\
-  UnsafeWarnings:  \n\
-    ^qpdf-check_WARNING: loop detected following xref tables  \n\
-    ^pdfid_/OpenAction  \n\
-    ^pdfinfo_Syntax Error \\(\\): Dictionary key must be a name object  \n\
-    ^mutool-convert-pdf_warning: non-page object in page tree  \n\
-    ^schizo\-test_Unable to read image  \n\
-    ^mutool-clean-zipbomb_Possible zip bomb  \n\
-  \n\
-  Unsafe: \n\
-    ^polyfile_Found a file of type (?!Adobe Portable Document Format)  \n\
-    ^schizo\-test_Schizophrenic: page  was size \n\
-    ^schizo\-test_Max RMSE \n\
-      sum > 3 \n\
+  Unsafe:  \n\
+    ^polyfile_Found a file of type (?!Adobe Portable Document Format|Hyper[Tt]ext)  \n\
+    ^schizo-test_Max RMSE  \n\
+      sum > 0.2  \n\
+    ^pdffonts_Unembedded font  \n\
   \n\
 outputs:  \n\
-  # Standard output status -- If a PDF passes filter S1, it will be "valid",  \n\
-  # otherwise "rejected".  \n\
+  \n\
   status:  \n\
-    "valid" is !(RejectedBad | RejectedAmbiguousBad | ValidWarningsXrefRebuild & XrefIsAmbiguous | Unsafe)  \n\
+    "valid" is PdfiumAccept & !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
+    #"valid" is !MutoolCleanError  \n\
     "rejected" else  \n\
-  \n\
-  # Mark anything that is linearized as "rejected-unsafe", and otherwise  \n\
-  # mark it as "valid".  \n\
-  validity-status:  \n\
-    "rejected" is RejectedBad  \n\
-    "rejected-ambiguous" is RejectedAmbiguousBad | (ValidWarningsXrefRebuild & XrefIsAmbiguous)  \n\
-    "valid-warnings" is ValidWarningsBad | !ValidMustHave | ValidCannotHave | ValidWarningsXrefRebuild  \n\
+  status-strict:  \n\
+    "rejected" is PdfiumError | PdftotextError | !MutoolDrawAccept | !MutoolConvertAccept | !MutoolCleanAccept | Unsafe | !PdfdriverAccept  \n\
     "valid" else  \n\
-    "rejected-unsafe"  \n\
-  \n\
-  safety-status:  \n\
-    "unsafe" is Unsafe  \n\
-    "unsafe-warnings" is UnsafeWarnings  \n\
-    "safe-warnings" is SafeWarnings  \n\
-    "safe" else  \n\
   ',
 
     decision_views: {
