@@ -11,13 +11,17 @@ import mongo_queue_helper
 
 import click
 import collections
+import contextlib
 import functools
 import json
 import math
 import os
 import pymongo
+import shutil
 import subprocess
+import tempfile
 import time
+import urllib.request
 
 # Trickery to import pieces of pdf-etl decision pipeline
 import importlib
@@ -36,14 +40,16 @@ app_config = None
 @click.option('--mongo-db', type=str, required=True, help="Path to observatory "
         "database, e.g., localhost:27017/tmp-observatory")
 @click.option('--pdf-dir', type=str, required=True, help="Path to folder "
-        "containing PDFs.")
+        "containing PDFs; MUST MATCH between primary and worker nodes.")
+@click.option('--pdf-fetch-url', type=str, help="A URL endpoint which accepts "
+        "file names relative to PDF_DIR on the main host.")
 @click.option('--config', type=str, required=True, help="Path to JSON file "
         "specifying parsers.")
 @click.option('--retry-errors/--no-retry-errors', default=False,
         help="Forcibly mark documents which have errors for retry.")
 @click.option('--clean/--no-clean', default=False,
         help="Trigger re-processing of all documents.")
-def main(mongo_db, pdf_dir, config, clean, retry_errors):
+def main(mongo_db, pdf_dir, pdf_fetch_url, config, clean, retry_errors):
     assert len(mongo_db.split('/')) == 2, mongo_db
 
     global app_config
@@ -62,13 +68,46 @@ def main(mongo_db, pdf_dir, config, clean, retry_errors):
 
     # Run
     mongo_col = mongo_db + '/observatory'
-    mongo_queue_helper.run(live_mode=False, processes=0, threads=2,
+    init_fn = None
+    if pdf_fetch_url is None:
+        # A local folder; indicative of main FAW
+        live_mode = False
+        init_fn = functools.partial(db_init, mongo_db=mongo_db,
+                pdf_dir=pdf_dir, retry_errors=retry_errors)
+        @contextlib.contextmanager
+        def pdf_getter(fpath):
+            yield os.path.join(pdf_dir, fpath)
+    else:
+        # A network path; indicative of worker FAW
+        live_mode = True
+        try:
+            os.makedirs(pdf_dir)
+        except FileExistsError:
+            pass
+
+        @contextlib.contextmanager
+        def pdf_getter(fpath):
+            # Importantly, the absolute path MUST match that of the host. So,
+            # use the same pdf_dir.
+            fpath_full = os.path.join(pdf_dir, fpath)
+            try:
+                os.makedirs(os.path.dirname(fpath_full))
+            except FileExistsError:
+                pass
+
+            with open(fpath_full, 'wb') as f:
+                with urllib.request.urlopen(pdf_fetch_url + fpath) as response:
+                    shutil.copyfileobj(response, f)
+            try:
+                yield fpath_full
+            finally:
+                os.unlink(fpath_full)
+    mongo_queue_helper.run(live_mode=live_mode, processes=0, threads=2,
             clean=clean, db_src=mongo_col, db_queue=mongo_col,
             processing_timeout=timeout_total*1.5,
-            handle_init_callback=functools.partial(db_init, mongo_db=mongo_db,
-                pdf_dir=pdf_dir, retry_errors=retry_errors),
+            handle_init_callback=init_fn,
             handle_queue_callback=functools.partial(load_document,
-                pdf_dir=pdf_dir, mongo_db=mongo_db,
+                pdf_getter=pdf_getter, mongo_db=mongo_db,
                 retry_errors=retry_errors),
             # PDF observatory can show exceptions
             allow_exceptions=True)
@@ -124,7 +163,7 @@ def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
                             'queueStop': None}})
 
 
-def load_document(doc, coll_resolver, pdf_dir, mongo_db, retry_errors):
+def load_document(doc, coll_resolver, pdf_getter, mongo_db, retry_errors):
     """
     """
     print(f'Handling {doc["_id"]}')
@@ -132,8 +171,15 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, retry_errors):
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
     # not time out, the parsers may be re-run without re-running the tools.
+    fpath = doc['_id']
+    with pdf_getter(fpath) as fpath_access:
+        return _load_document_inner(doc, coll_resolver, fpath, fpath_access,
+                mongo_db, retry_errors)
+
+
+def _load_document_inner(doc, coll_resolver, fpath, fpath_access, mongo_db,
+        retry_errors):
     delete_or_clause = []
-    fpath = os.path.join(pdf_dir, doc['_id'])
     if retry_errors:
         delete_or_clause.append({'file': fpath, 'result._cons': 'Timeout'})
     # Clear previous raw invocations whose versions do not match the expected
@@ -197,14 +243,14 @@ def load_document(doc, coll_resolver, pdf_dir, mongo_db, retry_errors):
         # a DB error. This is somewhat antiquated code.
         tool_timeout = None
 
-        aargs.extend(['-i', k, fpath])
+        aargs.extend(['-i', k, fpath_access])
         call(aargs,
                 cwd='/home/dist',
                 timeout=tool_timeout)
 
     # For each raw invocation, parse it.
     _load_document_parse(doc['_id'],
-            tools_pdf_name=fpath,
+            tools_pdf_name=fpath_access,
             coll_resolver=coll_resolver,
             mongo_db=mongo_db)
 

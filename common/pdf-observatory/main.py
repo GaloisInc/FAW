@@ -2,6 +2,7 @@
 import asyncio
 import bson
 import click
+import functools
 import importlib.util
 import json
 import math
@@ -31,7 +32,7 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 @click.command()
 @click.argument('pdf-dir')
 @click.argument('mongodb')
-@click.option('--host', type=str, default='localhost')
+@click.option('--host', type=str, default=None)
 @click.option('--port', type=int, default=None)
 @click.option('--in-docker/--not-in-docker', default=False,
         help="Must specify if running in docker.")
@@ -40,7 +41,9 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
             "on the fly and using Vue's hot reload functionality.")
 @click.option('--config', type=str, required=True,
         help="(Required) Path to .json defining this observatory deployment.")
-def main(pdf_dir, mongodb, host, port, in_docker, production, config):
+@click.option('--quit-after-config/--no-quit-after-config', default=False)
+def main(pdf_dir, mongodb, host, port, in_docker, production, config,
+        quit_after_config):
     """Run the PDF observatory on the given mongodb instance and database,
     providing a UI.
 
@@ -57,6 +60,9 @@ def main(pdf_dir, mongodb, host, port, in_docker, production, config):
 
     app_config_path = config
     _config_reload()
+
+    if quit_after_config:
+        return
 
     app_docker = in_docker
     app_pdf_dir = os.path.abspath(pdf_dir)
@@ -75,7 +81,18 @@ def main(pdf_dir, mongodb, host, port, in_docker, production, config):
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
     vuespa.VueSpa('ui', Client, host=host, port=port,
-            development=not production).run()
+            development=not production,
+            config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
+            ).run()
+
+
+def config_web(app, pdf_dir):
+    """Add an endpoint for direct downloading of files.
+    """
+    import aiohttp.web as web
+    app.router.add_routes([
+            web.static('/file_download', pdf_dir),
+    ])
 
 
 async def _config_check_loop():

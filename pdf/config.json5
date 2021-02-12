@@ -1040,14 +1040,6 @@ with open(sys.argv[1], 'w') as html: \n\
                     'RUN apt-get update && apt-get install -y \
                         libjpeg-dev \
                         ',
-                ],
-            },
-
-            // final is a special stage which runs in the final image.  Useful
-            // for installing dependencies for downstream tools, without needing
-            // to rebuild all of the other workbench internals.
-            final: {
-                commands: [
                     // Ensure poppler has fonts installed and available; installs both MS fonts and
                     // uses a nuclear option to select all available ubuntu fonts packages.
                     'RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections',
@@ -1058,7 +1050,16 @@ with open(sys.argv[1], 'w') as html: \n\
                         | grep -v fonts-mathematica \
                         | xargs apt-get install -y \
                       ",
+                    // Schizo test additionally requires a few packages for opencv2
+                    'RUN apt-get update && apt-get install -y ffmpeg libsm6 libxext6',
+                ],
+            },
 
+            // final is a special stage which runs in the final image.  Useful
+            // for installing dependencies for downstream tools, without needing
+            // to rebuild all of the other workbench internals.
+            final: {
+                commands: [
                     // Interestingly, some packages (e.g. opencv-python) require
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
@@ -1070,8 +1071,6 @@ with open(sys.argv[1], 'w') as html: \n\
 
                     'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
-                    // Schizo test additionally requires a few packages for opencv2
-                    'RUN apt-get update && apt-get install -y ffmpeg libsm6 libxext6',
 
                     'COPY {dist}/bernoulli_test/requirements.txt /home/dist/bernoulli_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/bernoulli_test/requirements.txt',
