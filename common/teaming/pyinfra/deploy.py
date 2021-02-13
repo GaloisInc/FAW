@@ -59,6 +59,7 @@ docker_flags = ['docker', 'run', '-d',
         '--name', docker_container,
         '-e', f'DB={user}-faw-db',
 ]
+docker_flags_cmd = []
 if 'web_host' in host.groups:
     # Normal FAW instance, all ports exposed
     docker_flags.extend(['-v', f'{config.web_host_file_dir}:/home/pdf-files'])
@@ -80,10 +81,12 @@ python3 ../pdf-observatory/queue_client.py --mongo-db {webhost}:{config.port_mon
             rf'chmod 755 {userhome}/worker.sh',
     ])
     docker_flags.extend([
-            '-v', f'{userhome}/worker.sh:/home/worker.sh',
-            '--entrypoint', '/home/worker.sh',
+            '-v', f'{userhome}/worker.sh:/home/worker.sh:ro',
+            '--entrypoint', '/bin/bash',
     ])
+    docker_flags_cmd.extend(['-c', '/home/worker.sh'])
 docker_flags.append(docker_image_name)
+docker_flags.extend(docker_flags_cmd)
 server.shell(name="Kill old docker container, launch new",
         commands=[
             # Stop / remove old
