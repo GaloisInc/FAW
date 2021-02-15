@@ -118,7 +118,7 @@ def main():
                         if html_out:
                             print(f'<td>No image for {base_tool}</td>')
                         continue
-                    diff, definitely_schizo = img_diff(base_img, img,
+                    diff, definitely_schizo = img_diff(pageno, base_img, img,
                             html_out=html_out)
                     if definitely_schizo:
                         any_schizo = True
@@ -193,7 +193,7 @@ def main():
                 print(f'Max diff, {bt} to {ot}: {rmse:.4f}', file=sys.stderr)
 
 
-def img_diff(base, img, html_out):
+def img_diff(pageno, base, img, html_out):
     """Returns: diff img, definitely schizo
     """
 

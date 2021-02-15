@@ -417,7 +417,7 @@
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
           timeout: 1200,
-          version: 'schizo-test64',
+          version: 'schizo-test65',
           parse: {
             type: 'regex-counter',
             stdstar: {
