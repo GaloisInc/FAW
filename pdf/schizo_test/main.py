@@ -224,7 +224,8 @@ def img_diff(pageno, base, img, html_out):
     def hipass(i):
         r = i.copy()
         r[:-1, :-1] -= r[1:, 1:]
-        return r
+        # Hipass has invalid borders
+        return r[:-1, :-1]
     bb, ii = [base, img]
 
     # pdftoppm sometimes renders a border wrong. Other renderers
@@ -262,27 +263,40 @@ def img_diff(pageno, base, img, html_out):
                     borderMode=cv2.BORDER_REPLICATE)
 
     if True:
-        # A true median filter is ridiculously expensive. So, try a cheap one
-        # which only gets a bead on the page color.
-        med_ii = np.median(ii, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
-        med_bb = np.median(bb, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
+        sz_blur = 2.
+        sz_med = 5
+        sz_var_max = 9
 
-        iig = scipy.ndimage.filters.gaussian_filter(ii, sigma=(4., 4, 0))
-        bbg = scipy.ndimage.filters.gaussian_filter(bb, sigma=(4., 4, 0))
+        iig = ii
+        bbg = bb
+
+        iig = hipass(iig)
+        bbg = hipass(bbg)
+
+        iig = scipy.ndimage.filters.gaussian_filter(iig, sigma=(sz_blur, sz_blur, 0))
+        bbg = scipy.ndimage.filters.gaussian_filter(bbg, sigma=(sz_blur, sz_blur, 0))
+
+        if False:
+            med_ii = scipy.ndimage.filters.median_filter(iig, size=(sz_med, sz_med, 1))
+            med_bb = scipy.ndimage.filters.median_filter(bbg, size=(sz_med, sz_med, 1))
+        else:
+            # A true median filter is ridiculously expensive for large sizes.
+            # So, try a cheap one which only gets a bead on the page color.
+            med_ii = np.median(ii, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
+            med_bb = np.median(bb, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
 
         iig -= med_ii
         bbg -= med_bb
 
-        iig_max = scipy.ndimage.filters.maximum_filter(abs(iig), size=(3, 3, 1))
-        bbg_max = scipy.ndimage.filters.maximum_filter(abs(bbg), size=(3, 3, 1))
+        iig_max = scipy.ndimage.filters.maximum_filter(abs(iig), size=(sz_var_max, sz_var_max, 1))
+        bbg_max = scipy.ndimage.filters.maximum_filter(abs(bbg), size=(sz_var_max, sz_var_max, 1))
 
-        s = lambda v: 5 / (5 + v)
+        s = lambda v: 1 / (10 + v)
 
         diff = iig * s(iig_max) - bbg * s(bbg_max)
 
-        diff = abs(hipass(diff))
-        # Hipass has invalid borders
-        diff = diff[:-1, :-1]
+        #diff = hipass(diff)
+        diff = abs(diff)
         return diff, False
     elif base is not None and True:
         # Experimental covariance filter
