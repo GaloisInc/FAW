@@ -173,15 +173,15 @@ def load_document(doc, coll_resolver, pdf_getter, mongo_db, retry_errors):
     # not time out, the parsers may be re-run without re-running the tools.
     fpath = doc['_id']
     with pdf_getter(fpath) as fpath_access:
-        return _load_document_inner(doc, coll_resolver, fpath, fpath_access,
+        return _load_document_inner(doc, coll_resolver, fpath_access,
                 mongo_db, retry_errors)
 
 
-def _load_document_inner(doc, coll_resolver, fpath, fpath_access, mongo_db,
+def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         retry_errors):
     delete_or_clause = []
     if retry_errors:
-        delete_or_clause.append({'file': fpath, 'result._cons': 'Timeout'})
+        delete_or_clause.append({'file': fpath_access, 'result._cons': 'Timeout'})
     # Clear previous raw invocations whose versions do not match the expected
     # tool versions.
     invokers_whitelist = []
@@ -189,7 +189,7 @@ def _load_document_inner(doc, coll_resolver, fpath, fpath_access, mongo_db,
         if v.get('disabled'):
             continue
         invokers_whitelist.append(k)
-        delete_or_clause.append({'file': fpath, 'invoker.invName': k,
+        delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
                 'invoker.version': {'$ne': v['version']}})
     # Used to clear out old parser data. However... since private distributions,
     # e.g. `./workbench.py ../modified-pdf ...`, it doesn't really make sense
@@ -197,7 +197,7 @@ def _load_document_inner(doc, coll_resolver, fpath, fpath_access, mongo_db,
     # Since that's the main situation in which this deletion would be triggered,
     # it doesn't make sense for deleting extraneous parser information to be the
     # default behavior.
-    #delete_or_clause.append({'file': fpath,
+    #delete_or_clause.append({'file': fpath_access,
     #        'invoker.invName': {'$nin': invokers_whitelist}})
 
     db_coll = coll_resolver(mongo_db + '/rawinvocations')
@@ -211,7 +211,7 @@ def _load_document_inner(doc, coll_resolver, fpath, fpath_access, mongo_db,
         db_coll.delete_many(query)
 
     invs_seen = [r['invoker']['invName']
-            for r in db_coll.find({'file': fpath}, {'invoker.invName': True})]
+            for r in db_coll.find({'file': fpath_access}, {'invoker.invName': True})]
 
     # Produce raw invocations
     host_port, db = mongo_db.split('/')
