@@ -11,7 +11,7 @@
     "d3": "^4.x",
     "d3-svg-annotation": "^2.5.1",
     "pegjs": "^0.10.0",
-    "pug": "^2.0.4",
+    "pug": "^3.0.1",
     "pug-plain-loader": "^1.0.0",
     "v-clipboard": "^2.2.3",
     "vue": "^2.6.10",
