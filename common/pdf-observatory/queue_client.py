@@ -168,9 +168,6 @@ def load_document(doc, coll_resolver, pdf_getter, mongo_db, retry_errors):
     """
     print(f'Handling {doc["_id"]}')
 
-    # Clear previous raw invocations which timed out -- assume those which
-    # did not time out were OK.  By assuming the ok-ness of those which did
-    # not time out, the parsers may be re-run without re-running the tools.
     fpath = doc['_id']
     with pdf_getter(fpath) as fpath_access:
         return _load_document_inner(doc, coll_resolver, fpath_access,
@@ -179,6 +176,9 @@ def load_document(doc, coll_resolver, pdf_getter, mongo_db, retry_errors):
 
 def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         retry_errors):
+    # Clear previous raw invocations which timed out -- assume those which
+    # did not time out were OK.  By assuming the ok-ness of those which did
+    # not time out, the parsers may be re-run without re-running the tools.
     delete_or_clause = []
     if retry_errors:
         delete_or_clause.append({'file': fpath_access, 'result._cons': 'Timeout'})

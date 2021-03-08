@@ -291,6 +291,34 @@ def _check_config_file(config):
     etl_parse = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(etl_parse)
 
+    schema_views = {
+            s.Optional('decision_views', default={}): s.Or({}, {
+                str: {
+                    'label': str,
+                    'type': 'program',
+                    'exec': [s.Or(
+                        s.And(str, lambda x: not x.startswith('<')),
+                        s.And(str, lambda x: x in [
+                            '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
+                            '<workbenchApiUrl>']),
+                        )],
+                    'execStdin': s.And(str, lambda x: all([
+                        y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
+                        for y in re.finditer('<[^>]*>', x)]),
+                        error="Must be string with any <'s being one of: "
+                            "<referenceDecisions>, <statsbyfile>"),
+                },
+            }),
+            s.Optional('file_detail_views', default={}): s.Or({}, {
+                str: {
+                    'label': str,
+                    'type': 'program_to_html',
+                    'exec': [str],
+                    s.Optional('outputMimeType', default='text/html'): str,
+                },
+            }),
+    }
+
     # NOTE -- primary schema validation is here, but NOT for submodules such
     # as pdf-etl-parse.
     sch = s.Schema({
@@ -299,29 +327,25 @@ def _check_config_file(config):
         'parsers': etl_parse.schema_get(),
         s.Optional('parserDefaultTimeout', default=30): s.Or(float, int),
         'decision_default': str,
-        'decision_views': s.Or({}, {
-            str: {
-                'label': str,
-                'type': 'program',
-                'exec': [s.Or(
-                    s.And(str, lambda x: not x.startswith('<')),
-                    s.And(str, lambda x: x in [
-                        '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
-                        '<workbenchApiUrl>']),
-                    )],
-                'execStdin': s.And(str, lambda x: all([
-                    y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
-                    for y in re.finditer('<[^>]*>', x)]),
-                    error="Must be string with any <'s being one of: "
-                        "<statsbyfile>"),
-            },
-        }),
-        'file_detail_views': s.Or({}, {
-            str: {
-                'label': str,
-                'type': 'program_to_html',
-                'exec': [str],
-                s.Optional('outputMimeType', default='text/html'): str,
+        s.Optional('pipelines', default={}): s.Or({}, {
+            s.And(str, lambda x: '_' not in x and '.' not in x, 
+                    error='Must not have underscore or dot'): {
+                s.Optional('label'): str,
+                s.Optional('tasks', default={}): s.Or({}, 
+                    s.And(
+                        {
+                            s.And(str, lambda x: '_' not in x and '.' not in x,
+                                    error='Must not have underscore or dot'): {
+                                'version': s.Or(str, float, int),
+                                'exec': [str],
+                                s.Optional('dependsOn', default=[]): [str],
+                            },
+                        },
+                        lambda x: all([d in x for _, task in x.items() for d in task['dependsOn']]),
+                        error="Task `dependsOn` had invalid name",
+                    )),
+                s.Optional('parsers', default={}): etl_parse.schema_get(),
+                **schema_views,
             },
         }),
         'build': {
@@ -335,6 +359,7 @@ def _check_config_file(config):
                 },
             },
         },
+        **schema_views,
     })
     try:
         config_data = sch.validate(config_data)
@@ -550,6 +575,11 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Tell python to never buffer output. This is vital for preventing
             # some "write would block" messages.
             ENV PYTHONUNBUFFERED 1
+            # Ensure any python code running (dask, user code) has access to
+            # the faw_pipelines_util and user packages.
+            ENV PYTHONPATH /home/dist:/home/pdf-observatory
+
+            # Mongodb service
             RUN \
                 mkdir -p /etc/cont-init.d \
                 && echo "#! /bin/sh\\nmkdir -p /var/log/mongodb\\nchown -R nobody:nogroup /var/log/mongodb" > /etc/cont-init.d/mongod \
@@ -565,6 +595,19 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 mkdir /etc/services.d/observatory \
                     && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
+                && echo OK
+
+            # Dask service (scheduler AND worker initially; teaming script fixes this)
+            # Note -- listens to all IPv4 and IPv6 addresses by default.
+            RUN \
+                mkdir /etc/services.d/dask-scheduler \
+                    && echo '#! /bin/bash\ncd /home/dist\ndask-scheduler --port 8786' >> /etc/services.d/dask-scheduler/run \
+                    && chmod a+x /etc/services.d/dask-scheduler/run \
+                && echo OK
+            RUN \
+                mkdir /etc/services.d/dask-worker \
+                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786' >> /etc/services.d/dask-worker/run \
+                    && chmod a+x /etc/services.d/dask-worker/run \
                 && echo OK
 
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time

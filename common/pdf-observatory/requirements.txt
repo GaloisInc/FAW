@@ -1,3 +1,4 @@
+dask[complete]
 motor
 pyjson5
 strictyaml

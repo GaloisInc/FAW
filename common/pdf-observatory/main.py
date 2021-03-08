@@ -1,4 +1,6 @@
 
+import faw_pipelines
+
 import asyncio
 import bson
 import click
@@ -21,6 +23,8 @@ app_config = None
 app_config_loaded = None
 app_config_path = None
 app_docker = False
+app_hostname = None
+app_hostport = None
 
 app_init = None
 app_mongodb = None
@@ -34,6 +38,8 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 @click.argument('mongodb')
 @click.option('--host', type=str, default=None)
 @click.option('--port', type=int, default=None)
+@click.option('--hostname', type=str, default=None, help="Used for teaming "
+        "deployments; specifies the hostname passed for <apiInfo>")
 @click.option('--in-docker/--not-in-docker', default=False,
         help="Must specify if running in docker.")
 @click.option('--production/--no-production', default=False,
@@ -42,7 +48,7 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 @click.option('--config', type=str, required=True,
         help="(Required) Path to .json defining this observatory deployment.")
 @click.option('--quit-after-config/--no-quit-after-config', default=False)
-def main(pdf_dir, mongodb, host, port, in_docker, production, config,
+def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
         quit_after_config):
     """Run the PDF observatory on the given mongodb instance and database,
     providing a UI.
@@ -53,12 +59,15 @@ def main(pdf_dir, mongodb, host, port, in_docker, production, config,
                 and database in which to store pdf observatory results.
     """
 
-    global app_config, app_config_path, app_docker, app_init, \
-            app_mongodb, app_mongodb_conn, app_pdf_dir
+    global app_config, app_config_path, app_docker, app_hostname, app_hostport, \
+            app_init, app_mongodb, app_mongodb_conn, app_pdf_dir
 
     assert in_docker, 'Config specifying parsers must be in docker'
 
     app_config_path = config
+    app_hostname = hostname if hostname is not None else 'localhost'
+    app_hostport = port
+    assert hostname is None or port is not None, 'Must specify port with hostname'
     _config_reload()
 
     if quit_after_config:
@@ -80,6 +89,8 @@ def main(pdf_dir, mongodb, host, port, in_docker, production, config,
     loop = asyncio.get_event_loop()
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
+    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn, app_config, 
+            _get_api_info))
     vuespa.VueSpa('ui', Client, host=host, port=port,
             development=not production,
             config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
@@ -113,14 +124,15 @@ def _config_reload():
 
     ts_loaded = os.path.getmtime(app_config_path)
     app_config = json.load(open(app_config_path))
+    faw_pipelines.config_update(app_config)
     # Build invokers.cfg based on specified invokers.
     etl_tools_path = os.path.join(etl_path, 'pdf-etl-tools')
     os.makedirs(etl_tools_path, exist_ok=True)
-    with open(os.path.join(etl_path, 'pdf-etl-tools', 'invokers.cfg'),
+    with open(os.path.join(etl_tools_path, 'invokers.cfg'),
             'w') as f:
         lines = []
         lines.append('[')
-        def exec_encode(v):
+        def exec_encode(v, api_extras):
             if v.startswith('<tempFile'):
                 suffix = v[9:-1]
                 if suffix:
@@ -131,14 +143,26 @@ def _config_reload():
                 return f'TmpFN "tmpfile{suffix}"'
             elif v.startswith('<'):
                 return {
-                        '<inputFile>': 'InputFile',
-                }[v]
+                        '<apiInfo>': lambda: f'Str {json.dumps(_get_api_info(api_extras))}',
+                        '<inputFile>': lambda: 'InputFile',
+                }[v]()
 
             # Haskell requires double quote delimiters, which JSON works with
             vrepr = json.dumps(v)
             return f'Str {vrepr}'
         first_rec = True
-        for i, (inv_name, inv_cfg) in enumerate(app_config['parsers'].items()):
+
+        all_parsers = [(k, v, {}) for k, v in app_config['parsers'].items()]
+        for pipe_name, pipe_cfg in app_config['pipelines'].items():
+            for p_name, p_cfg in pipe_cfg['parsers'].items():
+                p_cfg = p_cfg.copy()
+                # Update version based on latest pipeline calculation...
+                print("TBD")
+                p_cfg['version'] = p_cfg['version']
+                all_parsers.append((f'{pipe_name}--{p_name}', p_cfg, 
+                        {'pipeline': pipe_name}))
+
+        for inv_name, inv_cfg, api_info in all_parsers:
             if inv_cfg.get('disabled'):
                 continue
 
@@ -148,7 +172,7 @@ def _config_reload():
             hdr = ', ' if not first_rec else ''
             first_rec = False
             lines.append(f'{hdr}Invoker')
-            exec_args = ', '.join([exec_encode(a) for a in inv_cfg['exec']])
+            exec_args = ', '.join([exec_encode(a, api_info) for a in inv_cfg['exec']])
             timeout = 20  # We no longer use this feature, so fix it to a large value
             version = inv_cfg['version']
             lines.append(f'  {{ exec = [ {exec_args} ]')
@@ -161,6 +185,16 @@ def _config_reload():
 
     # Set at end of method, to get around any async / threading issues
     app_config_loaded = ts_loaded
+
+
+def _get_api_info(extra_info={}):
+    r = {
+        'hostname': app_hostname,
+        'hostport': app_hostport,
+        'mongo': app_mongodb,
+    }
+    r.update(extra_info)
+    return r
 
 
 class _DbLoaderProc:
