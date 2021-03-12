@@ -777,8 +777,8 @@
         // `<apiInfo>` added to simplify the interface)
         tasks: {
           learn: {
-            version: 1,
-            exec: ['python3', 'ml-test/train.py', '<apiInfo>'],
+            version: '4',
+            exec: ['python3', 'ml_test/train.py', '<apiInfo>'],
           },
         },
         // Same as top-level detail views; main difference is that these rely
@@ -787,7 +787,7 @@
           showParse: {
             label: 'Show parse',
             type: 'program_to_html',
-            exec: ['python3', 'ml-test/show_parse.py', '<outputHtml>',
+            exec: ['python3', 'ml_test/show_parse.py', '<outputHtml>',
               '<inputFile>', '<apiInfo>'],
           },
         },
@@ -803,12 +803,12 @@
             // actor which destroys itself after no usage... with a nanny task if
             // needed. In other words, all of that can happen within a normal
             // parser so long as we pass <apiInfo>
-            exec: ['python3', 'ml-test/unique_rule_printer.py', '<inputFile>',
+            exec: ['python3', 'ml_test/unique_rule_printer.py', '<inputFile>',
               '<apiInfo>'],
             // Note that parsers within a pipeline still have their own version
             // field. This is to prevent needing to re-run tasks when developing
             // the parser component.
-            version: 1,
+            version: '2',
             parse: {
                 type: 'regex-counter',
                 stdstar: {
@@ -1144,6 +1144,9 @@ with open(sys.argv[1], 'w') as html: \n\
 
                     'COPY {dist}/bernoulli_test/requirements.txt /home/dist/bernoulli_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/bernoulli_test/requirements.txt',
+
+                    'COPY {dist}/ml_test/requirements.txt /home/dist/ml_test/requirements.txt',
+                    'RUN pip3 install -r /home/dist/ml_test/requirements.txt',
 
                     'RUN pip3 install polyfile',
                 ],

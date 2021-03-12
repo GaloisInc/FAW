@@ -85,7 +85,9 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
 
     try:
         inv_version = doc['invoker']['version']
-        if cfg['version'] != inv_version:
+        if (cfg['version'] != inv_version
+                # Pipeline provision
+                and not inv_version.startswith(cfg['version'] + '__')):
             raise ValueError(f'Expected version {cfg["version"]}; parser ran as '
                     f'version {inv_version}')
 

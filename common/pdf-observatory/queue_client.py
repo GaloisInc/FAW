@@ -12,6 +12,8 @@ import mongo_queue_helper
 import click
 import collections
 import contextlib
+from dataclasses import dataclass
+import faw_pipelines_util
 import functools
 import json
 import math
@@ -34,6 +36,7 @@ def _import_from_path(mod_name, pth):
     return mod
 pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
+app_api_info = None
 app_config = None
 
 @click.command()
@@ -49,12 +52,27 @@ app_config = None
         help="Forcibly mark documents which have errors for retry.")
 @click.option('--clean/--no-clean', default=False,
         help="Trigger re-processing of all documents.")
-def main(mongo_db, pdf_dir, pdf_fetch_url, config, clean, retry_errors):
+@click.option('--api-info', default=None, type=str,
+        help="JSON-encoded API information")
+def main(mongo_db, pdf_dir, pdf_fetch_url, config, clean, retry_errors, api_info):
     assert len(mongo_db.split('/')) == 2, mongo_db
 
-    global app_config
+    # Clean out old invoker files first, in case there were any stragglers.
+    _invokers_cleanup()
+
+    global app_api_info, app_config
+    if api_info is not None:
+        app_api_info = json.loads(api_info)
+
     app_config = json.load(open(config))
     app_config['parsers'] = pdf_etl_parse.config_schema(app_config['parsers'])
+    # When loading config, be sure to add on pipeline parsers. Needed for 
+    # timeout, etc.
+    for pipeline_name, pipeline_cfg in app_config['pipelines'].items():
+        pipeline_parsers = pdf_etl_parse.config_schema(pipeline_cfg['parsers'])
+        for parser_name, parser_cfg in pipeline_parsers.items():
+            parser_cfg['pipeline'] = pipeline_name
+            app_config['parsers'][f'{pipeline_name}--{parser_name}'] = parser_cfg
 
     timeout_default = app_config['parserDefaultTimeout']
     timeout_total = sum([p['timeout'] or timeout_default
@@ -176,6 +194,8 @@ def load_document(doc, coll_resolver, pdf_getter, mongo_db, retry_errors):
 
 def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         retry_errors):
+    db_coll = coll_resolver(mongo_db + '/rawinvocations')
+    
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
     # not time out, the parsers may be re-run without re-running the tools.
@@ -185,12 +205,17 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     # Clear previous raw invocations whose versions do not match the expected
     # tool versions.
     invokers_whitelist = []
+    invokers_config_files = {}
     for k, v in app_config['parsers'].items():
         if v.get('disabled'):
             continue
+        invoker_cfg, invoker_version = _invokers_build_cfg(k, v, 
+                db_conn=db_coll.database)
+        invokers_config_files[k] = invoker_cfg
+
         invokers_whitelist.append(k)
         delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
-                'invoker.version': {'$ne': v['version']}})
+                'invoker.version': {'$ne': invoker_version}})
     # Used to clear out old parser data. However... since private distributions,
     # e.g. `./workbench.py ../modified-pdf ...`, it doesn't really make sense
     # to clear out the old information on the off chance it will be re-used.
@@ -199,8 +224,6 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     # default behavior.
     #delete_or_clause.append({'file': fpath_access,
     #        'invoker.invName': {'$nin': invokers_whitelist}})
-
-    db_coll = coll_resolver(mongo_db + '/rawinvocations')
 
     # Run delete
     if delete_or_clause:
@@ -217,11 +240,6 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     host_port, db = mongo_db.split('/')
     args = ['pdf-etl-tool', '-s', host_port, '-d', db,
             '-c', 'rawinvocations',
-            '--invokersfile', '/home/pdf-etl-tools/invokers.cfg',
-            'add-raw',
-            # Deliberately allow existing data which did not time out
-            # Removed because we now query `invs_seen` beforehand.
-            #'--absentonly',
     ]
 
     # This used to rely on `-i ALL` behavior of pdf-etl-tool, but the spin-up
@@ -234,6 +252,15 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         aargs = args[:]
 
         tool_timeout = v['timeout'] or timeout_default
+
+        # Build an invokers file for this parser
+        aargs.extend(['--invokersfile', invokers_config_files[k]])
+        aargs.extend([
+            'add-raw',
+            # Deliberately allow existing data which did not time out
+            # Removed because we now query `invs_seen` beforehand.
+            #'--absentonly',
+        ])
 
         # Use as much time as possible, but allow timeouts to produce detectable
         # errors rather than time out.
@@ -263,6 +290,91 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     # that index wasn't used, and the current UI requires a full table scan
     # anyway. Furthermore, that collection resulted in mongo documents greater
     # than 16 megabytes, causing errors. Therefore, it has been removed.
+
+
+_invokers_folder = '/dev/shm/faw-invokers'
+def _invokers_cleanup():
+    try:
+        # Use shared memory -- these are many small files, no need to tax the
+        # disk at all.
+        shutil.rmtree(_invokers_folder)
+    except FileNotFoundError:
+        pass
+    os.mkdir(_invokers_folder)
+
+
+_invokers_files = {}
+@dataclass
+class _InvokerCfg:
+    file: tempfile.NamedTemporaryFile
+    version: str
+def _invokers_build_cfg(inv_name, inv_config, db_conn):
+    """Returns (file path, invoker version)
+    """
+    # Build invokers.cfg based on specified invokers.
+
+    api_info = app_api_info.copy()
+    if 'pipeline' in inv_config:
+        # Special case -- need to fetch task versions
+        api_info['pipeline'] = inv_config['pipeline']
+        
+        api = faw_pipelines_util.Api(api_info, db_conn=db_conn)
+
+        versions = [inv_config['version']]
+        for task_name, task_cfg in app_config['pipelines'][inv_config['pipeline']]['tasks'].items():
+            versions.append(str(api.task_get_state(task_name)))
+        version = '__'.join(versions)
+    else:
+        # Standard, hardcoded
+        version = inv_config['version']
+    key = f'{inv_name}-{version}'
+    cfg = _invokers_files.get(key)
+    if cfg is not None:
+        return cfg.file.name, cfg.version
+
+    # A new config -- TODO clear out old
+
+    inv_file = tempfile.NamedTemporaryFile(dir=_invokers_folder,
+            mode='w+')
+    lines = []
+    lines.append('[')
+
+    assert inv_config.get('exec'), inv_name
+
+    def exec_encode(v):
+        if v.startswith('<tempFile'):
+            suffix = v[9:-1]
+            if suffix:
+                assert suffix[0] == ' ', suffix
+                assert ' ' not in suffix[1:], suffix
+                suffix = suffix[1:]
+                assert '"' not in suffix, suffix
+            return f'TmpFN "tmpfile{suffix}"'
+        elif v.startswith('<'):
+            return {
+                    '<apiInfo>': lambda: f'Str {json.dumps(json.dumps(api_info))}',
+                    '<inputFile>': lambda: 'InputFile',
+            }[v]()
+
+        # Haskell requires double quote delimiters, which JSON works with
+        vrepr = json.dumps(v)
+        return f'Str {vrepr}'
+
+    lines.append(f'Invoker')
+    exec_args = ', '.join([exec_encode(a) for a in inv_config['exec']])
+    timeout = 20  # We no longer use this feature, so fix it to a large value
+    lines.append(f'  {{ exec = [ {exec_args} ]')
+    lines.append(f'  , timeoutScale = Just {timeout}')
+    lines.append(f'  , version = "{version}"')
+    lines.append(f'  , invName = "{inv_name}"')
+    lines.append(f'  }}')
+    lines.append(']')
+    inv_file.write('\n'.join(lines))
+    inv_file.flush()
+
+    # Finally, assign our result to keep it in cache
+    _invokers_files[key] = _InvokerCfg(file=inv_file, version=version)
+    return inv_file.name, version
 
 
 def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):

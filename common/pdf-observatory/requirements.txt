@@ -1,3 +1,4 @@
+async_generator
 dask[complete]
 motor
 pyjson5

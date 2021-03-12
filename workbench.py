@@ -336,7 +336,7 @@ def _check_config_file(config):
                         {
                             s.And(str, lambda x: '_' not in x and '.' not in x,
                                     error='Must not have underscore or dot'): {
-                                'version': s.Or(str, float, int),
+                                'version': str,
                                 'exec': [str],
                                 s.Optional('dependsOn', default=[]): [str],
                             },
