@@ -19,14 +19,14 @@ import subprocess
 import time
 import traceback
 
-_config = None
+_config = None  # pipelines key of config
 _reparse_db_fn = None  # Async function ... a hack, basically.
 
-async def main_loop(app_mongodb_conn, app_config, get_api_info_fn, 
+async def main_loop(app_mongodb_conn, app_config_pipelines, get_api_info_fn, 
         reparse_db_fn):
     global _config
     global _reparse_db_fn
-    _config = app_config
+    _config = app_config_pipelines
     _reparse_db_fn = reparse_db_fn
 
     client = await dask.distributed.Client('localhost:8786', asynchronous=True)
@@ -42,11 +42,11 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info_fn,
         await asyncio.sleep(0.5)
 
 
-def config_update(new_app_config):
+def config_update(new_app_config_pipelines):
     """Updates faw_pipelines' understanding of the app config.
     """
     global _config
-    _config = new_app_config
+    _config = new_app_config_pipelines
 
 
 def dask_check_if_cancelled():
@@ -77,7 +77,7 @@ async def _pipeline_spawn_admins(current_future_info, mongodb_conn, dask_client,
     # don't correspond to entries in the updated config to be forgotten, which
     # will cancel them.
     new_future_info = {}
-    for pipe_name, pipe_cfg in _config['pipelines'].items():
+    for pipe_name, pipe_cfg in _config.items():
 
         pipe_tasks = list(pipe_cfg['tasks'].items())
         pipe_tasks.append(('internal--faw-final-reprocess-db', {

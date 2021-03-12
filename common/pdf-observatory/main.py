@@ -91,8 +91,8 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     loop = asyncio.get_event_loop()
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
-    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn, app_config, 
-            _get_api_info, _db_reparse))
+    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn, 
+            app_config['pipelines'], _get_api_info, _db_reparse))
     vuespa.VueSpa('ui', Client, host=host, port=port,
             development=not production,
             config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
@@ -142,7 +142,23 @@ def _config_reload():
 
     ts_loaded = os.path.getmtime(app_config_path)
     app_config = json.load(open(app_config_path))
-    faw_pipelines.config_update(app_config)
+
+    # Live config munging -- merge down pipeline views (decision and file 
+    # detail). This is to minimize developer investment, since they're really
+    # the same as top-level views.
+    cfg = app_config
+    for mergeable in ['parsers', 'file_detail_views', 'decision_views']:
+        for pipe_name, pipe_cfg in cfg['pipelines'].items():
+            pipe_label = pipe_cfg.get('label', pipe_name)
+            for view_name, view_cfg in pipe_cfg[mergeable].items():
+                node_cfg = view_cfg.copy()
+                node_cfg['pipeline'] = pipe_name
+                if 'label' in node_cfg:
+                    node_cfg['label'] = f'{pipe_label} -- {node_cfg["label"]}'
+                cfg[mergeable][pipe_name + '--' + view_name] = node_cfg
+
+
+    faw_pipelines.config_update(app_config['pipelines'])
 
     # Set at end of method, to get around any async / threading issues
     app_config_loaded = ts_loaded
@@ -156,6 +172,13 @@ def _get_api_info(extra_info={}):
         'pdfdir': app_pdf_dir,
     }
     r.update(extra_info)
+    return r
+
+
+def _get_api_info_extra_from_plugin_view(plugin_cfg):
+    r = {}
+    if 'pipeline' in plugin_cfg:
+        r['pipeline'] = plugin_cfg['pipeline']
     return r
 
 
@@ -289,6 +312,8 @@ class Client(vuespa.Client):
 
 
     async def api_config_get(self):
+        """Translate for UI before returning config.
+        """
         return app_config
 
 
@@ -297,6 +322,8 @@ class Client(vuespa.Client):
         plugin_def = app_config['file_detail_views'].get(plugin_key, {})
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
+
+        extra_api_info = _get_api_info_extra_from_plugin_view(t)
 
         if t == 'program_to_html':
             assert isinstance(input_spec, str), input_spec
@@ -318,7 +345,7 @@ class Client(vuespa.Client):
                     '<inputFile>': lambda: input_spec,
                     '<jsonArguments>': lambda: json.dumps(json_args),
                     '<outputHtml>': get_output_html,
-            })
+            }, extra_api_info=extra_api_info)
 
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -362,6 +389,8 @@ class Client(vuespa.Client):
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
 
+        extra_api_info = _get_api_info_extra_from_plugin_view(t)
+
         try:
             if t == 'program':
                 cmd = plugin_def.get('exec')
@@ -369,7 +398,7 @@ class Client(vuespa.Client):
                 cmd = self._cmd_plugin_template_replace(cmd, api_url, {
                         '<jsonArguments>': lambda: json.dumps(json_args),
                         '<outputHtml>': get_output_html,
-                })
+                }, extra_api_info=extra_api_info)
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
                         cwd=os.path.join(etl_path, 'dist'),
@@ -477,11 +506,13 @@ class Client(vuespa.Client):
         return r
 
 
-    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars):
+    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
+            extra_api_info):
         if not api_url.endswith('/'):
             api_url = api_url+ '/'
 
         template_vals = {
+                '<apiInfo>': lambda: json.dumps(_get_api_info(extra_api_info)),
                 '<filesPath>': lambda: app_pdf_dir,
                 '<mongo>': lambda: app_mongodb,
                 '<workbenchApiUrl>': lambda: api_url,
@@ -490,7 +521,17 @@ class Client(vuespa.Client):
             if k in template_vals:
                 raise ValueError(f'Cannot overwrite {k}')
             template_vals[k] = v
-        return [template_vals.get(c, lambda: c)() for c in cmd]
+
+        r = []
+        for c in cmd:
+            if c.startswith('<'):
+                rr = template_vals.get(c)
+                if rr is None:
+                    raise ValueError(c)
+                r.append(rr())
+            else:
+                r.append(c)
+        return r
 
 
     async def _statsbyfile_cursor(self, options):
