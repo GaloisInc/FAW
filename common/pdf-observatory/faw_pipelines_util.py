@@ -127,6 +127,11 @@ class ApiBase(metaclass=ABCMeta):
         """
 
 
+    def dask_get_client(self):
+        import dask.distributed as d
+        return d.Client(address=self._api_info['dask'])
+
+
 
 def Api(api_info, db_conn=None):
     if db_conn is None:

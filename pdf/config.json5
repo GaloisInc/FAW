@@ -777,7 +777,7 @@
         // `<apiInfo>` added to simplify the interface)
         tasks: {
           learn: {
-            version: '4',
+            version: '5',
             exec: ['python3', 'ml_test/train.py', '<apiInfo>'],
           },
         },
@@ -808,12 +808,12 @@
             // Note that parsers within a pipeline still have their own version
             // field. This is to prevent needing to re-run tasks when developing
             // the parser component.
-            version: '2',
+            version: '3',
             parse: {
                 type: 'regex-counter',
                 stdstar: {
                     '^.*$': {
-                        nameGroup: 1
+                        nameGroup: 0
                     },
                 },
             },

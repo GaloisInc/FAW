@@ -168,6 +168,7 @@ def _get_api_info(extra_info={}):
     r = {
         'hostname': app_hostname,
         'hostport': app_hostport,
+        'dask': f'{app_hostname}:6768',
         'mongo': app_mongodb,
         'pdfdir': app_pdf_dir,
     }
