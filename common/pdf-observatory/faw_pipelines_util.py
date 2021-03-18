@@ -2,7 +2,6 @@
 """
 
 from abc import ABCMeta, abstractmethod
-from async_generator import asynccontextmanager  # Pre-3.7
 import contextlib
 import gridfs
 import motor.motor_asyncio as motor_asyncio
@@ -21,7 +20,7 @@ def _GridFsFileWriter(db, col, filename):
         return _GridFsFileWriter_Sync(db, col, filename)
 
 
-@asynccontextmanager
+@contextlib.asynccontextmanager
 async def _GridFsFileWriter_Async(db_conn, col, filename):
     gfs = motor_asyncio.AsyncIOMotorGridFSBucket(
             db_conn, bucket_name=col)
@@ -38,8 +37,8 @@ async def _GridFsFileWriter_Async(db_conn, col, filename):
         # Contents written successfully; do the swap
         await gfs.rename(gfs_file._id, filename)
         # Delete old
-        async for f in gfs.find({'filename': filename}, {'_id': 1}).sort('uploadDate', -1).skip(1):
-            await gfs.delete(f['_id'])
+        async for f in gfs.find({'filename': filename}).sort('uploadDate', -1).skip(1):
+            await gfs.delete(f._id)
 
 
 assert not hasattr(gridfs.GridIn, 'flush'), 'Monkey patch broken'
@@ -61,8 +60,8 @@ def _GridFsFileWriter_Sync(db_conn, col, filename):
         # Contents written successfully; do the swap
         gfs.rename(gfs_file._id, filename)
         # Delete old
-        for f in gfs.find({'filename': filename}, {'_id': 1}).sort('uploadDate', -1).skip(1):
-            gfs.delete(f['_id'])
+        for f in gfs.find({'filename': filename}).sort('uploadDate', -1).skip(1):
+            gfs.delete(f._id)
 
 
 class ApiBase(metaclass=ABCMeta):
@@ -78,6 +77,27 @@ class ApiBase(metaclass=ABCMeta):
     def __init__(self, api_info, db_conn):
         self._api_info = api_info
         self._db_conn = db_conn
+
+
+    def get_info(self):
+        """Gets the ApiInfo that instantiated this class; may be used to
+        create a new `Api` instance somewhere else.
+        """
+        return self._api_info
+
+
+    def dask_get_client(self):
+        import dask.distributed as d
+        return d.Client(address=self._api_info['dask'],
+                # We have direct access to workers anywhere this Api is used
+                direct_to_workers=True,
+                )
+
+
+    def pipeline_name(self):
+        """Returns `None` or the pipeline name.
+        """
+        return self._api_info.get('pipeline')
 
 
     def _task_metadata_col(self, taskname=None):
@@ -125,11 +145,6 @@ class ApiBase(metaclass=ABCMeta):
         """Sets the current task as done, assuming our version matches the 
         version in the DB.
         """
-
-
-    def dask_get_client(self):
-        import dask.distributed as d
-        return d.Client(address=self._api_info['dask'])
 
 
 

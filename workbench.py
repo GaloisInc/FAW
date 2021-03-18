@@ -216,6 +216,11 @@ def main():
 
     docker_id = f'gfaw-{IMAGE_TAG}-{db_name}'
     if development:
+        # Ensure that the necessary npm modules are installed to run the UI
+        # locally
+        subprocess.check_call(['npm', 'install'],
+                cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
         def watch_for_config_changes():
@@ -563,7 +568,9 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
             COPY {build_faw_dir}/common/s6-overlay-amd64.tar.gz /tmp/
-            RUN tar xzf /tmp/s6-overlay-amd64.tar.gz -C / \
+            # Updated for ubuntu 20.04, for which /bin is a symlink
+            RUN tar xzf /tmp/s6-overlay-amd64.tar.gz -C / --exclude="./bin" \
+                    && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /usr ./bin \
                     && rm /tmp/s6-overlay-amd64.tar.gz
 
             # Setup service files to automatically run mongodb in the background

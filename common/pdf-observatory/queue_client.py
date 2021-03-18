@@ -22,6 +22,7 @@ import pymongo
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.request
 
@@ -151,6 +152,8 @@ def call(args, cwd=None, input=None, timeout=None):
     return stdout
 
 
+_retry_query = {'result._cons': {'$in': ['Timeout', 'RuntimeError']}}
+
 def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
     """Creates indices for database.
     """
@@ -168,10 +171,11 @@ def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
                 'queueErr': None, 'queueStart': None, 'queueStop': None}})
 
         if True:
-            # Also find any "Timeout" results, and retry those documents.
+            # Also find any "Timeout" or "RuntimeError" results, and retry those 
+            # documents.
             coll_invoc = coll_resolver(mongo_db + '/rawinvocations')
             docs_to_retry = set()
-            for doc in coll_invoc.find({'result._cons': 'Timeout'}):
+            for doc in coll_invoc.find(_retry_query):
                 file_id = os.path.relpath(doc['file'], pdf_dir)
                 docs_to_retry.add(file_id)
             if docs_to_retry:
@@ -195,13 +199,16 @@ def load_document(doc, coll_resolver, pdf_getter, mongo_db, retry_errors):
 def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         retry_errors):
     db_coll = coll_resolver(mongo_db + '/rawinvocations')
-    
+
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
     # not time out, the parsers may be re-run without re-running the tools.
     delete_or_clause = []
     if retry_errors:
-        delete_or_clause.append({'file': fpath_access, 'result._cons': 'Timeout'})
+        delete_or_clause.append({'file': fpath_access, **_retry_query})
+    else:
+        # Always retry pdf-etl-tools errors
+        delete_or_clause.append({'file': fpath_access, 'result._cons': 'RuntimeError'})
     # Clear previous raw invocations whose versions do not match the expected
     # tool versions.
     invokers_whitelist = []
@@ -209,7 +216,7 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     for k, v in app_config['parsers'].items():
         if v.get('disabled'):
             continue
-        invoker_cfg, invoker_version = _invokers_build_cfg(k, v, 
+        invoker_cfg, invoker_version = _invokers_build_cfg(k, v,
                 db_conn=db_coll.database)
         invokers_config_files[k] = invoker_cfg
 
@@ -304,6 +311,7 @@ def _invokers_cleanup():
 
 
 _invokers_files = {}
+_invokers_lock = threading.Lock()
 @dataclass
 class _InvokerCfg:
     file: tempfile.NamedTemporaryFile
@@ -317,7 +325,7 @@ def _invokers_build_cfg(inv_name, inv_config, db_conn):
     if 'pipeline' in inv_config:
         # Special case -- need to fetch task versions
         api_info['pipeline'] = inv_config['pipeline']
-        
+
         api = faw_pipelines_util.Api(api_info, db_conn=db_conn)
 
         versions = [inv_config['version']]
@@ -328,53 +336,57 @@ def _invokers_build_cfg(inv_name, inv_config, db_conn):
         # Standard, hardcoded
         version = inv_config['version']
     key = f'{inv_name}-{version}'
-    cfg = _invokers_files.get(key)
-    if cfg is not None:
-        return cfg.file.name, cfg.version
 
-    # A new config -- TODO clear out old
+    # Prevent situation where temporary file gets deleted too early by locking
+    # before getting file path.
+    with _invokers_lock:
+        cfg = _invokers_files.get(key)
+        if cfg is not None:
+            return cfg.file.name, cfg.version
 
-    inv_file = tempfile.NamedTemporaryFile(dir=_invokers_folder,
-            mode='w+')
-    lines = []
-    lines.append('[')
+        # A new config -- TODO clear out old
 
-    assert inv_config.get('exec'), inv_name
+        inv_file = tempfile.NamedTemporaryFile(dir=_invokers_folder,
+                mode='w+')
+        lines = []
+        lines.append('[')
 
-    def exec_encode(v):
-        if v.startswith('<tempFile'):
-            suffix = v[9:-1]
-            if suffix:
-                assert suffix[0] == ' ', suffix
-                assert ' ' not in suffix[1:], suffix
-                suffix = suffix[1:]
-                assert '"' not in suffix, suffix
-            return f'TmpFN "tmpfile{suffix}"'
-        elif v.startswith('<'):
-            return {
-                    '<apiInfo>': lambda: f'Str {json.dumps(json.dumps(api_info))}',
-                    '<inputFile>': lambda: 'InputFile',
-            }[v]()
+        assert inv_config.get('exec'), inv_name
 
-        # Haskell requires double quote delimiters, which JSON works with
-        vrepr = json.dumps(v)
-        return f'Str {vrepr}'
+        def exec_encode(v):
+            if v.startswith('<tempFile'):
+                suffix = v[9:-1]
+                if suffix:
+                    assert suffix[0] == ' ', suffix
+                    assert ' ' not in suffix[1:], suffix
+                    suffix = suffix[1:]
+                    assert '"' not in suffix, suffix
+                return f'TmpFN "tmpfile{suffix}"'
+            elif v.startswith('<'):
+                return {
+                        '<apiInfo>': lambda: f'Str {json.dumps(json.dumps(api_info))}',
+                        '<inputFile>': lambda: 'InputFile',
+                }[v]()
 
-    lines.append(f'Invoker')
-    exec_args = ', '.join([exec_encode(a) for a in inv_config['exec']])
-    timeout = 20  # We no longer use this feature, so fix it to a large value
-    lines.append(f'  {{ exec = [ {exec_args} ]')
-    lines.append(f'  , timeoutScale = Just {timeout}')
-    lines.append(f'  , version = "{version}"')
-    lines.append(f'  , invName = "{inv_name}"')
-    lines.append(f'  }}')
-    lines.append(']')
-    inv_file.write('\n'.join(lines))
-    inv_file.flush()
+            # Haskell requires double quote delimiters, which JSON works with
+            vrepr = json.dumps(v)
+            return f'Str {vrepr}'
 
-    # Finally, assign our result to keep it in cache
-    _invokers_files[key] = _InvokerCfg(file=inv_file, version=version)
-    return inv_file.name, version
+        lines.append(f'Invoker')
+        exec_args = ', '.join([exec_encode(a) for a in inv_config['exec']])
+        timeout = 20  # We no longer use this feature, so fix it to a large value
+        lines.append(f'  {{ exec = [ {exec_args} ]')
+        lines.append(f'  , timeoutScale = Just {timeout}')
+        lines.append(f'  , version = "{version}"')
+        lines.append(f'  , invName = "{inv_name}"')
+        lines.append(f'  }}')
+        lines.append(']')
+        inv_file.write('\n'.join(lines))
+        inv_file.flush()
+
+        # Finally, assign our result to keep it in cache
+        _invokers_files[key] = _InvokerCfg(file=inv_file, version=version)
+        return inv_file.name, version
 
 
 def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):

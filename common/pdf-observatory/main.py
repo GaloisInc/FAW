@@ -168,7 +168,7 @@ def _get_api_info(extra_info={}):
     r = {
         'hostname': app_hostname,
         'hostport': app_hostport,
-        'dask': f'{app_hostname}:6768',
+        'dask': f'{app_hostname}:8786',
         'mongo': app_mongodb,
         'pdfdir': app_pdf_dir,
     }
@@ -324,7 +324,7 @@ class Client(vuespa.Client):
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
 
-        extra_api_info = _get_api_info_extra_from_plugin_view(t)
+        extra_api_info = _get_api_info_extra_from_plugin_view(plugin_def)
 
         if t == 'program_to_html':
             assert isinstance(input_spec, str), input_spec
@@ -390,7 +390,7 @@ class Client(vuespa.Client):
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
 
-        extra_api_info = _get_api_info_extra_from_plugin_view(t)
+        extra_api_info = _get_api_info_extra_from_plugin_view(plugin_def)
 
         try:
             if t == 'program':

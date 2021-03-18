@@ -375,10 +375,10 @@
         },
 
         'pdfid': {
-            exec: ['python', 'lib/pdfid_v0_2_7/pdfid.py',
+            exec: ['python3', 'lib/pdfid_v0_2_7/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
-            version: 'pdfid_v0_2_7',
+            version: 'pdfid_v0_2_7__py3',
             parse: {
                 type: 'regex-counter',
                 stdout: {
@@ -777,8 +777,14 @@
         // `<apiInfo>` added to simplify the interface)
         tasks: {
           learn: {
-            version: '5',
-            exec: ['python3', 'ml_test/train.py', '<apiInfo>'],
+            // Changing this version (in development mode) triggers the task
+            // data to all be purged, and re-runs.
+            version: '7',
+            exec: ['python3', 'ml_test/train.py', '<apiInfo>',
+              '--action_set-anchor_reward', '0.008',
+              '--action_set-subgrammar_reward', '0.01',
+              '--frequencies-tokens_per_decay', '5e4',
+              ],
           },
         },
         // Same as top-level detail views; main difference is that these rely
@@ -808,13 +814,13 @@
             // Note that parsers within a pipeline still have their own version
             // field. This is to prevent needing to re-run tasks when developing
             // the parser component.
-            version: '3',
+            version: '8',
             parse: {
                 type: 'regex-counter',
-                stdstar: {
-                    '^.*$': {
-                        nameGroup: 0
-                    },
+                stdout: {
+                  '^(.*): \\d+$': {
+                    nameGroup: 1,
+                  },
                 },
             },
           },
@@ -1059,14 +1065,13 @@ with open(sys.argv[1], 'w') as html: \n\
             // to specify their own 'from' keys.
 
             base: {
-                'from': 'ubuntu:18.04',
+                'from': 'ubuntu:20.04',
                 commands: [
                     // Base packages
                     'RUN apt-get update && apt-get install -y \
                         curl \
                         python3 \
                         python3-pip \
-                        xpdf \
                         wget \
                         ',
                     // Note that we will *also* install a newer version of poppler in /usr/local/bin
@@ -1080,7 +1085,7 @@ with open(sys.argv[1], 'w') as html: \n\
                         zlib1g-dev \
                         ',
                     // Undocumented caradoc dependencies
-                    'RUN apt-get update && apt-get install -y \
+                    'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
                         m4 \
                         pkg-config \
                         libgmp3-dev \
@@ -1158,12 +1163,20 @@ with open(sys.argv[1], 'w') as html: \n\
                     '/usr/local/bin/caradoc': true,
                 },
                 commands: [
-                    'RUN opam init --auto-setup && opam install -y ocamlfind cryptokit ounit menhir',
+                    'RUN opam init --auto-setup --disable-sandboxing --compiler=4.05.0 \
+                        && opam install -y ocamlbuild ocamlfind cryptokit ounit menhir \
+                        ',
                     'RUN \
                         wget -q https://github.com/ANSSI-FR/caradoc/raw/master/releases/caradoc-0.3.tar.gz \
                         && tar xf caradoc-0.3.tar.gz \
                         && rm caradoc-0.3.tar.gz \
                         ',
+                    // Original options:
+                    // OCAML_OPTS=-w,+a-3-4-32..39,-warn-error,+a,-strict-sequence,-noautolink
+                    //    && echo \"patch for caradoc-0.3 w/ new ocamlbuild\" \
+                    //    && sed -i -e \"s/OCAML_OPTS=\\(.*\\),-warn-error/OCAML_OPTS=\\1-44,-warn-error/\" Makefile \
+                    //    && head Makefile \
+                    //    && echo \"resume normal install\" \
                     "RUN bash -c '\
                         cd caradoc-0.3 \
                         && eval `opam config env` \

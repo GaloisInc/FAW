@@ -24,6 +24,7 @@
     "@types/d3-dispatch": "^1.0.7",
     "@types/d3-selection": "^1.4.1",
     "@types/pegjs": "^0.10.1",
+    "@vue/cli": "^4.5.12",
     "@vue/cli-plugin-eslint": "^4.1.0",
     "@vue/cli-plugin-router": "^4.1.0",
     "@vue/cli-plugin-typescript": "^4.4.6",
