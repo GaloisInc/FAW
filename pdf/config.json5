@@ -769,6 +769,7 @@
       //     reports on the pipeline.
       'ml-test': {
         label: "ML Test",
+        disabled: true,
         // Tasks define a graph of work to be done for this pipeline.
         // Use the package provided at `import faw_pipeline` to explore
         // usage of <apiInfo>. `<apiInfo>` is used here due to the more
@@ -818,8 +819,10 @@
             parse: {
                 type: 'regex-counter',
                 stdout: {
-                  '^(.*): \\d+$': {
+                  '^(.*): (\\d+)$': {
                     nameGroup: 1,
+                    countGroup: 2,
+                    countAsNumber: true,
                   },
                 },
             },
@@ -1064,6 +1067,11 @@ with open(sys.argv[1], 'w') as html: \n\
             // should not touch 'base'. One way around this is for other images
             // to specify their own 'from' keys.
 
+            // All `commands` get run through `str.format()` in python, with
+            // `dist` mapping to the folder with config.json5, and `disttarg`
+            // mapping to `/home/dist`, but also working with subfolders
+            // containing `config.json5`.
+
             base: {
                 'from': 'ubuntu:20.04',
                 commands: [
@@ -1121,7 +1129,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     "RUN apt-get update \
                       && apt-get install -y ttf-mscorefonts-installer ttf-dejavu-core \
                       && apt-cache search -n ^fonts- \
-                        | awk '{print $1}' \
+                        | awk '{{print $1}}' \
                         | grep -v fonts-mathematica \
                         | xargs apt-get install -y \
                       ",
@@ -1141,6 +1149,8 @@ with open(sys.argv[1], 'w') as html: \n\
 
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
+                    // Similarly, {disttarg} gets rewritten with '/home/dist', BUT
+                    // it supports modular configs (those in child folders).
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
 

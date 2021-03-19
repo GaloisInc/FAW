@@ -1,0 +1,105 @@
+{
+  /* Configuration in subfolders gets merged into the base config with the
+  following special rules:
+
+  1. Most keys by default get merged if they are of an extensible type (list, map).
+      Entries in 'parsers', 'file_detail_views', 'decision_views', and 'pipelines'
+      must be entirely new keys.
+
+  2. Docker build stages may match the names 'final' or 'base'. In both cases,
+      specified 'commands' will be appended to the default config's commands.
+
+  3. Any {dist} entries within the applicable parts (see main config.json5)
+      will be replaced with the folder name containing the `config.json5`,
+      instead of the base distribution directory. This may be used to, for
+      example, fork a plugin and compare versions.
+  */
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
+    },
+  },
+  pipelines: {
+    // Pipelines are the FAW's mechanism for dealing with parsers or other
+    // reports which rely on the result of long-running tasks. For example, one
+    // might want to use ML to learn a distribution over the data, and then
+    // use the learned distribution to produce error messages.
+    // Due to the complexity of this, and often the need for checkpointing and
+    // re-entrant behavior, the FAW provides the pipeline framework. Pipelines
+    // provide several entry points, each of which show up in the UI:
+    //  1. Tasks, which do things like iterating through all files in
+    //     randomized batches. Large data may be saved via an appropriate
+    //     interface as specified by the <apiInfo> argument using e.g. GridFS.
+    //  2. Parsers, which are the same as the top-level parsers but are
+    //     declared with the pipeline so that the FAW might infer dependencies.
+    //  3. The normal file-level and decision-level plugins which can generate
+    //     reports on the pipeline.
+    'ml-test': {
+      label: "ML Test",
+      disabled: true,
+      // Tasks define a graph of work to be done for this pipeline.
+      // Use the package provided at `import faw_pipeline` to explore
+      // usage of <apiInfo>. `<apiInfo>` is used here due to the more
+      // complicated communication between tasks and the FAW when compared to
+      // file_detail_views and decision_views. (realistically, those could have
+      // `<apiInfo>` added to simplify the interface)
+      tasks: {
+        learn: {
+          // Changing this version (in development mode) triggers the task
+          // data to all be purged, and re-runs.
+          version: '7',
+          exec: ['python3', 'ml_test/train.py', '<apiInfo>',
+            '--action_set-anchor_reward', '0.008',
+            '--action_set-subgrammar_reward', '0.01',
+            '--frequencies-tokens_per_decay', '5e4',
+            ],
+        },
+      },
+      // Same as top-level detail views; main difference is that these rely
+      // on tasks (do they? HTML injection showing task progress?)
+      file_detail_views: {
+        showParse: {
+          label: 'Show parse',
+          type: 'program_to_html',
+          exec: ['python3', 'ml_test/show_parse.py', '<outputHtml>',
+            '<inputFile>', '<apiInfo>'],
+        },
+      },
+      decision_views: {
+      },
+      // Parsers depend on all tasks, and will only run after they all have
+      // finished. Unless user presses a button?
+      parsers: {
+        'unique-rule-printer': {
+          // TODO!!! Requires a means of accessing a Dask object... one can expose
+          // a dask cluster via <apiInfo>. Perhaps can find an actor that way.
+          // Can use `dask.distributed.fire_and_forget` to launch a temporary
+          // actor which destroys itself after no usage... with a nanny task if
+          // needed. In other words, all of that can happen within a normal
+          // parser so long as we pass <apiInfo>
+          exec: ['python3', 'ml_test/unique_rule_printer.py', '<inputFile>',
+            '<apiInfo>'],
+          // Note that parsers within a pipeline still have their own version
+          // field. This is to prevent needing to re-run tasks when developing
+          // the parser component.
+          version: '8',
+          parse: {
+              type: 'regex-counter',
+              stdout: {
+                '^(.*): (\\d+)$': {
+                  nameGroup: 1,
+                  countGroup: 2,
+                  countAsNumber: true,
+                },
+              },
+          },
+        },
+      },
+    },
+  },
+}
