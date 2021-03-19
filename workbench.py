@@ -336,6 +336,7 @@ def _check_config_file(config):
             s.And(str, lambda x: '_' not in x and '.' not in x, 
                     error='Must not have underscore or dot'): {
                 s.Optional('label'): str,
+                s.Optional('disabled', default=False): s.Or(True, False),
                 s.Optional('tasks', default={}): s.Or({}, 
                     s.And(
                         {

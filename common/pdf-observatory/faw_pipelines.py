@@ -78,6 +78,9 @@ async def _pipeline_spawn_admins(current_future_info, mongodb_conn, dask_client,
     # will cancel them.
     new_future_info = {}
     for pipe_name, pipe_cfg in _config.items():
+        if pipe_cfg.get('disabled', False):
+            # Don't run this pipeline
+            continue
 
         pipe_tasks = list(pipe_cfg['tasks'].items())
         pipe_tasks.append(('internal--faw-final-reprocess-db', {
@@ -96,7 +99,8 @@ async def _pipeline_spawn_admins(current_future_info, mongodb_conn, dask_client,
                         lambda x, *, combined_name: new_future_info.update(
                             {combined_name: x}),
                         combined_name=combined_name)))
-    await asyncio.wait(promises)
+    if promises:
+        await asyncio.wait(promises)
     return new_future_info
 
 

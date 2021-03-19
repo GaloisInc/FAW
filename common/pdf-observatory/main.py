@@ -149,6 +149,10 @@ def _config_reload():
     cfg = app_config
     for mergeable in ['parsers', 'file_detail_views', 'decision_views']:
         for pipe_name, pipe_cfg in cfg['pipelines'].items():
+            if pipe_cfg.get('disabled', False):
+                # Don't transfer any of this pipeline's plugins
+                continue
+
             pipe_label = pipe_cfg.get('label', pipe_name)
             for view_name, view_cfg in pipe_cfg[mergeable].items():
                 node_cfg = view_cfg.copy()
