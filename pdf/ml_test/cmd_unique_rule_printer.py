@@ -6,15 +6,14 @@ import collections
 import faw_pipelines_util
 import json
 
-from ml_test.dask_util import CachedParser
+from .dask_util import CachedParser
 
-def main():
+def main(api_info, cmd_args):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('input_file')
-    ap.add_argument('api_info')
-    args = ap.parse_args()
+    args = ap.parse_args(cmd_args)
 
-    api = faw_pipelines_util.Api(json.loads(args.api_info))
+    api = faw_pipelines_util.Api(api_info)
     model = CachedParser.get(api, 'model.chkpt', taskname='learn')
 
     with open(args.input_file, 'rb') as f:
@@ -45,6 +44,3 @@ def main():
     for k, v in rules.items():
         print(f'{k}: {v}')
 
-
-if __name__ == '__main__':
-    main()

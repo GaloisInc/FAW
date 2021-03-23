@@ -213,12 +213,14 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     # tool versions.
     invokers_whitelist = []
     invokers_config_files = {}
+    invokers_cwd = {}
     for k, v in app_config['parsers'].items():
         if v.get('disabled'):
             continue
-        invoker_cfg, invoker_version = _invokers_build_cfg(k, v,
+        invoker_cfg, invoker_version, invoker_cwd = _invokers_build_cfg(k, v,
                 db_conn=db_coll.database)
         invokers_config_files[k] = invoker_cfg
+        invokers_cwd[k] = invoker_cwd
 
         invokers_whitelist.append(k)
         delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
@@ -279,7 +281,7 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
 
         aargs.extend(['-i', k, fpath_access])
         call(aargs,
-                cwd='/home/dist',
+                cwd='/home/dist/' + invokers_cwd[k],
                 timeout=tool_timeout)
 
     # For each raw invocation, parse it.
@@ -316,8 +318,9 @@ _invokers_lock = threading.Lock()
 class _InvokerCfg:
     file: tempfile.NamedTemporaryFile
     version: str
+    cwd: str
 def _invokers_build_cfg(inv_name, inv_config, db_conn):
-    """Returns (file path, invoker version)
+    """Returns (file path, invoker version, invoker cwd)
     """
     # Build invokers.cfg based on specified invokers.
 
@@ -342,7 +345,7 @@ def _invokers_build_cfg(inv_name, inv_config, db_conn):
     with _invokers_lock:
         cfg = _invokers_files.get(key)
         if cfg is not None:
-            return cfg.file.name, cfg.version
+            return cfg.file.name, cfg.version, cfg.cwd
 
         # A new config -- TODO clear out old
 
@@ -352,6 +355,7 @@ def _invokers_build_cfg(inv_name, inv_config, db_conn):
         lines.append('[')
 
         assert inv_config.get('exec'), inv_name
+        cwd = inv_config['cwd']
 
         def exec_encode(v):
             if v.startswith('<tempFile'):
@@ -385,8 +389,9 @@ def _invokers_build_cfg(inv_name, inv_config, db_conn):
         inv_file.flush()
 
         # Finally, assign our result to keep it in cache
-        _invokers_files[key] = _InvokerCfg(file=inv_file, version=version)
-        return inv_file.name, version
+        _invokers_files[key] = _InvokerCfg(file=inv_file, version=version,
+                cwd=cwd)
+        return inv_file.name, version, cwd
 
 
 def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):

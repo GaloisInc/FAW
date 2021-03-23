@@ -3,22 +3,20 @@ import contextlib
 import faw_pipelines_util
 import gridfs
 import io
-import json
 import torch
 
-from ml_test.dask import CachedParser
+from .dask_util import CachedParser
 
-def main():
+def main(api_info, cmd_args):
     ap = argparse.ArgumentParser()
-    ap.add_argument('api_info', type=json.loads)
     ap.add_argument('--header-bytes', type=int, default=100)
 
     import model.gram_inf.model_10_paper as model_10_paper
     model_10_paper.model.Model.argparse_setup(ap)
 
-    args = ap.parse_args()
+    args = ap.parse_args(cmd_args)
 
-    api = faw_pipelines_util.Api(args.api_info)
+    api = faw_pipelines_util.Api(api_info)
     batch_size = 8
     header_bytes = args.header_bytes
 
@@ -41,7 +39,6 @@ def main():
 
         # Create model
         model_args = args.__dict__.copy()
-        model_args.pop('api_info')
         model_args.pop('header_bytes')
         model = model_10_paper.model.Model.argparse_create(model_args)
         model.build()
@@ -91,6 +88,3 @@ def train_step(model, file_paths, header_bytes):
         sents.append([data[i:i+1] for i in range(len(data))])
     model.train_batch(sents)
 
-
-if __name__ == '__main__':
-    main()

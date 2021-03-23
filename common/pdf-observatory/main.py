@@ -355,7 +355,7 @@ class Client(vuespa.Client):
             try:
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'dist'),
+                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                 )
@@ -406,7 +406,7 @@ class Client(vuespa.Client):
                 }, extra_api_info=extra_api_info)
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'dist'),
+                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
                         stdin=asyncio.subprocess.PIPE,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,

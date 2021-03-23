@@ -194,7 +194,8 @@ def _pipeline_task_run(task_cfg, api_info):
             eargs.append(e)
 
 
-    p = subprocess.Popen(eargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(eargs, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=task_cfg['cwd'])
 
     stdout = None
     stderr = None

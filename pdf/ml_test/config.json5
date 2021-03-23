@@ -12,7 +12,15 @@
   3. Any {dist} entries within the applicable parts (see main config.json5)
       will be replaced with the folder name containing the `config.json5`,
       instead of the base distribution directory. This may be used to, for
-      example, fork a plugin and compare versions.
+      example, fork a plugin and compare versions. Similarly, {disttarg} will
+      be replaced with the in-docker path of the subfolder.
+
+  4. Within any 'exec' entries, the current working directory will be set to
+      the child directory instead of the distribution root.
+
+      Within docker, this path will ALWAYS be within /home/dist, so it is
+      decidable to find the sub path under which the distribution is running,
+      if necessary.
   */
   build: {
     stages: {
@@ -41,7 +49,7 @@
     //     reports on the pipeline.
     'ml-test': {
       label: "ML Test",
-      disabled: true,
+      disabled: false,
       // Tasks define a graph of work to be done for this pipeline.
       // Use the package provided at `import faw_pipeline` to explore
       // usage of <apiInfo>. `<apiInfo>` is used here due to the more
@@ -53,11 +61,27 @@
           // Changing this version (in development mode) triggers the task
           // data to all be purged, and re-runs.
           version: '7',
-          exec: ['python3', 'ml_test/train.py', '<apiInfo>',
+          exec: ['python3', 'main.py',
+            '<apiInfo>',
+            'train',
             '--action_set-anchor_reward', '0.008',
             '--action_set-subgrammar_reward', '0.01',
             '--frequencies-tokens_per_decay', '5e4',
             ],
+          // Is there a way to do this commonly? Yes, put it at top level and
+          // cast down (special handling in config merge)
+          // TODO AHHH! Issue is dask-worker. Potentially no way to support
+          // true copy-fork of modules... Except by using __init__ in python,
+          // anyway.
+          // right... python -m {distname}.train <args>
+          // Then can use 'from . import ...' syntax. No name needed. Boom.
+          // Ah, right... that also won't work with dask. Except... it will?
+          // Can pass module name and use dynamic imports, I suppose.
+          //env: {
+          //  'PYTHONPATH': '{disttarg}:$PYTHONPATH',
+          //},
+          // Should default to disttarg for all executed submodules.
+          //cwd: '{disttarg}',
         },
       },
       // Same as top-level detail views; main difference is that these rely
@@ -66,8 +90,8 @@
         showParse: {
           label: 'Show parse',
           type: 'program_to_html',
-          exec: ['python3', 'ml_test/show_parse.py', '<outputHtml>',
-            '<inputFile>', '<apiInfo>'],
+          exec: ['python3', 'main.py',
+            '<apiInfo>', 'show_parse', '<outputHtml>', '<inputFile>'],
         },
       },
       decision_views: {
@@ -82,8 +106,8 @@
           // actor which destroys itself after no usage... with a nanny task if
           // needed. In other words, all of that can happen within a normal
           // parser so long as we pass <apiInfo>
-          exec: ['python3', 'ml_test/unique_rule_printer.py', '<inputFile>',
-            '<apiInfo>'],
+          exec: ['python3', 'main.py', '<apiInfo>', 'unique_rule_printer',
+            '<inputFile>'],
           // Note that parsers within a pipeline still have their own version
           // field. This is to prevent needing to re-run tasks when developing
           // the parser component.

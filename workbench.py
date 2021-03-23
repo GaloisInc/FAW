@@ -316,6 +316,37 @@ def _check_config_file(config):
             continue
 
         child_config = pyjson5.load(open(child_config_path))
+
+        # First traversal -- patch keys and values
+        nodes = [([], child_config)]
+        while nodes:
+            path, src = nodes.pop()
+            for k, v in src.items():
+                ## Rewrite v
+                # Check executables; amend cwd
+                if path and (
+                        'file_detail_views' == path[-1]
+                        or 'decision_views' == path[-1]
+                        or 'parsers' == path[-1]
+                        or 'tasks' == path[-1]):
+                    if 'cwd' in v:
+                        v['cwd'] = f'{child_name}/' + v['cwd']
+                    else:
+                        v['cwd'] = child_name
+
+                # Docker build stage patch
+                if path == ['build', 'stages']:
+                    if 'commands' in v:
+                        v['commands'] = [
+                                vv
+                                    .replace('{disttarg}', f'{{disttarg}}/{child_name}')
+                                    .replace('{dist}', f'{{dist}}/{child_name}')
+                                for vv in v['commands']]
+
+                if isinstance(v, dict):
+                    nodes.append((path + [k], v))
+
+        # Second traversal -- merge
         nodes = [([], config_data, child_config)]
         while nodes:
             path, dst, src = nodes.pop()
@@ -339,21 +370,8 @@ def _check_config_file(config):
                     k = f'{child_name.replace("_", "-")}-{k}'
                     assert k not in dst, f'Cannot extend {path} {k}; must be new'
 
-
-                ## Rewrite v
-                # Docker build stage patch
-                if path == ['build', 'stages']:
-                    if 'commands' not in v:
-                        continue
-
-                    v['commands'] = [
-                            vv
-                                .replace('{disttarg}', f'{{disttarg}}/{child_name}')
-                                .replace('{dist}', f'{{dist}}/{child_name}')
-                            for vv in v['commands']]
-
-                ## Apply v at dst[k]
-                # Check if new
+                ## Check for merge type
+                # Check if new -- if so, assign and be done
                 if k not in dst:
                     # Non-existent key; add it to the dictionary
                     dst[k] = v
@@ -393,6 +411,7 @@ def _check_config_file(config):
                             '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
                             '<workbenchApiUrl>']),
                         )],
+                    s.Optional('cwd', default='.'): str,
                     'execStdin': s.And(str, lambda x: all([
                         y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
                         for y in re.finditer('<[^>]*>', x)]),
@@ -405,6 +424,7 @@ def _check_config_file(config):
                     'label': str,
                     'type': 'program_to_html',
                     'exec': [str],
+                    s.Optional('cwd', default='.'): str,
                     s.Optional('outputMimeType', default='text/html'): str,
                 },
             }),
@@ -430,6 +450,7 @@ def _check_config_file(config):
                                     error='Must not have underscore or dot'): {
                                 'version': str,
                                 'exec': [str],
+                                s.Optional('cwd', default='.'): str,
                                 s.Optional('dependsOn', default=[]): [str],
                             },
                         },
