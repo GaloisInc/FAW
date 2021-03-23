@@ -538,9 +538,18 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
             COPY {build_faw_dir}/common/s6-overlay-amd64.tar.gz /tmp/
-            RUN tar xzf /tmp/s6-overlay-amd64.tar.gz -C / --exclude="./bin" \
-                    && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /usr ./bin \
-                    && rm /tmp/s6-overlay-amd64.tar.gz
+            RUN bash -c '\
+                    ([ -L /bin ] \
+                        && ( \
+                            tar xzf /tmp/s6-overlay-amd64.tar.gz -C / --exclude="./bin" \
+                            && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /usr ./bin \
+                        ) \
+                        || ( \
+                            tar xzf /tmp/s6-overlay-amd64.tar.gz -C / \
+                        ) \
+                    ) \
+                    && rm /tmp/s6-overlay-amd64.tar.gz \
+                    '
 
             # Setup service files to automatically run mongodb in the background
             # Note that logging for mongodb goes to /var/log/mongodb; see
