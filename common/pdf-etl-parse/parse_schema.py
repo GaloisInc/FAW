@@ -18,8 +18,9 @@ def schema_get():
             s.And(str, lambda x: '_' not in x): {
                 s.Optional('disabled', default=False): s.Or(True, False),
                 'exec': [str],
+                s.Optional('cwd', default='.'): str,
                 s.Optional('timeout', default=None): s.Or(float, int, None),
-                'version': s.Or(str, float),
+                'version': str,
                 'parse': s.Or(
                     # Run an external program with the stdout+stderr, which
                     # should output a json encoding

@@ -46,7 +46,7 @@ def main():
     to the one-folder-up idiom will also be uploaded to Docker, so keep the
     containing folder sparse if that feature is used.
 
-    Each directory `FILE_DIR` will be hashed to a unique build of the 
+    Each directory `FILE_DIR` will be hashed to a unique build of the
     observatory to maximize caching.
 
     Example invocations:
@@ -216,20 +216,39 @@ def main():
 
     docker_id = f'gfaw-{IMAGE_TAG}-{db_name}'
     if development:
+        # Ensure that the necessary npm modules are installed to run the UI
+        # locally
+        subprocess.check_call(['npm', 'install'],
+                cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
         def watch_for_config_changes():
-            cfg_path = os.path.join(CONFIG_FOLDER, 'config.json5')
+            # Where, in the docker container, to dump the new config
             cfg_dst = '/home/config.json'
-            last = None
+
+            last_ts = None
             while True:
                 try:
-                    ts = os.path.getmtime(cfg_path)
-                    if last is None:
-                        last = ts
-                    elif ts > last:
-                        last = ts
-                        # None here means use the already-set config path
+                    new_ts = {}
+                    for configdir in [CONFIG_FOLDER] + [
+                            os.path.join(CONFIG_FOLDER, p)
+                            for p in os.listdir(CONFIG_FOLDER)
+                            if os.path.isdir(os.path.join(CONFIG_FOLDER, p))]:
+                        cfg_path = os.path.join(configdir, 'config.json5')
+                        if not os.path.lexists(cfg_path):
+                            continue
+
+                        ts = os.path.getmtime(cfg_path)
+                        new_ts[cfg_path] = ts
+
+                    if last_ts is None:
+                        # Initialization
+                        last_ts = new_ts
+                    elif last_ts != new_ts:
+                        # Some config changed
+                        last_ts = new_ts
+
                         print('workbench: Updating /home/config.json')
                         new_config = _export_config_json(_check_config_file(
                                 None)).encode('utf-8')
@@ -239,7 +258,7 @@ def main():
                         with tarfile.TarFile(fileobj=buf, mode='w') as tf:
                             finfo = tarfile.TarInfo(os.path.basename(cfg_dst))
                             finfo.size = len(new_config)
-                            finfo.mtime = ts
+                            finfo.mtime = time.time()
                             tf.addfile(finfo, io.BytesIO(new_config))
                         buf.seek(0)
                         p_ts = subprocess.Popen(['docker', 'cp', '-',
@@ -268,6 +287,9 @@ def main():
 def _check_config_file(config):
     """For non-deployment editions, we must load config from a json5 file.
 
+    This also gets run for deployments, as this function is responsible for
+    merging multiple configs into the single root config.
+
     This function also contains all schema validation of json5 files, as
     the version stored in the observatory image is separate.
     """
@@ -284,12 +306,129 @@ def _check_config_file(config):
     config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             'config.json5')))
 
+    # Before applying schema, merge in child configs
+    for child_name in os.listdir(CONFIG_FOLDER):
+        child_path = os.path.join(CONFIG_FOLDER, child_name)
+        if not os.path.isdir(child_path):
+            continue
+        child_config_path = os.path.join(child_path, 'config.json5')
+        if not os.path.lexists(child_config_path):
+            continue
+
+        child_config = pyjson5.load(open(child_config_path))
+
+        # First traversal -- patch keys and values
+        nodes = [([], child_config)]
+        while nodes:
+            path, src = nodes.pop()
+            for k, v in src.items():
+                ## Rewrite v
+                # Check executables; amend cwd
+                if path and (
+                        'file_detail_views' == path[-1]
+                        or 'decision_views' == path[-1]
+                        or 'parsers' == path[-1]
+                        or 'tasks' == path[-1]):
+                    if 'cwd' in v:
+                        v['cwd'] = f'{child_name}/' + v['cwd']
+                    else:
+                        v['cwd'] = child_name
+
+                # Docker build stage patch
+                if path == ['build', 'stages']:
+                    if 'commands' in v:
+                        v['commands'] = [
+                                vv
+                                    .replace('{disttarg}', f'{{disttarg}}/{child_name}')
+                                    .replace('{dist}', f'{{dist}}/{child_name}')
+                                for vv in v['commands']]
+
+                if isinstance(v, dict):
+                    nodes.append((path + [k], v))
+
+        # Second traversal -- merge
+        nodes = [([], config_data, child_config)]
+        while nodes:
+            path, dst, src = nodes.pop()
+            for k, v in src.items():
+                ## Rewrite k
+                # Docker build stage patch -- rewrites `k`
+                if path == ['build', 'stages']:
+                    # Adding a build stage. If not 'base' or 'final', then
+                    # prepend config folder name
+                    if k not in ['base', 'final']:
+                        k = f'{child_name}_{k}'
+
+                # New entries only for these
+                if path in [
+                        ['pipelines'],
+                        ['file_detail_views'],
+                        ['decision_views'],
+                        ['parsers'],
+                        ]:
+                    # Amend these with the child's name, to allow for copying
+                    k = f'{child_name.replace("_", "-")}-{k}'
+                    assert k not in dst, f'Cannot extend {path} {k}; must be new'
+
+                ## Check for merge type
+                # Check if new -- if so, assign and be done
+                if k not in dst:
+                    # Non-existent key; add it to the dictionary
+                    dst[k] = v
+                    continue
+
+                # Do merge
+                if isinstance(v, dict):
+                    if not isinstance(dst[k], dict):
+                        raise ValueError(f'{path} {k} type does not match base config')
+
+                    # Dictionary merge
+                    nodes.append((path + [k], dst[k], v))
+                elif isinstance(v, list):
+                    if not isinstance(dst[k], list):
+                        raise ValueError(f'{path} {k} type does not match base config')
+
+                    # Add to end.
+                    dst[k].extend(v)
+                else:
+                    raise ValueError(f'May not extend {path} {k}: base config type {dst[k]}')
+
     # Pull in parser-specific schema
     import importlib.util
     spec = importlib.util.spec_from_file_location('etl_parse',
             os.path.join(faw_dir, 'common', 'pdf-etl-parse', 'parse_schema.py'))
     etl_parse = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(etl_parse)
+
+    schema_views = {
+            s.Optional('decision_views', default={}): s.Or({}, {
+                str: {
+                    'label': str,
+                    'type': 'program',
+                    'exec': [s.Or(
+                        s.And(str, lambda x: not x.startswith('<')),
+                        s.And(str, lambda x: x in [
+                            '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
+                            '<workbenchApiUrl>']),
+                        )],
+                    s.Optional('cwd', default='.'): str,
+                    'execStdin': s.And(str, lambda x: all([
+                        y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
+                        for y in re.finditer('<[^>]*>', x)]),
+                        error="Must be string with any <'s being one of: "
+                            "<referenceDecisions>, <statsbyfile>"),
+                },
+            }),
+            s.Optional('file_detail_views', default={}): s.Or({}, {
+                str: {
+                    'label': str,
+                    'type': 'program_to_html',
+                    'exec': [str],
+                    s.Optional('cwd', default='.'): str,
+                    s.Optional('outputMimeType', default='text/html'): str,
+                },
+            }),
+    }
 
     # NOTE -- primary schema validation is here, but NOT for submodules such
     # as pdf-etl-parse.
@@ -299,29 +438,28 @@ def _check_config_file(config):
         'parsers': etl_parse.schema_get(),
         s.Optional('parserDefaultTimeout', default=30): s.Or(float, int),
         'decision_default': str,
-        'decision_views': s.Or({}, {
-            str: {
-                'label': str,
-                'type': 'program',
-                'exec': [s.Or(
-                    s.And(str, lambda x: not x.startswith('<')),
-                    s.And(str, lambda x: x in [
-                        '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
-                        '<workbenchApiUrl>']),
-                    )],
-                'execStdin': s.And(str, lambda x: all([
-                    y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
-                    for y in re.finditer('<[^>]*>', x)]),
-                    error="Must be string with any <'s being one of: "
-                        "<statsbyfile>"),
-            },
-        }),
-        'file_detail_views': s.Or({}, {
-            str: {
-                'label': str,
-                'type': 'program_to_html',
-                'exec': [str],
-                s.Optional('outputMimeType', default='text/html'): str,
+        s.Optional('pipelines', default={}): s.Or({}, {
+            s.And(str, lambda x: '_' not in x and '.' not in x,
+                    error='Must not have underscore or dot'): {
+                s.Optional('label'): str,
+                s.Optional('disabled', default=False): s.Or(True, False),
+                s.Optional('tasks', default={}): s.Or({},
+                    s.And(
+                        {
+                            s.And(str, lambda x: '_' not in x and '.' not in x,
+                                    error='Must not have underscore or dot'): {
+                                s.Optional('disabled', default=False): s.Or(True, False),
+                                'version': str,
+                                'exec': [str],
+                                s.Optional('cwd', default='.'): str,
+                                s.Optional('dependsOn', default=[]): [str],
+                            },
+                        },
+                        lambda x: all([d in x for _, task in x.items() for d in task['dependsOn']]),
+                        error="Task `dependsOn` had invalid name",
+                    )),
+                s.Optional('parsers', default={}): etl_parse.schema_get(),
+                **schema_views,
             },
         }),
         'build': {
@@ -335,6 +473,7 @@ def _check_config_file(config):
                 },
             },
         },
+        **schema_views,
     })
     try:
         config_data = sch.validate(config_data)
@@ -383,6 +522,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     dockerfile = []
     dockerfile_middle = []
     dockerfile_final = []
+    dockerfile_final_postamble = []
 
     stages_written = set()
 
@@ -453,7 +593,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # with system code as early as possible.
     if development:
         # Development extensions... add not-compiled code directories.
-        dockerfile_final.append(r'''
+        dockerfile_final_postamble.append(r'''
             # Install npm globally, so it's available for debug mode
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
             ''')
@@ -471,7 +611,8 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 && npm run build
             ''')
 
-    # Always install observatory component dependencies
+    # Always install observatory component dependencies as first part of final
+    # stage (to minimize rebuilds on user code changes)
     dockerfile_final.append(rf'''
             COPY {build_faw_dir}/common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
             RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
@@ -479,9 +620,12 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             COPY {build_faw_dir}/common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
             RUN pip3 install -r /home/pdf-observatory/requirements.txt
     ''')
+
+    # The below commands should be quick to run, as they will happen any time
+    # the user changes their code.
     config_rel_dir = os.path.relpath(CONFIG_FOLDER, build_dir)
     if development:
-        dockerfile_final.append(rf'''
+        dockerfile_final_postamble.append(rf'''
             # Add not-compiled code directories
             COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
             #COPY {build_faw_dir}/common/pdf-observatory /home/pdf-observatory
@@ -489,7 +633,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
 
         # The CONFIG_FOLDER will be mounted as dist at runtime.
     else:
-        dockerfile_final.append(rf'''
+        dockerfile_final_postamble.append(rf'''
             # Add not-compiled code directories; omit "ui" for observatory
             COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
             COPY {build_faw_dir}/common/pdf-observatory/*.py /home/pdf-observatory/
@@ -510,7 +654,15 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             raise ValueError(f'First stage must be "base", not {stage}')
 
         stage_commands = stage_def.get('commands', [])
-        stage_commands = [s.replace('{dist}', config_rel_dir) for s in stage_commands]
+        stage_commands_new = []
+        for s in stage_commands:
+            try:
+                ss = s.format(dist=config_rel_dir, disttarg='/home/dist')
+            except KeyError:
+                raise KeyError(f'While formatting: {s}')
+            else:
+                stage_commands_new.append(ss)
+        stage_commands = stage_commands_new
 
         if stage == 'final':
             assert stage_def.get('from') is None
@@ -524,11 +676,16 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
 
         stages_written.add(stage)
         dockerfile.append(f'FROM {base} AS {stage}')
+        if stage == 'base':
+            # Ensure that e.g. curl, python3, python3-pip, and wget all get installed
+            stage_commands = [
+                    'RUN apt-get update && apt-get install -y curl python3 python3-pip wget',
+                    ] + stage_commands
         dockerfile.extend(stage_commands)
         for k, v in stage_def.get('copy_output', {}).items():
             if v is True:
                 v = k
-            dockerfile_final.append(f'COPY --from={stage} {k} {v}')
+            dockerfile_final.insert(0, f'COPY --from={stage} {k} {v}')
 
     # Regardless, there's some glue code to create the final image.
     dockerfile_middle.append(rf'''
@@ -538,6 +695,9 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
             COPY {build_faw_dir}/common/s6-overlay-amd64.tar.gz /tmp/
+
+            # Updated for ubuntu 20.04, for which /bin is a symlink
+            # Still need old extract command for previous versions.
             RUN bash -c '\
                     ([ -L /bin ] \
                         && ( \
@@ -560,6 +720,11 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Tell python to never buffer output. This is vital for preventing
             # some "write would block" messages.
             ENV PYTHONUNBUFFERED 1
+            # Ensure any python code running (dask, user code) has access to
+            # the faw_pipelines_util and user packages.
+            ENV PYTHONPATH /home/dist:/home/pdf-observatory
+
+            # Mongodb service
             RUN \
                 mkdir -p /etc/cont-init.d \
                 && echo "#! /bin/sh\\nmkdir -p /var/log/mongodb\\nchown -R nobody:nogroup /var/log/mongodb" > /etc/cont-init.d/mongod \
@@ -575,6 +740,19 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 mkdir /etc/services.d/observatory \
                     && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
+                && echo OK
+
+            # Dask service (scheduler AND worker initially; teaming script fixes this)
+            # Note -- listens to all IPv4 and IPv6 addresses by default.
+            RUN \
+                mkdir /etc/services.d/dask-scheduler \
+                    && echo '#! /bin/bash\ncd /home/dist\ndask-scheduler --port 8786' >> /etc/services.d/dask-scheduler/run \
+                    && chmod a+x /etc/services.d/dask-scheduler/run \
+                && echo OK
+            RUN \
+                mkdir /etc/services.d/dask-worker \
+                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786' >> /etc/services.d/dask-worker/run \
+                    && chmod a+x /etc/services.d/dask-worker/run \
                 && echo OK
 
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time
@@ -596,11 +774,12 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     config_json = config_json.replace('\\', '\\\\')
     # We always process the deployment-specific json5 file into
     # /home/config.json in the repo.
-    dockerfile_final.append(fr'''
+    dockerfile_final_postamble.append(fr'''
             RUN echo {shlex.quote(config_json)} > /home/config.json
     ''')
 
-    dockerfile = '\n'.join(dockerfile + dockerfile_middle + dockerfile_final)
+    dockerfile = '\n'.join(dockerfile + dockerfile_middle
+            + dockerfile_final + dockerfile_final_postamble)
     print('='*79)
     print(dockerfile)
     print('='*79)

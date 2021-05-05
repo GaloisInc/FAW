@@ -12,7 +12,7 @@ html
         white-space: pre-wrap;
       }
 
-    script(type="text/javascript")="let api_url = '" + api_url + "'; let old_args = JSON.parse('" + old_args.replace('\\', '\\\\').replace("'", "\\'") + "');"
+    script(type="text/javascript")!="let api_url = '" + api_url + "'; let old_args = JSON.parse('" + old_args.replace('\\', '\\\\').replace("'", "\\'") + "');"
 
     script(type="text/javascript").
       function callUrl(fn, args) {
@@ -60,15 +60,19 @@ html
       input(id="compareReference" type="checkbox" checked=use_refs
           onclick="reprocess({use_refs: !!document.getElementById('compareReference').checked})")
       span Looks for statuses other than "valid", and sees which "valid" decisions should have been something else.
+
+    p(style="padding-left: 1em") Debug?
+      p(style="white-space: pre-wrap")= debug
+
     p Suspicious features (avg'd across suspicious files)
     ul
       each ft in features
-        li.specific #{ft[1]} #{ft[0]}
+        li.specific #{ft[1]} (#{ft[2]}) #{ft[0]}
     p Suspicious Files
     ul
       each file in files
         li
-          a(onclick="showFile('"+file['name']+"')") #{file['name']}
+          a(onclick="showFile('"+file['name']+"')") #{file['name']} (#{file['score']})
           ul
             each topkFt in file['topk']
               li.specific #{topkFt[1]} #{topkFt[0]}

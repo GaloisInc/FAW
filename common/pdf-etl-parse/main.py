@@ -94,8 +94,8 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
         def clean_stream(s):
             s = re.sub(r'/home/pdf-files/[a-zA-Z0-9_./-]+', '', s)
             return s
-        doc_stdout = clean_stream(doc['result']['stdoutRes'])
-        doc_stderr = clean_stream(doc['result']['stderrRes'])
+        doc_stdout = clean_stream(doc['result'].get('stdoutRes', ''))
+        doc_stderr = clean_stream(doc['result'].get('stderrRes', ''))
         if parse_cfg['type'] == 'regex-counter':
             parse_cfg_both = parse_cfg['stdstar']
             for sname, s, r in [('stdout', doc_stdout, parse_cfg['stdout']),

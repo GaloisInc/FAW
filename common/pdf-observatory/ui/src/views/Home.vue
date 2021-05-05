@@ -64,13 +64,22 @@
                   v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
 
+            v-expansion-panel
+              v-expansion-panel-header(:class="{'grey lighten-2': true}") Long-running Task Statuses
+              v-expansion-panel-content
+                v-expansion-panels(popout)
+                  template(v-for="pipe of config && Object.keys(config.pipelines) || []")
+                    template(v-for="task of Object.keys(config.pipelines[pipe].tasks)")
+                      PipelineTaskInfo(:key="pipe + '-' + task" :pipeline="pipe" :task="task")
+
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             //- Allow selection of different things.
             div(v-if="decisionDefinition")
               v-radio-group(row v-model="decisionAspectSelected")
-                v-radio(v-for="o of decisionAspectAvailable.filter(x => x[1].indexOf('faw-custom') === -1)" :key="o[1]"
+                v-radio(v-for="o of decisionAspectAvailable.filter(x => x[1] !== 'filter-faw-custom' && x[1] !== 'filter-faw-errors')" :key="o[1]"
                     :label="o[0]" :value="o[1]")
                 v-radio(label="(Custom Search)" :value="'filter-faw-custom'")
+                v-radio(label="(Workbench Errors)" :value="'filter-faw-errors'")
             div(v-if="decisionAspectSelected === 'filter-faw-custom'"
                 style="display: flex; flex-direction: row; align-items: center")
               v-text-field(label="Search Regex (press enter to reprocess)" v-on:keyup.enter="reprocess"
@@ -368,6 +377,7 @@ import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
 import StatsComponent from '@/components/HomeStats.vue';
 import DbViewComponent from '@/components/DbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
+import PipelineTaskInfoComponent from '@/components/PipelineTaskInfo.vue';
 
 export enum DbView {
   Decision = 0,
@@ -395,6 +405,7 @@ export default Vue.extend({
     ConfusionMatrix: ConfusionMatrixComponent,
     DbView: DbViewComponent,
     FileFilterDetail: FileFilterDetailComponent,
+    PipelineTaskInfo: PipelineTaskInfoComponent,
     plot: CirclePlotComponent,
     Stats: StatsComponent,
   },
@@ -924,7 +935,7 @@ export default Vue.extend({
       }
     },
     pluginDecisionView(pluginKey: string, jsonArgs: {[key: string]: any}) {
-      if (this.pluginDecIframeLoading) {
+      if (this.pluginDecIframeLoading && this.pluginDecIframeLast === pluginKey) {
         return;
       }
 
@@ -952,7 +963,19 @@ export default Vue.extend({
               this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions());
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
-          this.pdfs = Object.freeze(r.decisions);
+
+          // Build a lookup table to overwrite our decision data based on what
+          // the plugin returned.
+          const allTestFiles = new Set(this.pdfs.map(x => x.testfile));
+          const decisions = [];
+          for (const p of r.decisions) {
+            allTestFiles.delete(p.testfile);
+            decisions.push(p);
+          }
+          for (const a of allTestFiles) {
+            decisions.push({info: [], testfile: a});
+          }
+          this.pdfs = Object.freeze(decisions);
         }
         catch (e) {
           if (this.pluginDecIframeLoading !== loadKey) return;
@@ -966,7 +989,7 @@ export default Vue.extend({
       });
     },
     pluginFileDetailView(pluginKey: string, jsonArgs: {[key: string]: any}) {
-      if (this.pluginIframeLoading) {
+      if (this.pluginIframeLoading && pluginKey === this.pluginIframeLast) {
         return;
       }
 
@@ -1035,6 +1058,19 @@ export default Vue.extend({
           patterns: [{pat: this.decisionSearchCustom, check: null}],
         });
       }
+
+      // Push workbench errors regardless
+      dd.filters = dd.filters.filter(x => x.name !== 'faw-errors');
+      dd.filters.push({
+        name: 'faw-errors',
+        all: false,
+        caseInsensitive: true,
+        patterns: [
+          {pat: '_<<workbench: Exit code missing', check: null},
+          {pat: '_<<workbench: Exit status: RuntimeError', check: null},
+          {pat: '_<<workbench: unhandled', check: null},
+        ],
+      });
 
       // OK, everything needed fetched, go ahead and run decisions.
       this.reprocessInnerPdfGroups = false;

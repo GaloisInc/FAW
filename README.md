@@ -70,6 +70,14 @@ To build a standalone workbench in `build/label`, run:
 See `common/README-dist.md` for additional information on running the workbench
 docker image in a standalone fashion; that file is packaged with any builds.
 
+## Troubleshooting
+
+1. Should `--development` fail to start the web interface, try deleting
+  the `common/pdf-observatory/ui/node_modules` directory and trying again. This
+  can happen due to mismatches between node versions in docker containers.
+
+2. Additional documentation is in the [docs](docs) directory.
+
 ## Acknowledgements
 
 This material is based upon work supported by the Defense Advanced Research 

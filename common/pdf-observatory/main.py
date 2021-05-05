@@ -1,4 +1,9 @@
 
+import app_util
+import faw_pipelines
+import faw_pipelines_util
+
+import aiohttp.web as web
 import asyncio
 import bson
 import click
@@ -8,6 +13,7 @@ import json
 import math
 import motor.motor_asyncio
 import os
+import psutil
 import pymongo
 import re
 import shlex
@@ -21,6 +27,8 @@ app_config = None
 app_config_loaded = None
 app_config_path = None
 app_docker = False
+app_hostname = None
+app_hostport = None
 
 app_init = None
 app_mongodb = None
@@ -34,6 +42,8 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 @click.argument('mongodb')
 @click.option('--host', type=str, default=None)
 @click.option('--port', type=int, default=None)
+@click.option('--hostname', type=str, default=None, help="Used for teaming "
+        "deployments; specifies the hostname passed for <apiInfo>")
 @click.option('--in-docker/--not-in-docker', default=False,
         help="Must specify if running in docker.")
 @click.option('--production/--no-production', default=False,
@@ -42,7 +52,7 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 @click.option('--config', type=str, required=True,
         help="(Required) Path to .json defining this observatory deployment.")
 @click.option('--quit-after-config/--no-quit-after-config', default=False)
-def main(pdf_dir, mongodb, host, port, in_docker, production, config,
+def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
         quit_after_config):
     """Run the PDF observatory on the given mongodb instance and database,
     providing a UI.
@@ -53,33 +63,39 @@ def main(pdf_dir, mongodb, host, port, in_docker, production, config,
                 and database in which to store pdf observatory results.
     """
 
-    global app_config, app_config_path, app_docker, app_init, \
-            app_mongodb, app_mongodb_conn, app_pdf_dir
+    global app_config, app_config_path, app_docker, app_hostname, app_hostport, \
+            app_init, app_mongodb, app_mongodb_conn, app_pdf_dir
 
     assert in_docker, 'Config specifying parsers must be in docker'
 
     app_config_path = config
+    app_hostname = hostname if hostname is not None else 'localhost'
+    app_hostport = port
+    assert hostname is None or port is not None, 'Must specify port with hostname'
+
+    app_pdf_dir = os.path.abspath(pdf_dir)
+    if '/' in mongodb:
+        app_mongodb = mongodb
+    else:
+        app_mongodb = 'localhost:27017/' + mongodb
+
     _config_reload()
 
     if quit_after_config:
         return
 
     app_docker = in_docker
-    app_pdf_dir = os.path.abspath(pdf_dir)
-    if '/' in mongodb:
-        app_mongodb = mongodb
-        mhost_port, db = mongodb.split('/')
-        mhost, mport = mhost_port.split(':')
-        app_mongodb_conn = motor.motor_asyncio.AsyncIOMotorClient(host=mhost,
-                port=int(mport))[db]
-    else:
-        app_mongodb = 'localhost:27017/' + mongodb
-        app_mongodb_conn = motor.motor_asyncio.AsyncIOMotorClient()[mongodb]
-
+    
+    mhost_port, db = app_mongodb.split('/')
+    mhost, mport = mhost_port.split(':')
+    app_mongodb_conn = motor.motor_asyncio.AsyncIOMotorClient(host=mhost,
+            port=int(mport))[db]
 
     loop = asyncio.get_event_loop()
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
+    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn, 
+            app_config, _get_api_info, _db_reparse))
     vuespa.VueSpa('ui', Client, host=host, port=port,
             development=not production,
             config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
@@ -89,17 +105,35 @@ def main(pdf_dir, mongodb, host, port, in_docker, production, config,
 def config_web(app, pdf_dir):
     """Add an endpoint for direct downloading of files.
     """
-    import aiohttp.web as web
     app.router.add_routes([
             web.static('/file_download', pdf_dir),
+            web.get('/file_count', _config_web_file_count_handler),
+            web.get('/file_list', _config_web_file_list_handler),
     ])
+
+
+async def _config_web_file_count_handler(req):
+    # TODO maybe fix this to rely on mongo, but block until the mongo db has
+    # been populated. It's the second step that's making me not want to do this
+    # yet.
+    i = 0
+    for p in _walk_pdf_files():
+        i += 1
+    return web.Response(text=str(i))
+
+
+async def _config_web_file_list_handler(req):
+    file_list = list(_walk_pdf_files())
+    return web.Response(text='\n'.join(file_list))
 
 
 async def _config_check_loop():
     while True:
         try:
             ts = os.path.getmtime(app_config_path)
-            if ts > app_config_loaded:
+            if ts != app_config_loaded:
+                # Note -- various system/docker configs can result in
+                # development overwrites being in the past. So use not equal.
                 _config_reload()
         except:
             traceback.print_exc()
@@ -112,55 +146,74 @@ def _config_reload():
     global app_config, app_config_loaded, app_config_path
 
     ts_loaded = os.path.getmtime(app_config_path)
-    app_config = json.load(open(app_config_path))
-    # Build invokers.cfg based on specified invokers.
-    etl_tools_path = os.path.join(etl_path, 'pdf-etl-tools')
-    os.makedirs(etl_tools_path, exist_ok=True)
-    with open(os.path.join(etl_path, 'pdf-etl-tools', 'invokers.cfg'),
-            'w') as f:
-        lines = []
-        lines.append('[')
-        def exec_encode(v):
-            if v.startswith('<tempFile'):
-                suffix = v[9:-1]
-                if suffix:
-                    assert suffix[0] == ' ', suffix
-                    assert ' ' not in suffix[1:], suffix
-                    suffix = suffix[1:]
-                    assert '"' not in suffix, suffix
-                return f'TmpFN "tmpfile{suffix}"'
-            elif v.startswith('<'):
-                return {
-                        '<inputFile>': 'InputFile',
-                }[v]
+    app_config = app_util.config_load(app_config_path)
+    faw_pipelines.config_update(app_config)
 
-            # Haskell requires double quote delimiters, which JSON works with
-            vrepr = json.dumps(v)
-            return f'Str {vrepr}'
-        first_rec = True
-        for i, (inv_name, inv_cfg) in enumerate(app_config['parsers'].items()):
-            if inv_cfg.get('disabled'):
-                continue
-
-            assert inv_cfg.get('exec'), inv_name
-            assert inv_cfg.get('version'), inv_name
-
-            hdr = ', ' if not first_rec else ''
-            first_rec = False
-            lines.append(f'{hdr}Invoker')
-            exec_args = ', '.join([exec_encode(a) for a in inv_cfg['exec']])
-            timeout = 20  # We no longer use this feature, so fix it to a large value
-            version = inv_cfg['version']
-            lines.append(f'  {{ exec = [ {exec_args} ]')
-            lines.append(f'  , timeoutScale = Just {timeout}')
-            lines.append(f'  , version = "{version}"')
-            lines.append(f'  , invName = "{inv_name}"')
-            lines.append(f'  }}')
-        lines.append(']')
-        f.write('\n'.join(lines))
+    # Kick dask...
+    for p in psutil.process_iter():
+        if p.name() in ['dask-worker', 'dask-scheduler']:
+            p.kill()
 
     # Set at end of method, to get around any async / threading issues
     app_config_loaded = ts_loaded
+
+
+def _get_api_info(extra_info={}):
+    r = {
+        'hostname': app_hostname,
+        'hostport': app_hostport,
+        'dask': f'{app_hostname}:8786',
+        'mongo': app_mongodb,
+        'pdfdir': app_pdf_dir,
+    }
+    r.update(extra_info)
+    return r
+
+
+def _get_api_info_extra_from_plugin_view(plugin_cfg):
+    r = {}
+    if 'pipeline' in plugin_cfg:
+        r['pipeline'] = plugin_cfg['pipeline']
+    return r
+
+
+def _walk_pdf_files():
+    """Walk through all non-hidden files in the app's file folder.
+    """
+    for path, subfolders, files in os.walk(app_pdf_dir):
+        # Filter subsequent subfolders to not go into hidden directories
+        for i in range(len(subfolders)-1, -1, -1):
+            if subfolders[i].startswith('.'):
+                subfolders.pop(i)
+
+        for f in files:
+            if f.startswith('.'):
+                continue
+
+            ff = os.path.relpath(os.path.join(path, f), app_pdf_dir)
+            yield ff
+
+
+async def _db_reparse(tools_to_reset=[]):
+    """Special function to trigger a reset within an async handler.
+    """
+    _db_abort_process()
+    await app_mongodb_conn.drop_collection('observatory')
+    # A more robust method would be fixing queue_client to remove a
+    # document from the groups to which it belongs, but this works since
+    # the UI always re-processes the full DB at the moment.
+    await app_mongodb_conn.drop_collection('invocationsparsed')
+    await app_mongodb_conn.drop_collection('statsbyfile')
+    if tools_to_reset:
+        await app_mongodb_conn['rawinvocations'].delete_many(
+                {'invoker.invName': {'$in': tools_to_reset}})
+    _db_reprocess()
+
+
+def _db_reprocess(*args, **kwargs):
+    global app_init
+    loop = asyncio.get_event_loop()
+    app_init = loop.create_task(init_check_pdfs(*args, **kwargs))
 
 
 class _DbLoaderProc:
@@ -207,26 +260,16 @@ async def init_check_pdfs(retry_errors=False):
         col.create_index([('queueStop', pymongo.ASCENDING)]),
     ])
 
-    for path, subfolders, files in os.walk(app_pdf_dir):
-        # Filter subsequent subfolders to not go into hidden directories
-        for i in range(len(subfolders)-1, -1, -1):
-            if subfolders[i].startswith('.'):
-                subfolders.pop(i)
+    for ff in _walk_pdf_files():
+        if loader_proc.aborted:
+            # User re-triggered this step, so stop processing.
+            return
 
-        for f in files:
-            if f.startswith('.'):
-                continue
-
-            if loader_proc.aborted:
-                # User re-triggered this step, so stop processing.
-                return
-
-            ff = os.path.relpath(os.path.join(path, f), app_pdf_dir)
-            try:
-                await col.insert_one({'_id': ff, 'queueStart': None,
-                        'queueStop': None, 'queueErr': None})
-            except pymongo.errors.DuplicateKeyError:
-                pass
+        try:
+            await col.insert_one({'_id': ff, 'queueStart': None,
+                    'queueStop': None, 'queueErr': None})
+        except pymongo.errors.DuplicateKeyError:
+            pass
 
     # Now that all PDFs are guaranteed queued, run a queue helper which does
     # depth-first processing of all files
@@ -238,6 +281,7 @@ async def init_check_pdfs(retry_errors=False):
                 'python3', '../pdf-observatory/queue_client.py',
                 '--mongo-db', app_mongodb, '--pdf-dir', app_pdf_dir,
                 '--config', os.path.abspath(app_config_path),
+                '--api-info', json.dumps(_get_api_info()),
                 *oargs,
                 cwd=os.path.join(etl_path, 'dist'),
         )
@@ -266,6 +310,8 @@ class Client(vuespa.Client):
 
 
     async def api_config_get(self):
+        """Translate for UI before returning config.
+        """
         return app_config
 
 
@@ -274,6 +320,8 @@ class Client(vuespa.Client):
         plugin_def = app_config['file_detail_views'].get(plugin_key, {})
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
+
+        extra_api_info = _get_api_info_extra_from_plugin_view(plugin_def)
 
         if t == 'program_to_html':
             assert isinstance(input_spec, str), input_spec
@@ -295,12 +343,12 @@ class Client(vuespa.Client):
                     '<inputFile>': lambda: input_spec,
                     '<jsonArguments>': lambda: json.dumps(json_args),
                     '<outputHtml>': get_output_html,
-            })
+            }, extra_api_info=extra_api_info)
 
             try:
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'dist'),
+                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                 )
@@ -339,6 +387,8 @@ class Client(vuespa.Client):
         t = plugin_def.get('type')
         assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
 
+        extra_api_info = _get_api_info_extra_from_plugin_view(plugin_def)
+
         try:
             if t == 'program':
                 cmd = plugin_def.get('exec')
@@ -346,10 +396,10 @@ class Client(vuespa.Client):
                 cmd = self._cmd_plugin_template_replace(cmd, api_url, {
                         '<jsonArguments>': lambda: json.dumps(json_args),
                         '<outputHtml>': get_output_html,
-                })
+                }, extra_api_info=extra_api_info)
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'dist'),
+                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
                         stdin=asyncio.subprocess.PIPE,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
@@ -454,11 +504,13 @@ class Client(vuespa.Client):
         return r
 
 
-    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars):
+    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
+            extra_api_info):
         if not api_url.endswith('/'):
             api_url = api_url+ '/'
 
         template_vals = {
+                '<apiInfo>': lambda: json.dumps(_get_api_info(extra_api_info)),
                 '<filesPath>': lambda: app_pdf_dir,
                 '<mongo>': lambda: app_mongodb,
                 '<workbenchApiUrl>': lambda: api_url,
@@ -467,7 +519,17 @@ class Client(vuespa.Client):
             if k in template_vals:
                 raise ValueError(f'Cannot overwrite {k}')
             template_vals[k] = v
-        return [template_vals.get(c, lambda: c)() for c in cmd]
+
+        r = []
+        for c in cmd:
+            if c.startswith('<'):
+                rr = template_vals.get(c)
+                if rr is None:
+                    raise ValueError(c)
+                r.append(rr())
+            else:
+                r.append(c)
+        return r
 
 
     async def _statsbyfile_cursor(self, options):
@@ -506,22 +568,15 @@ class Client(vuespa.Client):
     async def api_clear_db(self):
         _db_abort_process()
         await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
-        self.reprocess_db()
+        _db_reprocess()
 
 
     async def api_reparse_db(self):
-        _db_abort_process()
-        await app_mongodb_conn.drop_collection('observatory')
-        # A more robust method would be fixing queue_client to remove a
-        # document from the groups to which it belongs, but this works since
-        # the UI always re-processes the full DB at the moment.
-        await app_mongodb_conn.drop_collection('invocationsparsed')
-        await app_mongodb_conn.drop_collection('statsbyfile')
-        self.reprocess_db()
+        await _db_reparse()
 
 
     async def api_reset_db_errors(self):
-        self.reprocess_db(retry_errors=True)
+        _db_reprocess(retry_errors=True)
 
 
     async def api_loading_get(self, options):
@@ -569,10 +624,45 @@ class Client(vuespa.Client):
         return docs
 
 
-    def reprocess_db(self, *args, **kwargs):
-        global app_init
-        loop = asyncio.get_event_loop()
-        app_init = loop.create_task(init_check_pdfs(*args, **kwargs))
+    async def api_pipeline_task_reset(self, pipeline, task):
+        """Resets the given task, deleting all of its data.
+        """
+        api_info = _get_api_info({'pipeline': pipeline, 'task': task})
+        api = faw_pipelines_util.Api(api_info, app_mongodb_conn)
+        # What's important is that the version gets changed; the admin loop will
+        # pick up the correct version and downstream tasks.
+        await api.destructive__task_change_version(0, [])
+
+
+    async def api_pipeline_task_set_disabled(self, pipeline, task, disabled):
+        """Flip the state of a task being enabled or disabled.
+        """
+        api_info = _get_api_info({'pipeline': pipeline, 'task': task})
+        api = faw_pipelines_util.Api(api_info, app_mongodb_conn)
+        await api._internal_task_status_set_disabled(disabled)
+
+
+    async def api_pipeline_task_status(self, pipeline, task):
+        """Returns all task information, including last run information if it
+        is not yet done.
+        """
+        api_info = _get_api_info({'pipeline': pipeline, 'task': task})
+        api = faw_pipelines_util.Api(api_info, app_mongodb_conn)
+
+        result = {}
+        task_status = await api._internal_task_status_get_state()
+        result['version'] = task_status.version
+        result['done'] = task_status.done
+        result['disabled_by_config'] = (
+                app_config['pipelines'][pipeline]['disabled']
+                or app_config['pipelines'][pipeline]['tasks'][task]['disabled'])
+        result['disabled_by_ui'] = task_status.disabled
+        result['disabled'] = result['disabled_by_ui'] or result['disabled_by_config']
+        result['status_msg'] = task_status.status_msg
+        result['last_run_info'] = None
+        if not task_status.done:
+            result['last_run_info'] = await api._internal_task_status_get_last_run_info()
+        return result
 
 
 

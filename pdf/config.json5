@@ -375,10 +375,10 @@
         },
 
         'pdfid': {
-            exec: ['python', 'lib/pdfid_v0_2_7/pdfid.py',
+            exec: ['python3', 'lib/pdfid_v0_2_7/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
-            version: 'pdfid_v0_2_7',
+            version: 'pdfid_v0_2_7__py3',
             parse: {
                 type: 'regex-counter',
                 stdout: {
@@ -752,6 +752,10 @@
         },
     },
 
+    pipelines: {
+      // See ml_test/config.json5 for example.
+    },
+
     decision_default: '\
 # Any line beginning with a hash is a comment.  \n\
 filters:  \n\
@@ -897,13 +901,6 @@ outputs:  \n\
             execStdin: '<statsbyfile>',
         },
 
-        bernoulli_test: {
-          label: 'Bernoulli Test',
-          type: 'program',
-          exec: ['python3', 'bernoulli_test/main.py', '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>'],
-          execStdin: '<statsbyfile>\nREFERENCES\n<referenceDecisions>',
-        },
-
         example2: {
             label: 'Flip reference decisions',
             type: 'program',
@@ -988,17 +985,14 @@ with open(sys.argv[1], 'w') as html: \n\
             // should not touch 'base'. One way around this is for other images
             // to specify their own 'from' keys.
 
+            // All `commands` get run through `str.format()` in python, with
+            // `dist` mapping to the folder with config.json5, and `disttarg`
+            // mapping to `/home/dist`, but also working with subfolders
+            // containing `config.json5`.
+
             base: {
-                'from': 'ubuntu:18.04',
+                'from': 'ubuntu:20.04',
                 commands: [
-                    // Base packages
-                    'RUN apt-get update && apt-get install -y \
-                        curl \
-                        python3 \
-                        python3-pip \
-                        xpdf \
-                        wget \
-                        ',
                     // Note that we will *also* install a newer version of poppler in /usr/local/bin
                     'RUN apt-get update && apt-get install -y \
                         poppler-utils libopenjp2-7 \
@@ -1010,7 +1004,7 @@ with open(sys.argv[1], 'w') as html: \n\
                         zlib1g-dev \
                         ',
                     // Undocumented caradoc dependencies
-                    'RUN apt-get update && apt-get install -y \
+                    'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
                         m4 \
                         pkg-config \
                         libgmp3-dev \
@@ -1046,7 +1040,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     "RUN apt-get update \
                       && apt-get install -y ttf-mscorefonts-installer ttf-dejavu-core \
                       && apt-cache search -n ^fonts- \
-                        | awk '{print $1}' \
+                        | awk '{{print $1}}' \
                         | grep -v fonts-mathematica \
                         | xargs apt-get install -y \
                       ",
@@ -1064,18 +1058,22 @@ with open(sys.argv[1], 'w') as html: \n\
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
 
+                    'RUN pip3 install polyfile',
+                    // Polyfile now requires 7zip as of 2021-05-04
+                    'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
+
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
+                    // Similarly, {disttarg} gets rewritten with '/home/dist', BUT
+                    // it supports modular configs (those in child folders).
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
 
                     'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
 
-                    'COPY {dist}/bernoulli_test/requirements.txt /home/dist/bernoulli_test/requirements.txt',
-                    'RUN pip3 install -r /home/dist/bernoulli_test/requirements.txt',
-
-                    'RUN pip3 install polyfile',
+                    'COPY {dist}/ml_test/requirements.txt /home/dist/ml_test/requirements.txt',
+                    'RUN pip3 install -r /home/dist/ml_test/requirements.txt',
                 ],
             },
 
@@ -1085,12 +1083,20 @@ with open(sys.argv[1], 'w') as html: \n\
                     '/usr/local/bin/caradoc': true,
                 },
                 commands: [
-                    'RUN opam init --auto-setup && opam install -y ocamlfind cryptokit ounit menhir',
+                    'RUN opam init --auto-setup --disable-sandboxing --compiler=4.05.0 \
+                        && opam install -y ocamlbuild ocamlfind cryptokit ounit menhir \
+                        ',
                     'RUN \
                         wget -q https://github.com/ANSSI-FR/caradoc/raw/master/releases/caradoc-0.3.tar.gz \
                         && tar xf caradoc-0.3.tar.gz \
                         && rm caradoc-0.3.tar.gz \
                         ',
+                    // Original options:
+                    // OCAML_OPTS=-w,+a-3-4-32..39,-warn-error,+a,-strict-sequence,-noautolink
+                    //    && echo \"patch for caradoc-0.3 w/ new ocamlbuild\" \
+                    //    && sed -i -e \"s/OCAML_OPTS=\\(.*\\),-warn-error/OCAML_OPTS=\\1-44,-warn-error/\" Makefile \
+                    //    && head Makefile \
+                    //    && echo \"resume normal install\" \
                     "RUN bash -c '\
                         cd caradoc-0.3 \
                         && eval `opam config env` \

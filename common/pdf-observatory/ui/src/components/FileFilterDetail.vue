@@ -32,16 +32,18 @@
           span {{k[0]}}
 
     .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
-      div(v-for="k of fileStats.get('other')" :key="k[0]")
-        v-menu(offset-y max-width="400")
-          template(v-slot:activator="{on}")
-            .decision-reason(v-on="on")
-              checkmark(:status="k[1]")
-              span {{k[0]}}
-          v-list
-            v-list-item
-              v-btn(v-clipboard="() => regexEscape(k[0])") (Copy regex to clipboard)
-              v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
+      v-virtual-scroll(:items="fileStats.get('other')" item-height="25" height="750" bench="2")
+        template(v-slot:default="{item}")
+          div(:key="item[0]")
+            v-menu(offset-y max-width="400")
+              template(v-slot:activator="{on}")
+                .decision-reason(v-on="on")
+                  checkmark(:status="item[1]")
+                  span {{item[0]}}
+              v-list
+                v-list-item
+                  v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
+                  v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
 </template>
 
 <style lang="scss">

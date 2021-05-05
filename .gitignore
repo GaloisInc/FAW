@@ -1,4 +1,5 @@
 /build
+/dask-worker-space
 node_modules
 .mypy_cache
 __pycache__
