@@ -535,9 +535,9 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             'from': 'mongo:latest',
             'copy_output': {
                 '/var/log/mongodb': True,
-                '/var/lib/dpkg/info': True,
+                #'/var/lib/dpkg/info': True,
                 '/lib/systemd/system/mongod.service': '/lib/systemd/system/',
-                '/usr/share/doc': True,
+                #'/usr/share/doc': True,
                 '/usr/share/lintian/overrides/mongodb-*': '/usr/share/lintian/overrides/',
                 '/usr/bin/mongo*': '/usr/bin/',
                 '/usr/local/bin/docker-entrypoint.sh': True,
