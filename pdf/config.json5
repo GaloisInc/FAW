@@ -1151,8 +1151,12 @@ with open(sys.argv[1], 'w') as html: \n\
                   // Google tools refer to python as 'python', not 'python3'.
                   'RUN ln -s /usr/bin/python3 /usr/bin/python',
                   // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
+                  // OLD -- trying to pin the version is the normal way to do
+                  // things like this. However, pinning to e.g. chromium/4260
+                  // keeps breaking periodically, so it's better to use the
+                  // most up-to-date version.
+                  // && git checkout chromium/4260 \
                   'RUN cd pdfium/pdfium \
-                    && git checkout chromium/4260 \
                     && echo Not needed: ./build/install-build-deps.sh \
                     && EDITOR="python3 -c \'import sys; f = open(sys.argv[1], \\"w\\"); f.write(\\"pdf_is_standalone = true\\\\npdf_enable_xfa = true\\\\npdf_enable_v8 = true\\\\n\\"); f.close()\'" gn args out/Workbench \
                     && ninja -C out/Workbench pdfium_test \
