@@ -1,6 +1,6 @@
-# Requirements for pdf-etl-parse
+# Requirements for pdf-etl-parse... note that this one runs first!
 
-click
+click == 7.*  # As of 2021-05-12, dask doesn't work with version 8
 pyjson5
 pymongo
 pytest
