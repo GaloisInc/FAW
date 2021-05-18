@@ -187,6 +187,15 @@ class ApiBase(metaclass=ABCMeta):
 
 
     @abstractmethod
+    def task_file_list(self, *, taskname=None):
+        """
+        Returns a list of all file objects written to the given task.
+
+        Compatible with `task_file_read` and `task_file_write`.
+        """
+
+
+    @abstractmethod
     def task_file_read(self, filename, *, taskname=None):
         """
         Returns a file-like object which should be read from and closed.
@@ -249,6 +258,13 @@ class ApiAsync(ApiBase):
         raise NotImplementedError()
     def mongo_collection(self, colname, *, taskname=None):
         raise NotImplementedError()
+    @_fn_implements(ApiBase.task_file_list)
+    async def task_file_list(self, *, taskname=None):
+        prefix = self._task_col_prefix(taskname=taskname)
+        gfs = motor_asyncio.AsyncIOMotorGridFSBucket(
+                self._db_conn, bucket_name=f'{prefix}fs')
+        file_list = [v.filename async for v in gfs.find()]
+        return list(set(file_list))
     @_fn_implements(ApiBase.task_file_read)
     async def task_file_read(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
@@ -424,6 +440,13 @@ class ApiSync(ApiBase):
         prefix = self._task_col_prefix(taskname=taskname)
         return self._db_conn[f'{prefix}{colname}']
 
+    @_fn_implements(ApiBase.task_file_list)
+    def task_file_list(self, *, taskname=None):
+        prefix = self._task_col_prefix(taskname=taskname)
+        gfs = gridfs.GridFSBucket(
+                self._db_conn, bucket_name=f'{prefix}fs')
+        files = list(set([v.filename for v in gfs.find()]))
+        return files
     @_fn_implements(ApiBase.task_file_read)
     def task_file_read(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
