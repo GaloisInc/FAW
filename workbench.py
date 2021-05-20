@@ -408,7 +408,7 @@ def _check_config_file(config):
                     'exec': [s.Or(
                         s.And(str, lambda x: not x.startswith('<')),
                         s.And(str, lambda x: x in [
-                            '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
+                            '<filesPath>', '<apiInfo>', '<jsonArguments>', '<mongo>', '<outputHtml>',
                             '<workbenchApiUrl>']),
                         )],
                     s.Optional('cwd', default='.'): str,
