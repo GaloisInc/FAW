@@ -217,9 +217,16 @@ def main():
     docker_id = f'gfaw-{IMAGE_TAG}-{db_name}'
     if development:
         # Ensure that the necessary npm modules are installed to run the UI
-        # locally
-        subprocess.check_call(['npm', 'install'],
-                cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+        # locally. Notably, we do this from docker s.t. the node version used
+        # to install packages is the same one used to run the FAW.
+        #subprocess.check_call(['npm', 'install'],
+        #        cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+        subprocess.check_call(['docker', 'run', '-it', '--rm', '--entrypoint',
+                '/bin/bash']
+                + extra_flags
+                + [
+                    '-c', 'cd /home/pdf-observatory/ui && npm install'
+                ])
 
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
