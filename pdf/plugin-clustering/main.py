@@ -25,7 +25,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         file_to_idx[file_name] = file_idx
 
         for k, v in obj.items():
-            if k.startswith('ml-test'):
+            if k.startswith('ml-test') or k.startswith('plugin-rl-grit'):
                 # Filter out these for now... need to change to user-specified
                 # filter.
                 continue
@@ -265,7 +265,7 @@ def parser_classes(labels, X):
                 R_inv = np.linalg.pinv(R)
 
                 r_sqr = (c.T @ R_inv @ c)[0, 0]
-                assert r_sqr >= -1e3 and r_sqr <= 1.001, r_sqr
+                assert r_sqr >= -1e3 and r_sqr <= 1.1, r_sqr
                 pvals.append(1 - r_sqr ** 0.5)
 
             if ji != pi:
