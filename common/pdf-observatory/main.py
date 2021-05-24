@@ -542,6 +542,7 @@ class Client(vuespa.Client):
 
         r_skip = 0
         r_every = 1
+
         if options['subsetSize'] > 0:
             max_docs = await app_mongodb_conn['statsbyfile'].count_documents(query)
             max_subset = max(1, int(math.ceil(max_docs / options['subsetSize'])))
@@ -553,15 +554,28 @@ class Client(vuespa.Client):
             r_skip = options['subsetPartition']
             r_every = max_subset
 
-        gi = 0
-        cursor = app_mongodb_conn['statsbyfile'].find(query).sort('_id')
-        if r_skip > 0:
-            cursor = cursor.skip(r_skip)
+        # Faster with lots of features. Get IDs first, then documents. Also,
+        # don't sort when fetching data.
+        if r_every == 1:
+            cursor = app_mongodb_conn['statsbyfile'].find(query)
+            if r_skip > 0:
+                cursor = cursor.skip(r_skip)
+        else:
+            pipeline = [{'$project': {'_id': 1}}]
+            pipeline.append({'$sort': {'_id': 1}})
+            if r_skip > 0:
+                pipeline.append({'$skip': r_skip})
+            pipeline.append({'$group': {'_id': None, 'ids': {'$push': '$_id'}}})
+            pipeline.append({'$project': {'ids': {'$map': {
+                    'input': {'$range': [0, {'$size': '$ids'}, r_every]},
+                    'as': 'index',
+                    'in': {'$arrayElemAt': ['$ids', '$$index']},
+                    }}}})
+            all_ids = [v['ids'] async for v in
+                    app_mongodb_conn['statsbyfile'].aggregate(pipeline)][0]
+            cursor = app_mongodb_conn['statsbyfile'].find(
+                    {'_id': {'$in': all_ids}})
         async for g in cursor:
-            gi += 1
-            if r_every > 1 and gi % r_every != 1:
-                continue
-
             yield g
 
 
