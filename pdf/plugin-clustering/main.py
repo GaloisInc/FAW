@@ -347,8 +347,6 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         f.write('\n</script>')
         f.write('</head>')
         f.write('<body>')
-        if False:
-            f.write(parser_classes(labels, X))
         #f.write(f'<img src="data:image/png;base64,{base64.b64encode(img).decode()}" />')
         f.write('<div id="app">If you see this, Vue is loading or broken</div>')
         f.write(r'''<script>let app = new Vue({el: '#app', data: window.data,
@@ -358,94 +356,6 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 </div>`})</script>''')
         f.write('</body>')
         f.write('</html>')
-
-
-def parser_classes(labels, X):
-    """Returns an HTML table describing the mutual information amongst parsers.
-    """
-    import scipy.optimize
-
-    parsers = {}
-    for li, l in enumerate(labels):
-        p = l.split('_')[0]
-        plist = parsers.get(p)
-        if plist is None:
-            parsers[p] = plist = []
-        plist.append(li)
-
-    all_parsers = sorted(parsers.items(), key=lambda m: len(m[1]))
-
-    # Want to know cos(theta), Ax * B / (||Ax|| ||B||)
-
-    matrix = []
-    for pi, (p, plist) in enumerate(all_parsers):
-        prow = []
-        matrix.append(prow)
-
-        # Try to predict the parser under investigation's features from this
-        # parser's features
-        for ji, (j, jlist) in enumerate(all_parsers[:pi+1]):
-            mat_p = X[np.asarray(jlist)].T
-            if ji == pi:
-                prow.append(mat_p.shape[1])
-
-                # Finally, look at ALL preceding parsers
-                jlist_all = [v for l in all_parsers[:pi] for v in l[1]]
-                if not jlist_all:
-                    assert ji == pi
-                    prow.insert(0, mat_p.shape[1])
-                    continue
-                mat_p = X[np.asarray(jlist_all)].T
-
-            pvals = []
-            for jj in plist:
-                # Compute multiple correlation from mat_p to X[jj]
-                # Note that we already zero-meaned and unit-var'd everything
-
-                R = mat_p.T @ mat_p / mat_p.shape[0]
-                c = mat_p.T @ X[jj, None].T / mat_p.shape[0]
-
-                # Pseudo-inverse accounts for when dependent variables are
-                # somewhat fully determined by one another
-                R_inv = np.linalg.pinv(R)
-
-                r_sqr = (c.T @ R_inv @ c)[0, 0]
-                assert r_sqr >= -1e3 and r_sqr <= 1.1, r_sqr
-                pvals.append(1 - r_sqr ** 0.5)
-
-            if ji != pi:
-                prow.append(np.asarray(pvals).sum())
-            else:
-                prow.insert(0, np.asarray(pvals).sum())
-
-        prow.extend([None for _ in range(pi+1, len(all_parsers))])
-
-    r = []
-    r.append('<div>Parser utility; values are useful features row adds against column, measured as sum across all features of 1 - R from Pearson multiple correlation.</div>')
-    r.append('<div>Diagonal is number of features from parser.</div>')
-    r.append('<div>"Novel features" column indicates number of useful features added to dataset compared to previous rows.</div>')
-    r.append('<table border="1"><tr><td></td><td>Novel features</td>')
-    for p, _ in all_parsers:
-        r.append(f'<td>{p}</td>')
-    r.append('</tr>')
-    novel_sum = 0.
-    all_sum = 0.
-    for pi, ((p, _), mrow) in enumerate(zip(all_parsers, matrix)):
-        r.append(f'<tr><td>{p}</td>')
-
-        novel_sum += mrow[0]
-        all_sum += mrow[pi + 1]
-
-        for v in mrow:
-            if v is None:
-                r.append('<td></td>')
-            else:
-                r.append(f'<td>{v:.3f}</td>')
-        r.append('</tr>')
-    r.append(f'<tr><td>Approximate novel features</td><td>{novel_sum:.3f}</td></tr>')
-    r.append(f'<tr><td>Out of</td><td>{all_sum:.3f}</td></tr>')
-    r.append('</table>')
-    return ''.join(r)
 
 
 if __name__ == '__main__':
