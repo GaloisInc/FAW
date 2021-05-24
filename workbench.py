@@ -201,19 +201,6 @@ def main():
 
         extra_flags.append(IMAGE_TAG + '-dev')
 
-    def open_browser():
-        if development:
-            time.sleep(5)
-        else:
-            time.sleep(1.5)
-        try:
-            webbrowser.open(f'http://localhost:{port}')
-        except:
-            traceback.print_exc()
-    t = threading.Thread(target=open_browser)
-    t.daemon = True
-    t.start()
-
     docker_id = f'gfaw-{IMAGE_TAG}-{db_name}'
     if development:
         # Ensure that the necessary npm modules are installed to run the UI
@@ -281,6 +268,15 @@ def main():
         t_watch.daemon = True
         t_watch.start()
 
+    def open_browser():
+        time.sleep(1.5)
+        try:
+            webbrowser.open(f'http://localhost:{port}')
+        except:
+            traceback.print_exc()
+    open_browser_thread = threading.Thread(target=open_browser)
+    open_browser_thread.daemon = True
+    open_browser_thread.start()
     subprocess.check_call(['docker', 'run', '-it', '--rm',
             '--log-driver', 'none',
             '--name', docker_id,
@@ -600,7 +596,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # with system code as early as possible.
     if development:
         # Development extensions... add not-compiled code directories.
-        dockerfile_final_postamble.append(r'''
+        dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
             ''')
@@ -692,7 +688,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         for k, v in stage_def.get('copy_output', {}).items():
             if v is True:
                 v = k
-            dockerfile_final.insert(0, f'COPY --from={stage} {k} {v}')
+            dockerfile_final_postamble.append(f'COPY --from={stage} {k} {v}')
 
     # Regardless, there's some glue code to create the final image.
     dockerfile_middle.append(rf'''
