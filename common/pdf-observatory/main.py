@@ -159,6 +159,9 @@ def _config_reload():
 
 
 def _get_api_info(extra_info={}):
+    """NOTE: Updates here must also affect `common/teaming/pyinfra/deploy.py`,
+    where the worker script gets written. look for "--api-info" in that file.
+    """
     r = {
         'hostname': app_hostname,
         'hostport': app_hostport,

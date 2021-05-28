@@ -8,6 +8,7 @@ import gridfs
 import motor.motor_asyncio as motor_asyncio
 import os
 import pymongo
+import tempfile
 import urllib.request
 
 def _fn_implements(fn_base):
@@ -404,14 +405,21 @@ class ApiSync(ApiBase):
         """
         # See if we're local
         if not hasattr(self, '_is_main_node'):
-            self._is_main_node = (
-                os.path.lexists('/home/pdf-observatory/main.py')
-                and os.path.lexists('/home/config.json'))
+            self._is_main_node = (not os.path.lexists('/home/worker.sh'))
 
         if self._is_main_node:
             yield os.path.join(self._api_info['pdfdir'], filename)
         else:
-            raise NotImplementedError()
+            api_info = self._api_info
+            host = api_info['hostname']
+            port = api_info['hostport']
+            url = f'http://{host}:{port}/file_download/' + filename
+            data = urllib.request.urlopen(url).read()
+            with tempfile.NamedTemporaryFile(suffix=os.path.basename(filename),
+                    mode='w+b') as f:
+                f.write(data)
+                f.flush()
+                yield f.name
 
     def file_list(self):
         """Retrieve a listing of all files available to the FAW. Suitable for

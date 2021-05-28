@@ -162,17 +162,20 @@ def main():
             st = os.stat(script_name)
             os.chmod(script_name, st.st_mode | stat.S_IEXEC)
 
-        # Package up whole file
-        file_name = os.path.abspath(os.path.join(os.path.abspath(pdf_dir), '..',
-                f'{config_data["name"]}.tar.gz'))
-        try:
-            os.remove(file_name)
-        except FileNotFoundError:
-            pass
-        subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(pdf_dir),
-                cwd=pdf_dir)
+        if False:
+            # Package up whole file
+            # On second thought, don't. It takes up disk space and the user could
+            # run this step on their own
+            file_name = os.path.abspath(os.path.join(os.path.abspath(pdf_dir), '..',
+                    f'{config_data["name"]}.tar.gz'))
+            try:
+                os.remove(file_name)
+            except FileNotFoundError:
+                pass
+            subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(pdf_dir),
+                    cwd=pdf_dir)
 
-        print(f'Package available as {file_name}')
+        print(f'Package available as {pdf_dir}')
         return
 
     # Hash absolute path to folder to generate consistent DB name.
@@ -730,19 +733,24 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Mongodb service
             RUN \
                 mkdir -p /etc/cont-init.d \
-                && echo "#! /bin/sh\\nmkdir -p /var/log/mongodb\\nchown -R nobody:nogroup /var/log/mongodb" > /etc/cont-init.d/mongod \
+                && echo '#! /bin/sh\nmkdir -p /var/log/mongodb\nchown -R nobody:nogroup /var/log/mongodb' > /etc/cont-init.d/mongod \
                 && mkdir -p /etc/services.d/mongod \
-                && echo "#! /bin/sh\\nmongod --ipv6 --bind_ip_all" >> /etc/services.d/mongod/run \
+                && echo '#! /bin/sh\nmongod --ipv6 --bind_ip_all' >> /etc/services.d/mongod/run \
                 && chmod a+x /etc/services.d/mongod/run \
                 && mkdir /etc/services.d/mongod/log \
-                && echo "#! /usr/bin/execlineb -P\\nlogutil-service /var/log/mongodb" >> /etc/services.d/mongod/log/run \
+                && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
                 && chmod a+x /etc/services.d/mongod/log/run
 
-            # Observatory service
+            # Observatory service (modifications must also change common/teaming/pyinfra/deploy.py)
             RUN \
-                mkdir /etc/services.d/observatory \
-                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json' >> /etc/services.d/observatory/run \
+                mkdir -p /etc/cont-init.d \
+                && echo '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
+                && mkdir /etc/services.d/observatory \
+                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json 2>&1' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
+                && mkdir /etc/services.d/observatory/log \
+                    && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/observatory' > /etc/services.d/observatory/log/run \
+                    && chmod a+x /etc/services.d/observatory/log/run \
                 && echo OK
 
             # Dask service (scheduler AND worker initially; teaming script fixes this)
@@ -753,9 +761,14 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                     && chmod a+x /etc/services.d/dask-scheduler/run \
                 && echo OK
             RUN \
-                mkdir /etc/services.d/dask-worker \
-                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786' >> /etc/services.d/dask-worker/run \
+                mkdir -p /etc/cont-init.d \
+                && echo '#! /bin/sh\nmkdir -p /var/log/dask-worker\nchown -R nobody:nogroup /var/log/dask-worker' > /etc/cont-init.d/dask-worker \
+                && mkdir /etc/services.d/dask-worker \
+                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786 2>&1' >> /etc/services.d/dask-worker/run \
                     && chmod a+x /etc/services.d/dask-worker/run \
+                && mkdir /etc/services.d/dask-worker/log \
+                    && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-worker' > /etc/services.d/dask-worker/log/run \
+                    && chmod a+x /etc/services.d/dask-worker/log/run \
                 && echo OK
 
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time

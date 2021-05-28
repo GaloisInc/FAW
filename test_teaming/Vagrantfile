@@ -1,0 +1,154 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+Vagrant.configure("2") do |config|
+  # The most common configuration options are documented and commented below.
+  # For a complete reference, please see the online documentation at
+  # https://docs.vagrantup.com.
+  #
+  # A lot of this is from https://gist.github.com/kikitux/86a0bd7b78dca9b05600264d7543c40d
+
+  #baseImg = "generic/ubuntu2004"
+  baseImg = "bento/ubuntu-20.04"
+  ipBase = "192.168.10"
+
+  nnodes = 2
+  nodePrefix = "work"
+
+  global = <<SCRIPT
+
+[ -f /vagrant/id_rsa ] || {
+  ssh-keygen -t rsa -f /vagrant/id_rsa -q -N ''
+}
+
+[ -f ~/.ssh/id_rsa ] || {
+  cp /vagrant/id_rsa ~/.ssh/id_rsa
+  chmod 600 ~/.ssh/id_rsa
+}
+
+grep 'vagrant@node' ~/.ssh/authorized_keys &> /dev/null || {
+  cat /vagrant/id_rsa.pub >> ~/.ssh/authorized_keys
+  chmod 600 ~/.ssh/authorized_keys
+}
+
+cat > ~/.ssh/config <<EOF
+Host node*
+  StrictHostKeyChecking no
+  UserKnownHostsFile=/dev/null
+EOF
+
+for x in {11..#{10+nnodes}}; do
+  grep #{ipBase}.${x} /etc/hosts &>/dev/null || {
+      echo #{ipBase}.${x} #{nodePrefix}${x##?} | sudo tee -a /etc/hosts &>/dev/null
+  }
+done
+
+SCRIPT
+
+  config.vm.box = baseImg
+  config.vm.provision "shell", privileged: false, inline: global
+
+  # First, make worker machines which receive the built version
+  (1..nnodes).each do |index|
+    name = nodePrefix + index.to_s
+    config.vm.define name do |img|
+      img.vm.hostname = name
+      ip = "#{ipBase}.#{10 + index}"
+      img.vm.network "private_network", ip:  ip
+      if index == 1
+        img.vm.network :forwarded_port, guest: 8123, host: 8123
+        img.vm.provision "shell", inline: "mkdir -p /data/pdfs && chmod -R 777 /data"
+        img.vm.provision "file", source: "../test_files/pdf", destination: "/data/pdfs"
+      end
+    end
+  end
+
+  # Make a machine which runs pyinfra, etc.
+  config.vm.define "runner" do |base|
+    base.vm.hostname = "runner"
+    ip = "#{ipBase}.#{10}"
+    base.vm.network "private_network", ip:  ip
+
+    base.vm.provision "file", source: "../build/test_teaming", destination: "$HOME/test_teaming"
+    base.vm.provision "file", source: "../common", destination: "$HOME/faw/common"
+    base.vm.provision "file", source: "../workbench-teaming-init.py", destination: "$HOME/faw/workbench-teaming-init.py"
+
+    base.vm.provision "shell", privileged: false, inline: <<SHELL
+set -e
+sudo apt-get update && sudo apt-get install -y python3 python3-pip
+
+export PATH=$HOME/.local/bin:$PATH
+pip3 install --user pyinfra pyinfra_docker pyjson5 schema
+
+cd $HOME/faw
+rm -rf team-scripts
+# NOTE -- use IP address instead of hostname to get around fixing DNS issues
+# between Docker and host machine
+python3 workbench-teaming-init.py ../test_teaming team-scripts 192.168.10.11 /data/pdfs 192.168.10.12
+cd team-scripts
+pyinfra inventory.py deploy.py
+SHELL
+  end
+
+  # Every Vagrant development environment requires a box. You can search for
+  # boxes at https://vagrantcloud.com/search.
+  #config.vm.box = "base"
+
+  # Disable automatic box update checking. If you disable this, then
+  # boxes will only be checked for updates when the user runs
+  # `vagrant box outdated`. This is not recommended.
+  # config.vm.box_check_update = false
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine. In the example below,
+  # accessing "localhost:8080" will access port 80 on the guest machine.
+  # NOTE: This will enable public access to the opened port
+  # config.vm.network "forwarded_port", guest: 80, host: 8080
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine and only allow access
+  # via 127.0.0.1 to disable public access
+  # config.vm.network "forwarded_port", guest: 80, host: 8080, host_ip: "127.0.0.1"
+
+  # Create a private network, which allows host-only access to the machine
+  # using a specific IP.
+  # config.vm.network "private_network", ip: "192.168.33.10"
+
+  # Create a public network, which generally matched to bridged network.
+  # Bridged networks make the machine appear as another physical device on
+  # your network.
+  # config.vm.network "public_network"
+
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  # config.vm.synced_folder "../data", "/vagrant_data"
+
+  # Provider-specific configuration so you can fine-tune various
+  # backing providers for Vagrant. These expose provider-specific options.
+  # Example for VirtualBox:
+  #
+  # config.vm.provider "virtualbox" do |vb|
+  #   # Display the VirtualBox GUI when booting the machine
+  #   vb.gui = true
+  #
+  #   # Customize the amount of memory on the VM:
+  #   vb.memory = "1024"
+  # end
+  #
+  # View the documentation for the provider you are using for more
+  # information on available options.
+
+  # Enable provisioning with a shell script. Additional provisioners such as
+  # Ansible, Chef, Docker, Puppet and Salt are also available. Please see the
+  # documentation for more information about their specific syntax and use.
+  # config.vm.provision "shell", inline: <<-SHELL
+  #   apt-get update
+  #   apt-get install -y apache2
+  # SHELL
+end
