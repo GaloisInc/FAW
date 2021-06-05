@@ -170,23 +170,6 @@
             },
         },
 
-        "pdfium": {
-            exec: ['/opt/pdfium/pdfium_test', '<inputFile>'],
-            version: 'chromium-4180',
-            parse: {
-                type: 'regex-counter',
-                stdstar: {
-                    '^\\s*(/opt|/lib|[#]FailureMessage).*$': {
-                        nameGroup: '<<workbench: stack trace collapsed>>'
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
         "pdftocairo-pdf": {
             exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             version: 'poppler-20.09.0',
