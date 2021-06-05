@@ -522,7 +522,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     'RUN apt-get update && apt-get install -y \
                         libjpeg-dev \
                         ',
-                    'RUN pip3 install pdfminer',
+                    'RUN pip3 install pdfminer.six',
                     // Ensure poppler has fonts installed and available; installs both MS fonts and
                     // uses a nuclear option to select all available ubuntu fonts packages.
                     'RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections',

@@ -1,0 +1,39 @@
+{
+    parsers: {
+        'pdfminer-dumppdf': {
+            exec: ['python3', '/usr/local/bin/dumppdf.py', '-a', '<inputFile>'],
+            version: '10.0.1',
+            parse: {
+                type: 'regex-counter',
+                stdstar: {
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },       
+        },
+
+        'pdfminer-pdf2text': {
+            exec: ['python3', '/usr/local/bin/pdf2text.py', '<inputFile>'],
+            version: '10.0.1',
+            parse: {
+                type: 'regex-counter',
+                stdstar: {
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },       
+        },
+    },
+
+    build: {
+        stages: {
+            pdfminer: {
+               commands: [
+               'RUN pip3 install pdfminer.six',
+               ]
+            },
+        },
+    },
+}
