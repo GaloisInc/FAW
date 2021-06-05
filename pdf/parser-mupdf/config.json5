@@ -3,7 +3,7 @@
         'mutool-convert-pdf': {
             disabled: true,
             exec: ['mutool', 'convert', '-F', 'pdf', '-o', '<tempFile .pdf>', '<inputFile>'],
-            version: 'mupdf-1.17',
+            version: 'mupdf-1.16',
             parse: {
                 type: 'regex-counter',
                 stdout: {},
@@ -46,7 +46,7 @@
         'mutool-clean': {
             // "mutool clean -s" requires a .pdf extension, or it hangs
             exec: ['mutool', 'clean', '-s', '<inputFile>', '<tempFile .pdf>'],
-            version: 'mupdf-1.17',
+            version: 'mupdf-1.16',
             parse: {
                 type: 'regex-counter',
                 stdout: {},
@@ -91,7 +91,7 @@
           disabled: true,
           exec: ['timeout_pshved', '-t', '5', '-m', '1000000', 'mutool',
               'clean', '-s', '<inputFile>'],
-          version: 'mupdf-1.17',
+          version: 'mupdf-1.16',
           parse: {
             type: 'regex-counter',
             stdout: {
@@ -148,7 +148,7 @@
         'mutool-draw': {
             disabled: true,
             exec: ['mutool', 'draw', '-F', 'png', '-o', '<tempFile>', '<inputFile>'],
-            version: 'mupdf-1.17',
+            version: 'mupdf-1.16',
             parse: {
                 type: 'regex-counter',
                 stdout: {},
