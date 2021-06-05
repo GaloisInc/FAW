@@ -1,7 +1,7 @@
  {
     parsers: {
 
-        "xpdf-pdftotext": {
+        "pdftotext": {
           exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
           version: 'xpdf-4.0.2',
           parse: {
@@ -21,7 +21,7 @@
           },
         },
         
-        "xpdf-pdfinfo": {
+        "pdfinfo": {
             disabled: true,
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '<inputFile>'],
             // Could specify a timeout for this parser specifically (seconds):
@@ -77,7 +77,7 @@
             },
         },
 
-        "xpdf-pdffonts": {
+        "pdffonts": {
             // `-subst` shows only font substitutions, which are non-embedded
             // fonts.
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdffonts', '-subst', '<inputFile>'],
@@ -103,7 +103,7 @@
             },
         },
 
-        "xpdf-pdfinfo-meta": {
+        "pdfinfo-meta": {
             disabled: true,
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '-meta', '<inputFile>'],
             version: 'xpdf-4.0.2',
@@ -117,7 +117,7 @@
             },
         },
 
-        "xpdf-pdfinfo-struct": {
+        "pdfinfo-struct": {
             disabled: true,
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '-struct', '<inputFile>'],
             version: 'xpdf-4.0.2',
@@ -150,7 +150,7 @@
             },
         },
 
-        "xpdf-pdftocairo-pdf": {
+        "pdftocairo-pdf": {
             disabled: true,
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
@@ -172,7 +172,7 @@
             },
         },
 
-        "xpdf-pdftoppm": {
+        "pdftoppm": {
             disabled: false,
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
@@ -194,7 +194,7 @@
             },
         },
 
-        "xpdf-pdftocairo-ps": {
+        "pdftocairo-ps": {
             disabled: false,
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
@@ -216,7 +216,7 @@
             },
         },
 
-        "xpdf-pdftops": {
+        "pdftops": {
             exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftops', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
