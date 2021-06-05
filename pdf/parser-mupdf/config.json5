@@ -189,8 +189,6 @@
         },
     },
 
-  },
-
     build: {
        stages: {
             mupdf: {

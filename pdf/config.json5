@@ -44,173 +44,6 @@
 
         // Definitions should follow old `invokers.cfg`, BUT eventually we also
         // want to specify `pdf-etl-parse` toolchain here.
-        pdfinfo: {
-            exec: ['/usr/local/bin/pdfinfo', '<inputFile>'],
-            // Could specify a timeout for this parser specifically (seconds):
-            //timeout: 10,
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                // The 'regex-counter' type generates a small program which
-                // matches the parser's output line by line.
-                // See https://docs.python.org/3/howto/regex.html for Regex
-                // flavor. Counts are binary only.
-                //
-                // There are three parameters: 'stdstar', 'stdout', and
-                // 'stderr'.
-                //
-                // 'stdstar' applies to both, and is tried after the
-                // more-specific 'stdout' and 'stderr' arguments.
-                stdout: {
-                    '^File size: *(.*) bytes$': {
-                      nameGroup: 'File size',
-                      countGroup: 1,
-                      countAsNumber: true,
-                    },
-                    '^([a-zA-Z0-9_ ]+): *(.*)$': {
-                        nameGroup: 1,
-                        nameReplace: {
-                            '[0-9]': '',
-                        },
-                        countGroup: 2,
-                        // countAsMissing can be used to
-                        countAsMissing: ['no', 'none', '0', '0.0'],
-                        // countAsNumber can be used to also add '_sum' to the
-                        // database, which is handy for aggregating numeric
-                        // values. Requires that `countGroup` points to
-                        // a string which may be cast to a number, though.
-                        //countAsNumber: true,
-                    },
-
-                    '.*': {
-                        nameGroup: 'unrecognized',
-                    },
-                },
-                stderr: {
-                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
-                        nameReplace: {
-                            '[0-9]': '',
-                        },
-                    },
-
-                    '^Bogus.*': {
-                    },
-                },
-            },
-        },
-
-        pdffonts: {
-            // `-subst` shows only font substitutions, which are non-embedded
-            // fonts.
-            exec: ['/usr/local/bin/pdffonts', '-subst', '<inputFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-              type: 'regex-counter',
-              stdout: {
-                '^name ': {
-                  nameGroup: '',
-                },
-                '^----': {
-                  nameGroup: '',
-                },
-                '^([a-zA-Z0-9-]+)': {
-                  nameGroup: 'Unembedded font',
-                },
-              },
-              stderr: {
-                '^.*': {
-                  nameGroup: '',
-                },
-              },
-            },
-        },
-
-        "pdfinfo-meta": {
-            exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stdstar: {
-                    '.*': {
-                        nameGroup: 'meta not implemented',
-                    },
-                },
-            },
-        },
-
-        "pdfinfo-struct": {
-            exec: ['/usr/local/bin/pdfinfo', '-struct', '<inputFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stdout: {
-                    '^[ \\t]*(/?[a-zA-Z][a-zA-Z0-9]*)( \\(block\\))?([ :]|$)': {
-                        nameGroup: 'struct \\1\\2',
-                    },
-                    // These attributes may explode in count, but may be worth
-                    // considering unique counts...
-                    '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
-                        nameGroup: '\\g<type>',
-                    },
-                    // Anything else gets stripped
-                    '.*': {
-                        nameGroup: 'unrecognized',
-                    },
-                },
-                stderr: {
-                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
-                        nameReplace: {
-                            '[0-9]': '',
-                        },
-                    },
-
-                    '^Bogus.*': {
-                    },
-                },
-            },
-        },
-
-        "pdftocairo-pdf": {
-            exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stderr: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        pdftops: {
-            exec: ['/usr/local/bin/pdftops', '<inputFile>', '<tempFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stdstar: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
 
         pdftotext: {
           exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
@@ -434,6 +267,7 @@
             },
           },
         },
+    },
 
     pipelines: {
       // See ml_test/config.json5 for example.
@@ -680,7 +514,7 @@ with open(sys.argv[1], 'w') as html: \n\
 
                     // Note that we will *also* install a newer version of poppler in /usr/local/bin
                     'RUN apt-get update && apt-get install -y \
-                        poppler-utils libopenjp2-7 \
+                        libopenjp2-7 \
                         ',
 
                     // Requirements for building poppler utils from source
