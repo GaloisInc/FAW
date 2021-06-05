@@ -1,0 +1,254 @@
+ {
+    parsers: {
+
+        "xpdf-pdftotext": {
+          exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
+          version: 'xpdf-4.0.2',
+          parse: {
+            type: 'regex-counter',
+            stdout: {
+              // We do NOT want the observatory to pick these up, so just ignore
+              // every message. pdftotext must be searched via mongo!
+              '^.*$': {
+                nameGroup: '',
+              },
+            },
+            stderr: {
+              '^Syntax Error: .*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+        
+        "xpdf-pdfinfo": {
+            disabled: true,
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '<inputFile>'],
+            // Could specify a timeout for this parser specifically (seconds):
+            //timeout: 10,
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                // The 'regex-counter' type generates a small program which
+                // matches the parser's output line by line.
+                // See https://docs.python.org/3/howto/regex.html for Regex
+                // flavor. Counts are binary only.
+                //
+                // There are three parameters: 'stdstar', 'stdout', and
+                // 'stderr'.
+                //
+                // 'stdstar' applies to both, and is tried after the
+                // more-specific 'stdout' and 'stderr' arguments.
+                stdout: {
+                    '^File size: *(.*) bytes$': {
+                      nameGroup: 'File size',
+                      countGroup: 1,
+                      countAsNumber: true,
+                    },
+                    '^([a-zA-Z0-9_ ]+): *(.*)$': {
+                        nameGroup: 1,
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                        countGroup: 2,
+                        // countAsMissing can be used to
+                        countAsMissing: ['no', 'none', '0', '0.0'],
+                        // countAsNumber can be used to also add '_sum' to the
+                        // database, which is handy for aggregating numeric
+                        // values. Requires that `countGroup` points to
+                        // a string which may be cast to a number, though.
+                        //countAsNumber: true,
+                    },
+
+                    '.*': {
+                        nameGroup: 'unrecognized',
+                    },
+                },
+                stderr: {
+                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                    },
+
+                    '^Bogus.*': {
+                    },
+                },
+            },
+        },
+
+        "xpdf-pdffonts": {
+            // `-subst` shows only font substitutions, which are non-embedded
+            // fonts.
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdffonts', '-subst', '<inputFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+              type: 'regex-counter',
+              stdout: {
+                '^name ': {
+                  nameGroup: '',
+                },
+                '^----': {
+                  nameGroup: '',
+                },
+                '^([a-zA-Z0-9-]+)': {
+                  nameGroup: 'Unembedded font',
+                },
+              },
+              stderr: {
+                '^.*': {
+                  nameGroup: '',
+                },
+              },
+            },
+        },
+
+        "xpdf-pdfinfo-meta": {
+            disabled: true,
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '-meta', '<inputFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stdstar: {
+                    '.*': {
+                        nameGroup: 'meta not implemented',
+                    },
+                },
+            },
+        },
+
+        "xpdf-pdfinfo-struct": {
+            disabled: true,
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '-struct', '<inputFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stdout: {
+                    '^[ \\t]*(/?[a-zA-Z][a-zA-Z0-9]*)( \\(block\\))?([ :]|$)': {
+                        nameGroup: 'struct \\1\\2',
+                    },
+                    // These attributes may explode in count, but may be worth
+                    // considering unique counts...
+                    '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
+                        nameGroup: '\\g<type>',
+                    },
+                    // Anything else gets stripped
+                    '.*': {
+                        nameGroup: 'unrecognized',
+                    },
+                },
+                stderr: {
+                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                    },
+
+                    '^Bogus.*': {
+                    },
+                },
+            },
+        },
+
+        "xpdf-pdftocairo-pdf": {
+            disabled: true,
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        "xpdf-pdftoppm": {
+            disabled: false,
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        "xpdf-pdftocairo-ps": {
+            disabled: false,
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        "xpdf-pdftops": {
+            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftops', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stdstar: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+
+    build: {
+       stages: {
+           poppler: {
+                commands: [
+                    'WORKDIR /home/dist/',
+                    'RUN wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
+                         && tar xf xpdf-tools-linux-4.03.tar.gz \
+                         && rm xpdf-tools-linux-4.03.tar.gz \
+                        ', 
+                ],
+           },
+       },
+   },
+}
