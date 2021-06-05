@@ -1,5 +1,6 @@
 
 import config
+import json
 import os
 import shlex
 
@@ -66,15 +67,51 @@ if 'web_host' in host.groups:
     docker_flags.extend(['-v', f'{user}-data:/data/db'])
     docker_flags.extend(['-p', f'{config.port}:8123'])
     docker_flags.extend(['-p', f'{config.port_mongo}:27017'])
+    docker_flags.extend(['-p', f'{config.port_dask}:8786'])
+
+    # Furthermore, extend our observatory run script to be self-hostname-aware
+    host_script = rf'''
+#! /bin/bash
+set -e
+echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
+chmod a+x /etc/services.d/observatory/run
+# Now, launch as normal
+/init
+'''
+    server.shell(name="Writing host script", commands=[
+            rf'echo {shlex.quote(host_script)} > {userhome}/host.sh',
+            rf'chmod 755 {userhome}/host.sh',
+    ])
+    docker_flags.extend([
+            '-v', f'{userhome}/host.sh:/home/host.sh:ro',
+            '--entrypoint', '/bin/bash',
+    ])
+    docker_flags_cmd.extend(['-c', '/home/host.sh'])
 else:
     # Worker FAW instancea
+    api_info = {
+            'hostname': webhost,
+            'hostport': config.port,
+            'dask': f'{webhost}:{config.port_dask}',
+            'mongo': f'{webhost}:{config.port_mongo}/{user}-faw-db',
+            'pdfdir': '/home/pdf-files',
+    }
+    # Happens inside a single quote, so be sure to account for that in shlex
+    api_info_shell = shlex.quote("'" + json.dumps(api_info) + "'")[1:-1]
     worker_script = rf'''
 #! /bin/bash
 set -e
-cd /home/dist
-#a {userhome}/worker_config.sh
-python3 ../pdf-observatory/main.py /tmp no:mongo/beep --in-docker --quit-after-config --port {config.port} --production --config ../config.json
-python3 ../pdf-observatory/queue_client.py --mongo-db {webhost}:{config.port_mongo}/{user}-faw-db --pdf-dir /home/pdf-files --pdf-fetch-url http://{webhost}:{config.port}/file_download/ --config ../config.json
+# Fix up observatory
+echo '#! /bin/bash\ncd /home/dist\npython3 ../pdf-observatory/queue_client.py --mongo-db {webhost}:{config.port_mongo}/{user}-faw-db --pdf-dir /home/pdf-files --pdf-fetch-url http://{webhost}:{config.port}/file_download/ --config ../config.json --api-info {api_info_shell} 2>&1' > /etc/services.d/observatory/run
+chmod a+x /etc/services.d/observatory/run
+# Fix up dask -- disable scheduler, change worker to connect to global scheduler
+rm -rf /etc/services.d/dask-scheduler
+echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
+chmod a+x /etc/services.d/dask-worker/run
+# Disable mongo
+rm -rf /etc/services.d/mongod
+# Now, run as usual
+/init
 '''
     server.shell(name="Writing worker script", commands=[
             rf'echo {shlex.quote(worker_script)} > {userhome}/worker.sh',

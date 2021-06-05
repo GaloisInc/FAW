@@ -162,17 +162,20 @@ def main():
             st = os.stat(script_name)
             os.chmod(script_name, st.st_mode | stat.S_IEXEC)
 
-        # Package up whole file
-        file_name = os.path.abspath(os.path.join(os.path.abspath(pdf_dir), '..',
-                f'{config_data["name"]}.tar.gz'))
-        try:
-            os.remove(file_name)
-        except FileNotFoundError:
-            pass
-        subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(pdf_dir),
-                cwd=pdf_dir)
+        if False:
+            # Package up whole file
+            # On second thought, don't. It takes up disk space and the user could
+            # run this step on their own
+            file_name = os.path.abspath(os.path.join(os.path.abspath(pdf_dir), '..',
+                    f'{config_data["name"]}.tar.gz'))
+            try:
+                os.remove(file_name)
+            except FileNotFoundError:
+                pass
+            subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(pdf_dir),
+                    cwd=pdf_dir)
 
-        print(f'Package available as {file_name}')
+        print(f'Package available as {pdf_dir}')
         return
 
     # Hash absolute path to folder to generate consistent DB name.
@@ -201,25 +204,19 @@ def main():
 
         extra_flags.append(IMAGE_TAG + '-dev')
 
-    def open_browser():
-        if development:
-            time.sleep(5)
-        else:
-            time.sleep(1.5)
-        try:
-            webbrowser.open(f'http://localhost:{port}')
-        except:
-            traceback.print_exc()
-    t = threading.Thread(target=open_browser)
-    t.daemon = True
-    t.start()
-
     docker_id = f'gfaw-{IMAGE_TAG}-{db_name}'
     if development:
         # Ensure that the necessary npm modules are installed to run the UI
-        # locally
-        subprocess.check_call(['npm', 'install'],
-                cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+        # locally. Notably, we do this from docker s.t. the node version used
+        # to install packages is the same one used to run the FAW.
+        #subprocess.check_call(['npm', 'install'],
+        #        cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+        subprocess.check_call(['docker', 'run', '-it', '--rm', '--entrypoint',
+                '/bin/bash']
+                + extra_flags
+                + [
+                    '-c', 'cd /home/pdf-observatory/ui && npm install'
+                ])
 
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
@@ -274,6 +271,15 @@ def main():
         t_watch.daemon = True
         t_watch.start()
 
+    def open_browser():
+        time.sleep(1.5)
+        try:
+            webbrowser.open(f'http://localhost:{port}')
+        except:
+            traceback.print_exc()
+    open_browser_thread = threading.Thread(target=open_browser)
+    open_browser_thread.daemon = True
+    open_browser_thread.start()
     subprocess.check_call(['docker', 'run', '-it', '--rm',
             '--log-driver', 'none',
             '--name', docker_id,
@@ -408,7 +414,7 @@ def _check_config_file(config):
                     'exec': [s.Or(
                         s.And(str, lambda x: not x.startswith('<')),
                         s.And(str, lambda x: x in [
-                            '<filesPath>', '<jsonArguments>', '<mongo>', '<outputHtml>',
+                            '<filesPath>', '<apiInfo>', '<jsonArguments>', '<mongo>', '<outputHtml>',
                             '<workbenchApiUrl>']),
                         )],
                     s.Optional('cwd', default='.'): str,
@@ -593,7 +599,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # with system code as early as possible.
     if development:
         # Development extensions... add not-compiled code directories.
-        dockerfile_final_postamble.append(r'''
+        dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
             ''')
@@ -685,7 +691,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         for k, v in stage_def.get('copy_output', {}).items():
             if v is True:
                 v = k
-            dockerfile_final.insert(0, f'COPY --from={stage} {k} {v}')
+            dockerfile_final_postamble.append(f'COPY --from={stage} {k} {v}')
 
     # Regardless, there's some glue code to create the final image.
     dockerfile_middle.append(rf'''
@@ -727,19 +733,24 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Mongodb service
             RUN \
                 mkdir -p /etc/cont-init.d \
-                && echo "#! /bin/sh\\nmkdir -p /var/log/mongodb\\nchown -R nobody:nogroup /var/log/mongodb" > /etc/cont-init.d/mongod \
+                && echo '#! /bin/sh\nmkdir -p /var/log/mongodb\nchown -R nobody:nogroup /var/log/mongodb' > /etc/cont-init.d/mongod \
                 && mkdir -p /etc/services.d/mongod \
-                && echo "#! /bin/sh\\nmongod --ipv6 --bind_ip_all" >> /etc/services.d/mongod/run \
+                && echo '#! /bin/sh\nmongod --ipv6 --bind_ip_all' >> /etc/services.d/mongod/run \
                 && chmod a+x /etc/services.d/mongod/run \
                 && mkdir /etc/services.d/mongod/log \
-                && echo "#! /usr/bin/execlineb -P\\nlogutil-service /var/log/mongodb" >> /etc/services.d/mongod/log/run \
+                && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
                 && chmod a+x /etc/services.d/mongod/log/run
 
-            # Observatory service
+            # Observatory service (modifications must also change common/teaming/pyinfra/deploy.py)
             RUN \
-                mkdir /etc/services.d/observatory \
-                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json' >> /etc/services.d/observatory/run \
+                mkdir -p /etc/cont-init.d \
+                && echo '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
+                && mkdir /etc/services.d/observatory \
+                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json 2>&1' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
+                && mkdir /etc/services.d/observatory/log \
+                    && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/observatory' > /etc/services.d/observatory/log/run \
+                    && chmod a+x /etc/services.d/observatory/log/run \
                 && echo OK
 
             # Dask service (scheduler AND worker initially; teaming script fixes this)
@@ -750,9 +761,14 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                     && chmod a+x /etc/services.d/dask-scheduler/run \
                 && echo OK
             RUN \
-                mkdir /etc/services.d/dask-worker \
-                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786' >> /etc/services.d/dask-worker/run \
+                mkdir -p /etc/cont-init.d \
+                && echo '#! /bin/sh\nmkdir -p /var/log/dask-worker\nchown -R nobody:nogroup /var/log/dask-worker' > /etc/cont-init.d/dask-worker \
+                && mkdir /etc/services.d/dask-worker \
+                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786 2>&1' >> /etc/services.d/dask-worker/run \
                     && chmod a+x /etc/services.d/dask-worker/run \
+                && mkdir /etc/services.d/dask-worker/log \
+                    && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-worker' > /etc/services.d/dask-worker/log/run \
+                    && chmod a+x /etc/services.d/dask-worker/log/run \
                 && echo OK
 
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time

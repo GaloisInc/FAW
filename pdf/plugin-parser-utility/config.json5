@@ -1,0 +1,20 @@
+{
+  decision_views: {
+    parser_utility: {
+      label: 'Parser Utility Analysis',
+      type: 'program',
+      exec: ['python3', 'main.py', '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>'],
+      execStdin: '<statsbyfile>',
+    },
+  },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
+    },
+  },
+}

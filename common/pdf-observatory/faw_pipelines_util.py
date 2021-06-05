@@ -8,7 +8,16 @@ import gridfs
 import motor.motor_asyncio as motor_asyncio
 import os
 import pymongo
+import tempfile
 import urllib.request
+
+def _fn_implements(fn_base):
+    def wrapper(fn_impl):
+        if fn_impl.__doc__ is None:
+            fn_impl.__doc__ = ''
+        fn_impl.__doc__ = fn_base.__doc__ + '\n\n' + fn_impl.__doc__
+        return fn_impl
+    return wrapper
 
 def _GridFsFileWriter(db, col, filename):
     """Context manager for dealing with open(..., 'wb') functionality. That is,
@@ -126,6 +135,8 @@ class ApiBase(metaclass=ABCMeta):
     def file_fetch(self, filename):
         """Returns locally-accessible, absolute path to `filename`.
 
+        MAY BE DIFFERENT FROM ABSOLUTE PATH SHOWN BY THE FAW!!!
+
         Will potentially be deleted when the context manager expires.
 
         Note: may enter an unknown number with:
@@ -177,9 +188,22 @@ class ApiBase(metaclass=ABCMeta):
 
 
     @abstractmethod
+    def task_file_list(self, *, taskname=None):
+        """
+        Returns a list of all file objects written to the given task.
+
+        Compatible with `task_file_read` and `task_file_write`.
+        """
+
+
+    @abstractmethod
     def task_file_read(self, filename, *, taskname=None):
         """
         Returns a file-like object which should be read from and closed.
+
+        The file is always opened in binary mode; that is, if using string
+        data, use `str.encode()` before writing, and `bytes.decode()` after
+        reading.
         """
 
 
@@ -188,7 +212,20 @@ class ApiBase(metaclass=ABCMeta):
         """
         Returns a file-like object which should be written to and closed. If the
         file already existed, the old version will be deleted on success.
+
+        The file is always opened in binary mode; that is, if using string
+        data, use `str.encode()` before writing, and `bytes.decode()` after
+        reading.
         """
+
+
+    def task_name(self):
+        """Returns the current task's name; raises a ValueError exception if
+        this API info is not associated with a task.
+        """
+        if 'task' not in self._api_info:
+            raise ValueError("Not an API associated with a task")
+        return self._api_info['task']
 
 
     @abstractmethod
@@ -222,11 +259,20 @@ class ApiAsync(ApiBase):
         raise NotImplementedError()
     def mongo_collection(self, colname, *, taskname=None):
         raise NotImplementedError()
+    @_fn_implements(ApiBase.task_file_list)
+    async def task_file_list(self, *, taskname=None):
+        prefix = self._task_col_prefix(taskname=taskname)
+        gfs = motor_asyncio.AsyncIOMotorGridFSBucket(
+                self._db_conn, bucket_name=f'{prefix}fs')
+        file_list = [v.filename async for v in gfs.find()]
+        return list(set(file_list))
+    @_fn_implements(ApiBase.task_file_read)
     async def task_file_read(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
         gfs = motor_asyncio.AsyncIOMotorGridFSBucket(
                 self._db_conn, bucket_name=f'{prefix}fs')
         return await gfs.open_download_stream_by_name(filename)
+    @_fn_implements(ApiBase.task_file_write)
     async def task_file_write(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
         return _GridFsFileWriter(self._db_conn, f'{prefix}fs', filename)
@@ -344,6 +390,8 @@ class ApiSync(ApiBase):
     def file_fetch(self, filename):
         """Returns locally-accessible, absolute path to `filename`.
 
+        MAY BE DIFFERENT FROM ABSOLUTE PATH SHOWN BY THE FAW!!!
+
         Will potentially be deleted when the context manager expires.
 
         Note: may enter an unknown number with:
@@ -357,14 +405,21 @@ class ApiSync(ApiBase):
         """
         # See if we're local
         if not hasattr(self, '_is_main_node'):
-            self._is_main_node = (
-                os.path.lexists('/home/pdf-observatory/main.py')
-                and os.path.lexists('/home/config.json'))
+            self._is_main_node = (not os.path.lexists('/home/worker.sh'))
 
         if self._is_main_node:
             yield os.path.join(self._api_info['pdfdir'], filename)
         else:
-            raise NotImplementedError()
+            api_info = self._api_info
+            host = api_info['hostname']
+            port = api_info['hostport']
+            url = f'http://{host}:{port}/file_download/' + filename
+            data = urllib.request.urlopen(url).read()
+            with tempfile.NamedTemporaryFile(suffix=os.path.basename(filename),
+                    mode='w+b') as f:
+                f.write(data)
+                f.flush()
+                yield f.name
 
     def file_list(self):
         """Retrieve a listing of all files available to the FAW. Suitable for
@@ -393,11 +448,20 @@ class ApiSync(ApiBase):
         prefix = self._task_col_prefix(taskname=taskname)
         return self._db_conn[f'{prefix}{colname}']
 
+    @_fn_implements(ApiBase.task_file_list)
+    def task_file_list(self, *, taskname=None):
+        prefix = self._task_col_prefix(taskname=taskname)
+        gfs = gridfs.GridFSBucket(
+                self._db_conn, bucket_name=f'{prefix}fs')
+        files = list(set([v.filename for v in gfs.find()]))
+        return files
+    @_fn_implements(ApiBase.task_file_read)
     def task_file_read(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
         gfs = gridfs.GridFSBucket(
                 self._db_conn, bucket_name=f'{prefix}fs')
         return gfs.open_download_stream_by_name(filename)
+    @_fn_implements(ApiBase.task_file_write)
     def task_file_write(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
         return _GridFsFileWriter(self._db_conn, f'{prefix}fs', filename)

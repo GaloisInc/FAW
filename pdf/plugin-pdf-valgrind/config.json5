@@ -1,0 +1,39 @@
+{
+  parsers: {
+    "pdfinfo-struct-valgrind": {
+      version: 'poppler-20.09.0-1',
+      exec: ['bash', '-c',
+        ' \
+        valgrind --tool=callgrind --callgrind-out-file=$1 /usr/local/bin/pdfinfo -struct $0 > /dev/null 2>&1 \
+        ; callgrind_annotate --tree=both --threshold=100 $1 \
+          | grep -P " +\\d+ +\\* " | sed -n "s/.*\\*  \\(.*\\)/\\1/p" \
+        ',
+        '<inputFile>',
+        '<tempFile>'],
+      parse: {
+        type: 'regex-counter',
+        stdstar: {
+          '.*': {},
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      callgrind: {
+        from: 'ubuntu:20.04',
+        copy_output: {
+          '/usr/bin/callgrind*': '/usr/bin/',
+          '/usr/bin/ltrace': true,
+          '/usr/bin/valgrind*': '/usr/bin/',
+          '/usr/bin/vgdb': true,
+          '/usr/lib/valgrind': true,
+          '/usr/lib/x86_64-linux-gnu/valgrind': true,
+        },
+        commands: [
+          'RUN apt-get update && apt-get install -y ltrace valgrind',
+        ],
+      },
+    },
+  },
+}

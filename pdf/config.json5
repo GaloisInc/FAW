@@ -234,16 +234,16 @@
 
         polyfile: {
             // Prevent DB clutter
-            exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
-            version: 'polyfile4',
+            //exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
+            exec: ['polyfile', '-I', '<inputFile>'],
+            version: 'polyfile0.3.3+-v6',
             parse: {
               type: 'regex-counter',
               stdout: {
-                '^Found a file of type.*': {
-                  nameReplace: {'[0-9]': ''},
-                },
+                // All stdout is a mime type
                 '^.*$': {
-                  nameGroup: 'ignored stdout',
+                  nameGroup: 'mimetype: \\g<0>',
+                  nameReplace: {'[0-9]': ''},
                 },
               },
               stderr: {
@@ -654,7 +654,7 @@ filters:  \n\
     ^pdftocairo\-pdf_Internal\ Error:\ xref\ num\ \-\ not\ found\ but\ needed\,\ try\ to\ reconstruct<a>  \n\
   \n\
   Unsafe:  \n\
-    ^polyfile_Found a file of type (?!Adobe Portable Document Format|Hyper[Tt]ext)  \n\
+    ^polyfile_mimetype: (?!application/pdf)  \n\
     ^schizo-test_Max RMSE  \n\
       sum > 0.05  \n\
     ^pdffonts_Unembedded font  \n\
@@ -919,7 +919,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
 
-                    'RUN pip3 install polyfile',
+                    'RUN pip3 install "polyfile>=0.3.3"',
                     // Polyfile now requires 7zip as of 2021-05-04
                     'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
 
