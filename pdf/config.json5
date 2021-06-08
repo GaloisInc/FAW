@@ -1058,7 +1058,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
 
-                    'RUN pip3 install "polyfile>=0.3.3"',
+                    'RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org  "polyfile>=0.3.3"',
                     // Polyfile now requires 7zip as of 2021-05-04
                     'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
 
@@ -1067,13 +1067,19 @@ with open(sys.argv[1], 'w') as html: \n\
                     // Similarly, {disttarg} gets rewritten with '/home/dist', BUT
                     // it supports modular configs (those in child folders).
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
-                    'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
+                    'RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r /home/dist/qpdf_plugin/requirements.txt',
 
                     'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
-                    'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
+                    'RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r /home/dist/schizo_test/requirements.txt',
 
                     'COPY {dist}/ml_test/requirements.txt /home/dist/ml_test/requirements.txt',
-                    'RUN pip3 install -r /home/dist/ml_test/requirements.txt',
+                    'RUN apt-get install -y ca-certificates',
+                	'COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt',
+                 	'COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt',
+                 	'COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt',
+                	
+					'RUN update-ca-certificates',
+                    'RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r /home/dist/ml_test/requirements.txt',
                 ],
             },
 
@@ -1083,6 +1089,12 @@ with open(sys.argv[1], 'w') as html: \n\
                     '/usr/local/bin/caradoc': true,
                 },
                 commands: [
+                	'RUN apt-get install -y ca-certificates',
+                	'COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt',
+                 	'COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt',
+                 	'COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt',
+                	
+					'RUN update-ca-certificates',
                     'RUN opam init --auto-setup --disable-sandboxing --compiler=4.05.0 \
                         && opam install -y ocamlbuild ocamlfind cryptokit ounit menhir \
                         ',
@@ -1111,6 +1123,12 @@ with open(sys.argv[1], 'w') as html: \n\
                     '/usr/local/bin/mutool': true,
                 },
                 commands: [
+                                	'RUN apt-get install -y ca-certificates',
+                	'COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt',
+                 	'COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt',
+                 	'COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt',
+                	
+					'RUN update-ca-certificates',
                     'RUN \
                         wget -q https://mupdf.com/downloads/archive/mupdf-1.17.0-source.tar.gz \
                         && tar xf mupdf-1.17.0-source.tar.gz \
@@ -1124,45 +1142,7 @@ with open(sys.argv[1], 'w') as html: \n\
                 ],
             },
 
-            pdfium: {
-                from: 'ubuntu:18.04',
-                copy_output: {
-                  '/src/pdfium/pdfium/out/Workbench': '/opt/pdfium',
-                },
-                commands: [
-                  'WORKDIR /src',
-                  'RUN apt-get update && apt-get install -y \
-                      cmake \
-                      curl \
-                      git \
-                      pkg-config \
-                      python2.7 \
-                      python2.7-dev \
-                      python3 \
-                      python3-dev \
-                      python3-pip \
-                      xpdf \
-                      wget \
-                      ',
-                  // Setup per https://pdfium.googlesource.com/pdfium/
-                  'RUN git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git',
-                  'ENV PATH /src/depot_tools:$PATH',
-                  'RUN mkdir pdfium && cd pdfium && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git && gclient sync',
-                  // Google tools refer to python as 'python', not 'python3'.
-                  'RUN ln -s /usr/bin/python3 /usr/bin/python',
-                  // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
-                  // OLD -- trying to pin the version is the normal way to do
-                  // things like this. However, pinning to e.g. chromium/4260
-                  // keeps breaking periodically, so it's better to use the
-                  // most up-to-date version.
-                  // && git checkout chromium/4260 \
-                  'RUN cd pdfium/pdfium \
-                    && echo Not needed: ./build/install-build-deps.sh \
-                    && EDITOR="python3 -c \'import sys; f = open(sys.argv[1], \\"w\\"); f.write(\\"pdf_is_standalone = true\\\\npdf_enable_xfa = true\\\\npdf_enable_v8 = true\\\\n\\"); f.close()\'" gn args out/Workbench \
-                    && ninja -C out/Workbench pdfium_test \
-                    ',
-                ],
-            },
+          
 
             poppler: {
                 copy_output: {
@@ -1171,7 +1151,12 @@ with open(sys.argv[1], 'w') as html: \n\
                 commands: [
                     // ==== build freetype ====
                     'WORKDIR /src',
-
+'RUN apt-get install -y ca-certificates',
+                	'COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt',
+                 	'COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt',
+                 	'COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt',
+                	
+					'RUN update-ca-certificates',
                     // FreeType http://www.linuxfromscratch.org/blfs/view/svn/general/freetype2.html
                     'RUN wget https://downloads.sourceforge.net/freetype/freetype-2.10.2.tar.xz',
                     'RUN tar -xvf freetype-2.10.2.tar.xz',
@@ -1243,6 +1228,12 @@ with open(sys.argv[1], 'w') as html: \n\
                 },
                 commands: [
                      'WORKDIR /src/',
+                     'RUN apt-get install -y ca-certificates',
+                	'COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt',
+                 	'COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt',
+                 	'COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt',
+                	
+					'RUN update-ca-certificates',
                      'RUN \
                           wget https://github.com/qpdf/qpdf/archive/release-qpdf-10.0.1.tar.gz \
                           && tar xf release-qpdf-10.0.1.tar.gz \

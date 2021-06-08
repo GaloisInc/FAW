@@ -1,0 +1,21 @@
+{
+  decision_views: {
+    bernoulli_test: {
+      label: 'Dowker drawing',
+      type: 'program',
+      exec: ['python3', 'main.py', '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>'],
+      execStdin: '<statsbyfile>\nREFERENCES\n<referenceDecisions>',
+    },
+  },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
+    },
+  },
+}
+

@@ -1,0 +1,79 @@
+!!! 5
+html
+  head
+    style(type="text/css").
+      a {
+        color: #00f;
+        cursor: pointer;
+        text-decoration: underline;
+      }
+
+      .specific {
+        white-space: pre-wrap;
+      }
+
+    script(type="text/javascript")!="let api_url = '" + api_url + "'; let old_args = JSON.parse('" + old_args.replace('\\', '\\\\').replace("'", "\\'") + "');"
+
+    script(type="text/javascript").
+      function callUrl(fn, args) {
+        let req = new XMLHttpRequest();
+        let url = api_url + fn;
+        req.open('post', url, true);
+        req.setRequestHeader('Content-Type', 'application/json');
+        req.send(JSON.stringify(args));
+      }
+
+      function reprocess(new_args) {
+        let args = Object.assign({}, old_args);
+        for (let k of Object.keys(new_args)) {
+          args[k] = new_args[k];
+        }
+        callUrl('redecide', args);
+      }
+
+      function showFile(file) {
+        callUrl('showFile', {id: file});
+      }
+
+  body
+    p Threshold =
+      input(id="thresholdField" type="text" value=threshold)
+      input(type="button" value="Change threshold"
+          onclick="reprocess({threshold: parseFloat(document.getElementById('thresholdField').value)})")
+    p Show top
+      input(id="topk_shown" type="text" value=topk_shown)
+      span features
+      input(type="button" value="Change topk shown"
+          onclick="reprocess({topk_shown: parseInt(document.getElementById('topk_shown').value)})")
+    p Filter features on regex (Python syntax):
+      input(id="feature_regex" value=feature_regex)
+      span
+        span (case insensitive?
+        input(id="feature_regex_insensitive" type="checkbox" checked=feature_regex_insensitive)
+        span )
+      input(type="button" value="Change regex"
+          onclick="reprocess({feature_regex: document.getElementById('feature_regex').value, feature_regex_insensitive: !!document.getElementById('feature_regex_insensitive').checked})")
+    p Show features per file?
+      input(id="file_features" type="checkbox" checked=file_features
+          onclick="reprocess({file_features: !!document.getElementById('file_features').checked})")
+    p Compare with reference decisions?
+      input(id="compareReference" type="checkbox" checked=use_refs
+          onclick="reprocess({use_refs: !!document.getElementById('compareReference').checked})")
+      span Looks for statuses other than "valid", and sees which "valid" decisions should have been something else.
+
+    p(style="padding-left: 1em") Debug?
+      p(style="white-space: pre-wrap")= debug
+
+    p Suspicious features (avg'd across suspicious files)
+    ul
+      each ft in features
+        li.specific #{ft[1]} (#{ft[2]}) #{ft[0]}
+    p Suspicious Files
+    ul
+      each file in files
+        li
+          a(onclick="showFile('"+file['name']+"')") #{file['name']} (#{file['score']})
+          ul
+            each topkFt in file['topk']
+              li.specific #{topkFt[1]} #{topkFt[0]}
+

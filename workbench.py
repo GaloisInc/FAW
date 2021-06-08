@@ -564,7 +564,14 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             },
             'commands': [
                 # Setup environment
-                'RUN apt-get update && apt-get install -y wget && wget -qO- https://get.haskellstack.org/ | sh',
+               'RUN apt-get update && apt-get install -y curl wget && wget -qO- https://get.haskellstack.org/ | sh',
+                               	'RUN apt-get install -y ca-certificates',
+                	'COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt',
+                 	'COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt',
+                 	'COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt',
+                	
+					'RUN update-ca-certificates',
+               'RUN curl -sSL https://get.haskellstack.org | sh',
                 # First, tell stack to download the compiler
                 'RUN stack setup 8.6.5',
                 # NOTE:
@@ -601,17 +608,22 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         # Development extensions... add not-compiled code directories.
         dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
-            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y npm nodejs
             ''')
     else:
         # Production extensions...
         dockerfile_middle.append(rf'''
             FROM base AS ui-builder
             # Install npm locally, only for the build.
-            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y npm nodejs
 
             COPY {build_faw_dir}/common/pdf-observatory/ui /home/pdf-observatory/ui
-
+                	RUN apt-get install -y ca-certificates
+                	COPY BAESystems-Inc-Root-Base64.crt /usr/local/share/ca-certificates/BAESystems-Inc-Root-Base64.crt
+                 	COPY BAESystems-Inc-Policy-Base64.crt /etc/ssl/certs/BAESystems-Inc-Policy-Base64.crt
+                 	COPY BAESystems-Inc-Issuing-CA01-Base64.crt /etc/ssl/certs/BAESystems-Inc-Issuing-CA01-Base64.crt
+                	
+					RUN update-ca-certificates
             RUN cd /home/pdf-observatory/ui \
                 && npm install \
                 && npm run build
@@ -621,10 +633,10 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # stage (to minimize rebuilds on user code changes)
     dockerfile_final.append(rf'''
             COPY {build_faw_dir}/common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
-            RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
+            RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r /home/pdf-etl-parse/requirements.txt
 
             COPY {build_faw_dir}/common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
-            RUN pip3 install -r /home/pdf-observatory/requirements.txt
+            RUN pip3 install --trusted-host pypi.org --trusted-host files.pythonhosted.org  -r /home/pdf-observatory/requirements.txt
     ''')
 
     # The below commands should be quick to run, as they will happen any time
