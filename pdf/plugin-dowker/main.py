@@ -71,8 +71,7 @@ def main():
             mode = 'refs'
         elif mode == 'files':
             obj = json.loads(line)
-            with open("funfile.json", 'w') as f:
-                json.dump(obj,f)
+            
             file_names.append(obj.pop('_id'))
             file_names_backward[file_names[-1]] = len(file_names) - 1
             matrix.append({})
@@ -128,7 +127,7 @@ def main():
 	
 
     # Sort files based on likelihood of being 'odd'
-    html_vars['cat']='catcat'
+
     html_vars['lines']=str(errorMatrix)
     write_html(os.path.join(_path, 'index.pug'), html_vars, args.html_out)
 
