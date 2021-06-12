@@ -543,6 +543,15 @@ with open(sys.argv[1], 'w') as html: \n\
             // to rebuild all of the other workbench internals.
             final: {
                 commands: [
+                    'WORKDIR /home/dist/',
+                    'RUN wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
+                         && tar xf xpdf-tools-linux-4.03.tar.gz \
+                         && rm xpdf-tools-linux-4.03.tar.gz \
+                        ',
+                    'RUN apt-get update && apt-get install -y \
+                        poppler-utils \
+                        ', 
+
                     // Interestingly, some packages (e.g. opencv-python) require
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',

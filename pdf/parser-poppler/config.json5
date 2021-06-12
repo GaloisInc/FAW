@@ -23,7 +23,7 @@
         
         pdfinfo: {
             disabled: true,
-            exec: ['/usr/local/bin/pdfinfo', '<inputFile>'],
+            exec: ['pdfinfo', '<inputFile>'],
             // Could specify a timeout for this parser specifically (seconds):
             //timeout: 10,
             version: 'poppler-0.86.1',
@@ -80,7 +80,7 @@
         pdffonts: {
             // `-subst` shows only font substitutions, which are non-embedded
             // fonts.
-            exec: ['/usr/local/bin/pdffonts', '-subst', '<inputFile>'],
+            exec: ['pdffonts', '-subst', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
@@ -105,7 +105,7 @@
 
         "pdfinfo-meta": {
             disabled: true,
-            exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
+            exec: ['pdfinfo', '-meta', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -119,7 +119,7 @@
 
         "pdfinfo-struct": {
             disabled: true,
-            exec: ['/usr/local/bin/pdfinfo', '-struct', '<inputFile>'],
+            exec: ['pdfinfo', '-struct', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -152,7 +152,7 @@
 
         "pdftocairo-pdf": {
             disabled: true,
-            exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
+            exec: ['pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -174,7 +174,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['/usr/local/bin/pdftoppm', '<inputFile>', '<tempFile>'],
+            exec: ['pdftoppm', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -196,7 +196,7 @@
 
         "pdftocairo-ps": {
             disabled: false,
-            exec: ['/usr/local/bin/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
+            exec: ['bash', 'pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -217,7 +217,7 @@
         },
 
         pdftops: {
-            exec: ['/usr/local/bin/pdftops', '<inputFile>', '<tempFile>'],
+            exec: ['bash','-c','pdftops', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
