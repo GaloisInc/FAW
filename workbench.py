@@ -729,6 +729,9 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Ensure any python code running (dask, user code) has access to
             # the faw_pipelines_util and user packages.
             ENV PYTHONPATH /home/dist:/home/pdf-observatory
+            # Always use 'bash' from this point forward, because 'echo' commands
+            # are inconsistent between sh and bash.
+            SHELL ["/bin/bash", "-c"]
 
             # Mongodb service
             RUN \
@@ -791,7 +794,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # We always process the deployment-specific json5 file into
     # /home/config.json in the repo.
     dockerfile_final_postamble.append(fr'''
-            RUN echo {shlex.quote(config_json)} > /home/config.json
+            RUN echo -e {shlex.quote(config_json)} > /home/config.json
     ''')
 
     dockerfile = '\n'.join(dockerfile + dockerfile_middle
