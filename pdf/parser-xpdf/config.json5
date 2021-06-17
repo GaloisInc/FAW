@@ -2,7 +2,10 @@
     parsers: {
 
         "pdftotext": {
-          exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
+          // THIS PARSER NOT PART OF XPDF DISTRIBUTION
+          disabled: true,
+
+          exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
           version: 'xpdf-4.0.2',
           parse: {
             type: 'regex-counter',
@@ -20,10 +23,10 @@
             },
           },
         },
-        
+
         "pdfinfo": {
             disabled: true,
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '<inputFile>'],
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdfinfo', '<inputFile>'],
             // Could specify a timeout for this parser specifically (seconds):
             //timeout: 10,
             version: 'xpdf-4.0.2',
@@ -77,35 +80,9 @@
             },
         },
 
-        "pdffonts": {
-            // `-subst` shows only font substitutions, which are non-embedded
-            // fonts.
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdffonts', '-subst', '<inputFile>'],
-            version: 'xpdf-4.0.2',
-            parse: {
-              type: 'regex-counter',
-              stdout: {
-                '^name ': {
-                  nameGroup: '',
-                },
-                '^----': {
-                  nameGroup: '',
-                },
-                '^([a-zA-Z0-9-]+)': {
-                  nameGroup: 'Unembedded font',
-                },
-              },
-              stderr: {
-                '^.*': {
-                  nameGroup: '',
-                },
-              },
-            },
-        },
-
         "pdfinfo-meta": {
             disabled: true,
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '-meta', '<inputFile>'],
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdfinfo', '-meta', '<inputFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -119,7 +96,7 @@
 
         "pdfinfo-struct": {
             disabled: true,
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdfinfo', '-struct', '<inputFile>'],
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdfinfo', '-struct', '<inputFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -151,8 +128,10 @@
         },
 
         "pdftocairo-pdf": {
+            // THIS PARSER NOT PART OF XPDF DISTRIBUTION
             disabled: true,
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
+
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -174,7 +153,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -195,8 +174,10 @@
         },
 
         "pdftocairo-ps": {
-            disabled: false,
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
+            // THIS PARSER NOT PART OF XPDF DISTRIBUTION
+            disabled: true,
+
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -217,7 +198,7 @@
         },
 
         "pdftops": {
-            exec: ['/home/dist/xpdf-tools-linux-4.03/bin64/pdftops', '<inputFile>', '<tempFile>'],
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftops', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -241,12 +222,15 @@
     build: {
        stages: {
            poppler: {
+                copy_output: {
+                  '/home/xpdf': true,
+                },
                 commands: [
-                    'WORKDIR /home/dist/',
+                    'WORKDIR /home/xpdf/',
                     'RUN wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
                          && tar xf xpdf-tools-linux-4.03.tar.gz \
                          && rm xpdf-tools-linux-4.03.tar.gz \
-                        ', 
+                        ',
                 ],
            },
        },
