@@ -14,7 +14,7 @@ def schema_get():
         s.Optional('countAsNumber', default=False): bool,
         s.Optional('fallthrough', default=False): bool,
     }}, {})
-    sch = s.Schema({
+    sch = s.Schema(s.Or({}, {
             s.And(str, lambda x: '_' not in x): {
                 s.Optional('disabled', default=False): s.Or(True, False),
                 'exec': [str],
@@ -34,6 +34,6 @@ def schema_get():
                     },
                 ),
             },
-    })
+    }))
     return sch
 

@@ -729,27 +729,30 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Ensure any python code running (dask, user code) has access to
             # the faw_pipelines_util and user packages.
             ENV PYTHONPATH /home/dist:/home/pdf-observatory
+            # Always use 'bash' from this point forward, because 'echo' commands
+            # are inconsistent between sh and bash.
+            SHELL ["/bin/bash", "-c"]
 
             # Mongodb service
             RUN \
                 mkdir -p /etc/cont-init.d \
-                && echo '#! /bin/sh\nmkdir -p /var/log/mongodb\nchown -R nobody:nogroup /var/log/mongodb' > /etc/cont-init.d/mongod \
+                && echo -e '#! /bin/sh\nmkdir -p /var/log/mongodb\nchown -R nobody:nogroup /var/log/mongodb' > /etc/cont-init.d/mongod \
                 && mkdir -p /etc/services.d/mongod \
-                && echo '#! /bin/sh\nmongod --ipv6 --bind_ip_all' >> /etc/services.d/mongod/run \
+                && echo -e '#! /bin/sh\nmongod --ipv6 --bind_ip_all' >> /etc/services.d/mongod/run \
                 && chmod a+x /etc/services.d/mongod/run \
                 && mkdir /etc/services.d/mongod/log \
-                && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
+                && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
                 && chmod a+x /etc/services.d/mongod/log/run
 
             # Observatory service (modifications must also change common/teaming/pyinfra/deploy.py)
             RUN \
                 mkdir -p /etc/cont-init.d \
-                && echo '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
+                && echo -e '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
                 && mkdir /etc/services.d/observatory \
-                    && echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json 2>&1' >> /etc/services.d/observatory/run \
+                    && echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json 2>&1' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
                 && mkdir /etc/services.d/observatory/log \
-                    && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/observatory' > /etc/services.d/observatory/log/run \
+                    && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/observatory' > /etc/services.d/observatory/log/run \
                     && chmod a+x /etc/services.d/observatory/log/run \
                 && echo OK
 
@@ -757,17 +760,17 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Note -- listens to all IPv4 and IPv6 addresses by default.
             RUN \
                 mkdir /etc/services.d/dask-scheduler \
-                    && echo '#! /bin/bash\ncd /home/dist\ndask-scheduler --port 8786' >> /etc/services.d/dask-scheduler/run \
+                    && echo -e '#! /bin/bash\ncd /home/dist\ndask-scheduler --port 8786' >> /etc/services.d/dask-scheduler/run \
                     && chmod a+x /etc/services.d/dask-scheduler/run \
                 && echo OK
             RUN \
                 mkdir -p /etc/cont-init.d \
-                && echo '#! /bin/sh\nmkdir -p /var/log/dask-worker\nchown -R nobody:nogroup /var/log/dask-worker' > /etc/cont-init.d/dask-worker \
+                && echo -e '#! /bin/sh\nmkdir -p /var/log/dask-worker\nchown -R nobody:nogroup /var/log/dask-worker' > /etc/cont-init.d/dask-worker \
                 && mkdir /etc/services.d/dask-worker \
-                    && echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786 2>&1' >> /etc/services.d/dask-worker/run \
+                    && echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp localhost:8786 2>&1' >> /etc/services.d/dask-worker/run \
                     && chmod a+x /etc/services.d/dask-worker/run \
                 && mkdir /etc/services.d/dask-worker/log \
-                    && echo '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-worker' > /etc/services.d/dask-worker/log/run \
+                    && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-worker' > /etc/services.d/dask-worker/log/run \
                     && chmod a+x /etc/services.d/dask-worker/log/run \
                 && echo OK
 
@@ -791,7 +794,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # We always process the deployment-specific json5 file into
     # /home/config.json in the repo.
     dockerfile_final_postamble.append(fr'''
-            RUN echo {shlex.quote(config_json)} > /home/config.json
+            RUN echo -e {shlex.quote(config_json)} > /home/config.json
     ''')
 
     dockerfile = '\n'.join(dockerfile + dockerfile_middle
