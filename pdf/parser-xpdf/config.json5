@@ -15,6 +15,15 @@
               },
             },
             stderr: {
+              '^\\s*(Syntax Error: Page tree reference is wrong type).*$': {
+                nameGroup: 1
+              },
+              '^\\s*(Syntax Error: Unknown font tag).*$': {
+                nameGroup: 1
+              },
+              '^.*(Unknown operator).*$': {
+                nameGroup: 1
+              },
               '.*': {
                 nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
               },

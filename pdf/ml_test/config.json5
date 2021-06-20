@@ -162,6 +162,7 @@
           },
         },
         'unique-bytes-printer': {
+          disabled: true,
           exec: ['python3', 'main.py', '<apiInfo>', 'unique_bytes_printer',
             '<inputFile>'],
           version: '20',

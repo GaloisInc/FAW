@@ -14,10 +14,13 @@
               },
             },
             stderr: {
-              '^\\s*Error.*': {
-                nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
+              '^.*(Unknown operator).*$': {
+                nameGroup: 1
               },
-              '^\\s*Warning.*': {
+              '^.*(Illegal character).*$': {
+                nameGroup: 1
+              },
+              '.*': {
                 nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
               },
             },
@@ -199,6 +202,13 @@
                     },
 
                     '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*(Unknown operator).*$': {
+                        nameGroup: 1
+                    },
+                    '^.*(Illegal character).*$': {
                         nameGroup: 1
                     },
 
