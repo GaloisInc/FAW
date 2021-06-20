@@ -14,8 +14,11 @@
               },
             },
             stderr: {
-              '^Syntax Error: .*': {
-                nameReplace: {'[0-9]': ''},
+              '^\\s*Error.*': {
+                nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
+              },
+              '^\\s*Warning.*': {
+                nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
               },
             },
           },
@@ -96,6 +99,18 @@
                 },
               },
               stderr: {
+                '^\\s*(Syntax Error: Top-level pages object is wrong type).*$': {
+                  nameGroup: 1,
+                },
+                '^\\s*(Wrong page range given).*$': {
+                  nameGroup: 1,
+                },
+                '^\\s*(Internal Error: xref num [0-9]+ not found but needed, try to reconstruct).*$': {
+                  nameReplace: {
+                      '[0-9]': '',
+                  },
+                  nameGroup: 1,
+                },
                 '^.*': {
                   nameGroup: '',
                 },

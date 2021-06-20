@@ -3,7 +3,7 @@
 
         "pdftotext": {
           disabled: false,
-          exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
+          exec: ['bash', '-c', '/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
           version: 'xpdf-4.0.2',
           parse: {
             type: 'regex-counter',
@@ -15,8 +15,8 @@
               },
             },
             stderr: {
-              '^Syntax Error: .*': {
-                nameReplace: {'[0-9]': ''},
+              '.*': {
+                nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
               },
             },
           },
@@ -36,9 +36,14 @@
                     '^\\s*(Syntax Error: Unknown character collection).*$': {
                         nameGroup: 1
                     },
-
+                    '^\\s*(Syntax Error: Couldn\'t find a font for).*$': {
+                        nameGroup: 1 
+                    },
+                    '^\\s*(Config Error: No display font for).*$': {
+                        nameGroup: 1 
+                    },
                     '.*': {
-                        nameReplace: {'[0-9]': ''},
+                        nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
                     },
                 },
             },
@@ -56,11 +61,17 @@
                 '^----': {
                   nameGroup: '',
                 },
-                '^([a-zA-Z0-9-]+)': {
+                '^((?!embedded).)*$': {
                   nameGroup: 'Unembedded font',
+                },
+                '^.*$': {
+                  nameGroup: '',
                 },
               },
               stderr: {
+                '^\\s*(Config Error: No display font for).*$': {
+                  nameGroup: 1,
+                },
                 '^.*': {
                   nameGroup: '',
                 },

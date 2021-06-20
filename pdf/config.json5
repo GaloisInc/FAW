@@ -48,6 +48,7 @@
         polyfile: {
             // Prevent DB clutter
             //exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
+            disabled: true,
             exec: ['polyfile', '-I', '<inputFile>'],
             version: 'polyfile0.3.3+-v6',
             parse: {
@@ -68,6 +69,7 @@
         },
 
         'pdfid': {
+            disabled: true,
             exec: ['python3', 'lib/pdfid_v0_2_7/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
