@@ -1,10 +1,8 @@
- {
+{
     parsers: {
 
         "pdftotext": {
-          // THIS PARSER NOT PART OF XPDF DISTRIBUTION
-          disabled: true,
-
+          disabled: false,
           exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
           version: 'xpdf-4.0.2',
           parse: {
@@ -22,6 +20,52 @@
               },
             },
           },
+        },
+
+        "pdftoppm": {
+            disabled: false,
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        pdffonts: {
+            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdffonts', '-loc', '<inputFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+              type: 'regex-counter',
+              stdout: {
+                '^name ': {
+                  nameGroup: '',
+                },
+                '^----': {
+                  nameGroup: '',
+                },
+                '^([a-zA-Z0-9-]+)': {
+                  nameGroup: 'Unembedded font',
+                },
+              },
+              stderr: {
+                '^.*': {
+                  nameGroup: '',
+                },
+              },
+            },
         },
 
         "pdfinfo": {
@@ -127,77 +171,8 @@
             },
         },
 
-        "pdftocairo-pdf": {
-            // THIS PARSER NOT PART OF XPDF DISTRIBUTION
-            disabled: true,
-
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
-            version: 'xpdf-4.0.2',
-            parse: {
-                type: 'regex-counter',
-                stderr: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        "pdftoppm": {
-            disabled: false,
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
-            version: 'xpdf-4.0.2',
-            parse: {
-                type: 'regex-counter',
-                stderr: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        "pdftocairo-ps": {
-            // THIS PARSER NOT PART OF XPDF DISTRIBUTION
-            disabled: true,
-
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
-            version: 'xpdf-4.0.2',
-            parse: {
-                type: 'regex-counter',
-                stderr: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
         "pdftops": {
+            disabled: true,
             exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftops', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {

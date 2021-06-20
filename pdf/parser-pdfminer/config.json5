@@ -22,6 +22,7 @@
         },
         // Dumps pdf to text
         'pdf2text': {
+            disabled: true,
             exec: ['python3', '/usr/local/bin/pdf2txt.py', '<inputFile>'],
             version: '10.0.1',
             parse: {
@@ -45,8 +46,11 @@
     build: {
         stages: {
             pdfminer: {
+               copy_output: {
+                 '/usr/local/bin': true,
+               },
                commands: [
-               'RUN pip3 install pdfminer.six',
+                 'RUN pip3 install pdfminer.six',
                ]
             },
         },
