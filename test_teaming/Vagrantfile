@@ -61,6 +61,7 @@ SCRIPT
       img.vm.network "private_network", ip:  ip
       if index == 1
         img.vm.network :forwarded_port, guest: 8123, host: 8123
+        img.vm.network :forwarded_port, guest: 8787, host: 8787
         img.vm.provision "shell", inline: "mkdir -p /data/pdfs && chmod -R 777 /data"
         img.vm.provision "file", source: "../test_files/pdf", destination: "/data/pdfs"
       end

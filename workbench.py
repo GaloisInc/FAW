@@ -759,9 +759,14 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Dask service (scheduler AND worker initially; teaming script fixes this)
             # Note -- listens to all IPv4 and IPv6 addresses by default.
             RUN \
-                mkdir /etc/services.d/dask-scheduler \
-                    && echo -e '#! /bin/bash\ncd /home/dist\ndask-scheduler --port 8786' >> /etc/services.d/dask-scheduler/run \
+                mkdir -p /etc/cont-init.d \
+                && echo -e '#! /bin/sh\nmkdir -p /var/log/dask-scheduler\nchown -R nobody:nogroup /var/log/dask-scheduler' > /etc/cont-init.d/dask-scheduler \
+                && mkdir /etc/services.d/dask-scheduler \
+                    && echo -e '#! /bin/bash\ncd /home/dist\ndask-scheduler --port 8786 --dashboard-address :8787 2>&1' >> /etc/services.d/dask-scheduler/run \
                     && chmod a+x /etc/services.d/dask-scheduler/run \
+                && mkdir /etc/services.d/dask-scheduler/log \
+                    && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-scheduler' > /etc/services.d/dask-scheduler/log/run \
+                    && chmod a+x /etc/services.d/dask-scheduler/log/run \
                 && echo OK
             RUN \
                 mkdir -p /etc/cont-init.d \

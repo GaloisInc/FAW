@@ -73,6 +73,7 @@ if 'web_host' in host.groups:
     docker_flags.extend(['-p', f'{config.port}:8123'])
     docker_flags.extend(['-p', f'{config.port_mongo}:27017'])
     docker_flags.extend(['-p', f'{config.port_dask}:8786'])
+    docker_flags.extend(['-p', f'{config.port_dask_dashboard}:8787'])
 
     # Furthermore, extend our observatory run script to be self-hostname-aware
     host_script = rf'''
@@ -80,7 +81,7 @@ if 'web_host' in host.groups:
 set -e
 echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
 chmod a+x /etc/services.d/observatory/run
-echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://0.0.0.0:{config.port_dask_worker} --contact-address tcp://{host.name}:{config.port_dask_worker} localhost:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
+echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://0.0.0.0:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} localhost:8786 2>&1' > /etc/services.d/dask-worker/run
 chmod a+x /etc/services.d/dask-worker/run
 # Now, launch as normal
 /init
@@ -113,7 +114,7 @@ echo -e '#! /bin/bash\ncd /home/dist\npython3 ../pdf-observatory/queue_client.py
 chmod a+x /etc/services.d/observatory/run
 # Fix up dask -- disable scheduler, change worker to connect to global scheduler
 rm -rf /etc/services.d/dask-scheduler
-echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://0.0.0.0:{config.port_dask_worker} --contact-address tcp://{host.name}:{config.port_dask_worker} {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
+echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://0.0.0.0:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
 chmod a+x /etc/services.d/dask-worker/run
 # Disable mongo
 rm -rf /etc/services.d/mongod
@@ -129,7 +130,7 @@ rm -rf /etc/services.d/mongod
             '--entrypoint', '/bin/bash',
     ])
     docker_flags_cmd.extend(['-c', '/home/worker.sh'])
-docker_flags.extend(['-p', f'{config.port_dask_worker}:8787'])
+docker_flags.extend(['-p', f'{config.port_dask_worker}:8788'])
 docker_flags.append(docker_image_name)
 docker_flags.extend(docker_flags_cmd)
 server.shell(name="Kill old docker container, launch new",
