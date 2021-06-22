@@ -26,10 +26,10 @@
             },
           },
         },
-        
+
         pdfinfo: {
             disabled: true,
-            exec: ['/home/parser-poppler/pdfinfo', '<inputFile>'],
+            exec: ['pdfinfo', '<inputFile>'],
             // Could specify a timeout for this parser specifically (seconds):
             //timeout: 10,
             version: 'poppler-0.86.1',
@@ -86,7 +86,7 @@
         pdffonts: {
             // `-subst` shows only font substitutions, which are non-embedded
             // fonts.
-            exec: ['/home/parser-poppler/pdffonts', '-subst', '<inputFile>'],
+            exec: ['pdffonts', '-subst', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
@@ -123,7 +123,7 @@
 
         "pdfinfo-meta": {
             disabled: true,
-            exec: ['/home/parser-poppler/pdfinfo', '-meta', '<inputFile>'],
+            exec: ['pdfinfo', '-meta', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -137,7 +137,7 @@
 
         "pdfinfo-struct": {
             disabled: true,
-            exec: ['/home/parser-poppler/pdfinfo', '-struct', '<inputFile>'],
+            exec: ['pdfinfo', '-struct', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -170,7 +170,7 @@
 
         "pdftocairo-pdf": {
             disabled: true,
-            exec: ['/home/parser-poppler/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
+            exec: ['pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -192,7 +192,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['/home/parser-poppler/pdftoppm', '<inputFile>', '<tempFile>'],
+            exec: ['pdftoppm', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -221,7 +221,7 @@
 
         "pdftocairo-ps": {
             disabled: true,
-            exec: ['/home/parser-poppler/pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
+            exec: ['pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -243,7 +243,7 @@
 
         pdftops: {
             disabled: true,
-            exec: ['/home/parser-poppler/pdftops', '<inputFile>', '<tempFile>'],
+            exec: ['pdftops', '<inputFile>', '<tempFile>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
@@ -266,13 +266,12 @@
 
     build: {
        stages: {
-           poppler: {
-                copy_output: {
-                    '/usr/bin/pdf*': '/home/parser-poppler/',
-                },
+           final: {
+                // poppler-utils has a web of dependencies -- easiest to install
+                // directly, and use the installed binaries.
                 commands: [
-                    'RUN apt-get update && apt-get install -y \
-                        poppler-utils \
+                    'RUN apt-get update \
+                        && apt-get install -y poppler-utils \
                         ',
                 ],
            },

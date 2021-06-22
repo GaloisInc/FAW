@@ -3,7 +3,7 @@
 
         "pdftotext": {
           disabled: false,
-          exec: ['bash', '-c', '/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftotext $0 >(cat)', '<inputFile>'],
+          exec: ['bash', '-c', '/opt/xpdf/bin64/pdftotext $0 >(cat)', '<inputFile>'],
           version: 'xpdf-4.0.2',
           parse: {
             type: 'regex-counter',
@@ -33,7 +33,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
+            exec: ['/opt/xpdf/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -59,7 +59,7 @@
         },
 
         pdffonts: {
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdffonts', '-loc', '<inputFile>'],
+            exec: ['/opt/xpdf/bin64/pdffonts', '-loc', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
@@ -90,7 +90,7 @@
 
         "pdfinfo": {
             disabled: true,
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdfinfo', '<inputFile>'],
+            exec: ['/opt/xpdf/bin64/pdfinfo', '<inputFile>'],
             // Could specify a timeout for this parser specifically (seconds):
             //timeout: 10,
             version: 'xpdf-4.0.2',
@@ -146,7 +146,7 @@
 
         "pdfinfo-meta": {
             disabled: true,
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdfinfo', '-meta', '<inputFile>'],
+            exec: ['/opt/xpdf/bin64/pdfinfo', '-meta', '<inputFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -160,7 +160,7 @@
 
         "pdfinfo-struct": {
             disabled: true,
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdfinfo', '-struct', '<inputFile>'],
+            exec: ['/opt/xpdf/bin64/pdfinfo', '-struct', '<inputFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -193,7 +193,7 @@
 
         "pdftops": {
             disabled: true,
-            exec: ['/home/xpdf/xpdf-tools-linux-4.03/bin64/pdftops', '<inputFile>', '<tempFile>'],
+            exec: ['/opt/xpdf/bin64/pdftops', '<inputFile>', '<tempFile>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
@@ -218,13 +218,16 @@
        stages: {
            poppler: {
                 copy_output: {
-                  '/home/xpdf': true,
+                  '/opt/xpdf': true,
                 },
                 commands: [
-                    'WORKDIR /home/xpdf/',
-                    'RUN wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
-                         && tar xf xpdf-tools-linux-4.03.tar.gz \
-                         && rm xpdf-tools-linux-4.03.tar.gz \
+                    'RUN mkdir -p /opt/xpdf \
+                        && cd /opt/xpdf \
+                        && wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
+                        && tar xf xpdf-tools-linux-4.03.tar.gz \
+                        && rm xpdf-tools-linux-4.03.tar.gz \
+                        && mv */* ./ \
+                        && rm -rf xpdf-tools-linux-4.03 \
                         ',
                 ],
            },

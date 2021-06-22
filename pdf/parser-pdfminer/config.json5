@@ -21,7 +21,7 @@
                         nameGroup: '',
                     },
                 },
-            },       
+            },
         },
         // Dumps pdf to text
         'pdf2text': {
@@ -42,20 +42,17 @@
                         nameReplace: {'[0-9]': ''},
                     },
                 },
-            },       
+            },
         },
     },
 
     build: {
-        stages: {
-            pdfminer: {
-               copy_output: {
-                 '/usr/local/bin': true,
-               },
-               commands: [
-                 'RUN pip3 install pdfminer.six',
-               ]
-            },
+      stages: {
+        final: {
+          commands: [
+            'RUN pip3 install pdfminer',
+          ],
         },
+      },
     },
 }

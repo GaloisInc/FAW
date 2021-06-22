@@ -48,7 +48,7 @@
         polyfile: {
             // Prevent DB clutter
             //exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
-            disabled: true,
+            disabled: false,
             exec: ['polyfile', '-I', '<inputFile>'],
             version: 'polyfile0.3.3+-v6',
             parse: {
@@ -109,43 +109,6 @@
             },
         },
 
-        'schizo-test': {
-          exec: ['schizo_test/main.py', '<inputFile>'],
-          timeout: 1200,
-          version: 'schizo-test70',
-          parse: {
-            type: 'regex-counter',
-            stdstar: {
-              '^(Max RMSE, .*): (.*)': {
-                nameGroup: 1,
-                countGroup: 2,
-                countAsNumber: true,
-              },
-              '^(Max diff, .*): (.*)': {
-                nameGroup: 1,
-                countGroup: 2,
-                countAsNumber: true,
-              },
-              '^Schizophrenic: .*': {
-                nameReplace: {
-                  '[0-9]': '',
-                },
-              },
-              '^(subprocess\.CalledProcessError)': {
-                nameGroup: 1,
-              },
-              '^Page ': {
-                nameGroup: '',
-              },
-              '^(Traceback|  )': {
-                nameGroup: '<<workbench: collapsed errors>>',
-                nameReplace: {
-                  '[0-9]': '',
-                },
-              },
-            },
-          },
-        },
     },
 
     pipelines: {
@@ -330,12 +293,6 @@ with open(sys.argv[1], 'w') as html: \n\
             exec: ['polyfile', '--html', '<outputHtml>', '<inputFile>'],
         },
 
-        schizo: {
-            label: 'Schizophrenic Comparison',
-            type: 'program_to_html',
-            exec: ['schizo_test/main.py', '<inputFile>', '--html'],
-        },
-
         viewer: {
             label: 'View PDF in browser',
             type: 'program_to_html',
@@ -417,11 +374,6 @@ with open(sys.argv[1], 'w') as html: \n\
                     'RUN apt-get update && apt-get install -y \
                         libcairo2-dev \
                         ',
-                    // Needed to build qpdf
-                    'RUN apt-get update && apt-get install -y \
-                        libjpeg-dev \
-                        ',
-                    'RUN pip3 install pdfminer.six',
                     // Ensure poppler has fonts installed and available; installs both MS fonts and
                     // uses a nuclear option to select all available ubuntu fonts packages.
                     'RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections',
@@ -442,15 +394,6 @@ with open(sys.argv[1], 'w') as html: \n\
             // to rebuild all of the other workbench internals.
             final: {
                 commands: [
-                    'WORKDIR /home/dist/',
-                    'RUN wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
-                         && tar xf xpdf-tools-linux-4.03.tar.gz \
-                         && rm xpdf-tools-linux-4.03.tar.gz \
-                        ',
-                    'RUN apt-get update && apt-get install -y \
-                        poppler-utils \
-                        ', 
-
                     // Interestingly, some packages (e.g. opencv-python) require
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
@@ -465,9 +408,6 @@ with open(sys.argv[1], 'w') as html: \n\
                     // it supports modular configs (those in child folders).
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
-
-                    'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
-                    'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
 
                     'COPY {dist}/ml_test/requirements.txt /home/dist/ml_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/ml_test/requirements.txt',

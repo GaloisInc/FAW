@@ -197,15 +197,15 @@
                 },
                 commands: [
                     'RUN \
-                        wget -q https://mupdf.com/downloads/archive/mupdf-1.16.1-source.tar.gz \
+                        cd /tmp \
+                        && wget -q https://mupdf.com/downloads/archive/mupdf-1.16.1-source.tar.gz \
                         && tar xf mupdf-1.16.1-source.tar.gz \
                         && rm mupdf-1.16.1-source.tar.gz \
-                        ',
-                    "RUN bash -c '\
-                        cd mupdf-1.16.1-source \
-                        && make XCFLAGS='-DDEBUG_PROGESSIVE_ADVANCE=1' tools\
+                        && cd mupdf-1.16.1-source \
+                        && make XCFLAGS="-DDEBUG_PROGESSIVE_ADVANCE=1" tools \
                         && install build/release/mutool /usr/local/bin \
-                        '",
+                        && rm -rf /tmp/mupdf-1.16.1-source \
+                        ',
                 ],
             },
         },

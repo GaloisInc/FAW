@@ -142,21 +142,26 @@
        stages: {
             qpdf: {
                 copy_output: {
-                    '/usr/local': true,
+                    '/usr/local/bin/qpdf': '/usr/bin/',
                     '/usr/local/lib/libqpdf*': '/usr/lib/',
                                     // qdpf install is broken: efficient way around.
                 },
                 commands: [
-                     'WORKDIR /src/',
-                     'RUN \
-                          wget https://github.com/qpdf/qpdf/archive/release-qpdf-10.1.0.tar.gz \
-                          && tar xf release-qpdf-10.1.0.tar.gz \
-                          && rm release-qpdf-10.1.0.tar.gz \
-                          ',
-                     'WORKDIR /src/qpdf-release-qpdf-10.1.0/',
-                     'RUN ./configure',
-                     'RUN make -j5',
-                     'RUN make install',
+                    // Needed to build qpdf
+                    'RUN apt-get update && apt-get install -y \
+                        libjpeg-dev \
+                        ',
+                    'RUN \
+                      mkdir -p /src \
+                      && cd /src \
+                      && wget https://github.com/qpdf/qpdf/archive/release-qpdf-10.1.0.tar.gz \
+                      && tar xf release-qpdf-10.1.0.tar.gz \
+                      && cd qpdf-release-qpdf-10.1.0 \
+                      && ./configure \
+                      && make -j5 \
+                      && make install \
+                      && rm -rf /src \
+                      ',
                 ],
             },
        },
