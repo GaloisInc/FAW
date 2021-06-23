@@ -145,14 +145,16 @@ filters:  \n\
   \n\
   Unsafe:  \n\
     ^polyfile_mimetype: (?!application/pdf)  \n\
-    ^schizo-test_Max RMSE  \n\
+    ^schizo-test-schizo-test_Max RMSE  \n\
       sum > 0.4  \n\
+    ^schizo-text-test-schizo-text-test_\\w+ to \\w+  \n\
+      sum < 0.5  \n\
     ^pdffonts_Unembedded font  \n\
   \n\
 outputs:  \n\
   \n\
   status:  \n\
-    "valid" is PdfiumAccept & !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
+    "valid" is !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
     #"valid" is !MutoolCleanError  \n\
     "rejected" else  \n\
   status-strict:  \n\

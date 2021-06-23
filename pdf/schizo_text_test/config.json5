@@ -1,0 +1,51 @@
+{
+  file_detail_views: {
+    schizo: {
+        label: 'Schizophrenic Text Comparison',
+        type: 'program_to_html',
+        exec: ['./main.py', '<inputFile>', '--html'],
+    },
+  },
+  parsers: {
+    'schizo-text-test': {
+      exec: ['./main.py', '<inputFile>'],
+      timeout: 1200,
+      version: 'schizo-4',
+      parse: {
+        type: 'regex-counter',
+        stdstar: {
+          '^Min (\\w+ to \\w+): (.*)': {
+            nameGroup: 1,
+            countGroup: 2,
+            countAsNumber: true,
+          },
+          '^(\\w+ to \\w+):': {
+            // Ignore these, focus on minimum.
+            nameGroup: '',
+          },
+          '^Page ': {
+            nameGroup: '',
+          },
+          '^(Traceback|  )': {
+            nameGroup: '<<workbench: collapsed errors>>',
+            nameReplace: {
+              '[0-9]': '',
+            },
+          },
+        },
+      },
+    },
+  },
+
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
+    },
+  },
+}
+
