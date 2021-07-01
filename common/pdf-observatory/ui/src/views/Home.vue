@@ -1457,7 +1457,7 @@ export default Vue.extend({
     async _pdfGroupsUpdate() {
       if (this.analysisSetId === null) return;
       // Clear old data ; makes it apparent to user that data is being loaded.
-      this.pdfGroups = {groups: [], files: []};
+      this.pdfGroups = {groups: {}, files: []};
       this.fileFilters = [];
 
       const opts = this._pdfGroupsSubsetOptions();
