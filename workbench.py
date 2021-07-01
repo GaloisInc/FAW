@@ -837,13 +837,14 @@ def _mongo_copy(db_name, copy_mongo_from):
                 '-p', f'{dummy_mongo_port}:27017',
                 '--entrypoint', 'mongod',
                 IMAGE_TAG + '-dev',
+                '--bind_ip_all',
         )
         p_exit = p.wait()
 
         # Wait for docker to spin up
         async def test_connection():
             try:
-                await asyncio.wait_for(p_exit, timeout=0.1)
+                await asyncio.wait_for(asyncio.shield(p_exit), timeout=0.1)
                 raise ValueError('docker exited early')
             except asyncio.TimeoutError:
                 # OK, docker hasn't exited
@@ -853,7 +854,7 @@ def _mongo_copy(db_name, copy_mongo_from):
                     'mongodb://127.0.0.1:27015')
             try:
                 await asyncio.wait_for(client.list_databases(),
-                        timeout=1)
+                        timeout=10)
                 # OK, got names, connected
                 return True
             except asyncio.TimeoutError:

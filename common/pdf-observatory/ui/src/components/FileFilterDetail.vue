@@ -69,6 +69,7 @@ export default Vue.extend({
     checkmark: CheckmarkComponent,
   },
   props: {
+    asOptions: Object as () => any,  // Options for analysis set
     decisionDefinition: Object as () => DslResult | null,
     decisionSelected: Object as () => PdfDecision,
     decisionSelectedDsl: Object as () => PdfDecision,
@@ -94,7 +95,8 @@ export default Vue.extend({
 
       const tf = this.decisionSelectedDsl.testfile;
       if (tf) {
-        const data = await this.$vuespa.call('load_db', tf, 'statsbyfile');
+        const data = await this.$vuespa.call('load_db', tf, 'statsbyfile',
+            this.asOptions);
         // Prevent duplicates by re-setting the array whenever we get data
         this.fileStats.clear();
         this.fileStats.set('other', []);

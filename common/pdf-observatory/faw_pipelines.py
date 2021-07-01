@@ -9,6 +9,7 @@ front. We (ab)use `dask.distributed.Client.datasets` to track running
 administrative threads as futures.
 """
 
+from faw_internal_util import dask_check_if_cancelled
 import faw_pipelines_util
 
 import asyncio
@@ -54,24 +55,7 @@ def config_update(new_app_config):
     _config_base = new_app_config
 
 
-def dask_check_if_cancelled():
-    """Checks if current task is cancelled. Useful for breaking long-running
-    tasks.
-
-    Should usually be called immediately before work is e.g. committed to 
-    database, to minimize latency between cancellation and side effects.
-    """
-    w = dask.distributed.get_worker()
-    try:
-        w.tasks[w.get_current_task()]
-    except KeyError:
-        return True
-
-    # Run still required (not cancelled or forgotten)
-    return False
-
-
-async def _pipeline_spawn_admins(current_future_info, mongodb_conn, dask_client, 
+async def _pipeline_spawn_admins(current_future_info, mongodb_conn, dask_client,
         get_api_info_fn):
     """Loop through all tasks, (re)running them as needed.
     """

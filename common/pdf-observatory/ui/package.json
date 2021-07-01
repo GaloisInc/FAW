@@ -51,7 +51,8 @@
     ],
     "rules": {
       "no-console": "off",
-      "no-constant-condition": "off"
+      "no-constant-condition": "off",
+      "no-inner-declarations": "off"
     },
     "parserOptions": {
       "parser": "@typescript-eslint/parser"

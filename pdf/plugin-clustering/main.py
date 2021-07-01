@@ -14,6 +14,10 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     file_to_idx = {}
     ft_to_idx = {}
     file_ft = []
+
+    # Filter out features which appear only one time, as these are not very
+    # informative and skew the statistics
+    ft_holding = {}  # {feature: file idx set}
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -32,10 +36,28 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
             ft_idx = ft_to_idx.get(k)
             if ft_idx is None:
-                ft_idx = len(ft_to_idx)
-                ft_to_idx[k] = ft_idx
+                fh_set = ft_holding.get(k)
+                if fh_set is None:
+                    # Hold for sure
+                    ft_holding[k] = set([file_idx])
+                else:
+                    if len(fh_set) < 1:
+                        # Stay holding?
+                        fh_set.add(file_idx)
+                    else:
+                        # Release this feature
+                        ft_idx = len(ft_to_idx)
+                        ft_to_idx[k] = ft_idx
 
-            file_ft.append((file_idx, ft_idx))
+                        for f in fh_set:
+                            file_ft.append((f, ft_idx))
+
+                        del ft_holding[k]
+
+                        # Fall through to add current file
+
+            if ft_idx is not None:
+                file_ft.append((file_idx, ft_idx))
 
     X = np.zeros((len(file_to_idx), len(ft_to_idx)))
     X_nonzero = np.asarray(file_ft, dtype=int)

@@ -42,15 +42,7 @@
                   v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
-          v-sheet.working-subset(:elevation="3" style="padding: 0 1em; margin: 1em; display: flex; flex-direction: row;")
-            v-checkbox(label="Use Working Subset" :style="{'flex-grow': 0}" v-model="workingSubset")
-            v-text-field(v-show="workingSubset" label="File regex (initial ^ assumed)" hide-details="auto"
-                v-model="workingSubsetRegex")
-            v-text-field(v-show="workingSubset" label="Maximum working set size" hide-details="auto"
-                v-model="workingSubsetSizeStr" :rules="[v => !isNaN(parseInt(v)) || 'Must be integer']")
-            v-text-field(v-show="workingSubset" :label="'Partition number (0 to less than ' + workingSubsetPartitionCount + ')'" hide-details="auto"
-                v-model="workingSubsetPartitionStr" :rules="[v => !isNaN(parseInt(v)) && parseInt(v) >= 0 && parseInt(v) < Math.ceil(workingSubsetPartitionCount) || 'Must be integer in range']")
-
+          AnalysisSetConfig(:currentId.sync="analysisSetId" @error="error = $event")
 
           v-expansion-panels(inset :style="{'margin-top': '1em'}")
             v-expansion-panel
@@ -73,6 +65,8 @@
                       PipelineTaskInfo(:key="pipe + '-' + task" :pipeline="pipe" :task="task")
 
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
+            div(v-if="fileFilters.length")
+              v-btn(v-for="f, fidx of fileFilters" @click="fileFilterPopTo(fidx)") {{f[0]}}
             //- Allow selection of different things.
             div(v-if="decisionDefinition")
               v-radio-group(row v-model="decisionAspectSelected")
@@ -123,7 +117,8 @@
                               checkmark(status="rejected")
                               span {{item[0]}}: {{item[1][0].size + item[1][1].size}} / {{item[1][1].size}}
                           v-list
-                            v-list-item
+                            v-list-item(style="flex-wrap: wrap")
+                              v-btn(@click="fileFilterAdd(item[0], new Set([...Array.from(item[1][0]), ...Array.from(item[1][1])]))") Filter in FAW
                               v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
                               v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
                               v-btn(v-clipboard="() => JSON.stringify([...Array.from(item[1][1]), ...Array.from(item[1][0])])") (Copy file list as JSON)
@@ -221,7 +216,6 @@
               v-tab(:key="DbView.Decision") Decision
               v-tab(:key="DbView.Tools") Output - Tools
               v-tab(:key="DbView.Parsers") Output - Parser
-              v-tab(:key="DbView.Stats") Output - Stats
             v-tabs-items(v-model="dbView" ref="detailView")
               v-tab-item(:key="DbView.Decision")
                 v-expansion-panels(inset :style="{'margin-top': '1em'}")
@@ -239,13 +233,13 @@
                     :decisionDefinition="decisionDefinition"
                     :decisionSelected="decisionSelected"
                     :decisionSelectedDsl="decisionSelectedDsl"
-                    :decisionReference="decisionReference")
+                    :decisionReference="decisionReference"
+                    :asOptions="_pdfGroupsSubsetOptions()"
+                    )
               v-tab-item(:key="DbView.Tools")
                 DbView(:pdf="decisionSelected.testfile" collection="rawinvocations")
               v-tab-item(:key="DbView.Parsers")
                 DbView(:pdf="decisionSelected.testfile" collection="invocationsparsed")
-              v-tab-item(:key="DbView.Stats")
-                DbView(:pdf="decisionSelected.testfile" collection="statsbyfile")
 
 </template>
 
@@ -297,10 +291,6 @@
       .v-window-item {
         transition: none !important;
       }
-    }
-
-    .working-subset {
-      .v-input { margin-left: 1em; }
     }
 
     .filter-special-rows {
@@ -371,6 +361,7 @@ import Vue from 'vue';
 import {PdfDecision, sortByReject} from '@/components/common';
 import {DslExpression, DslResult, dslParser, dslDefault} from '@/dsl';
 
+import AnalysisSetConfigComponent from '@/components/AnalysisSetConfig.vue';
 import CheckmarkComponent from '@/components/Checkmark.vue';
 import CirclePlotComponent from '@/components/circle-plot.vue';
 import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
@@ -401,6 +392,7 @@ export default Vue.extend({
   name: 'home',
   components: {
     AceEditor: AceEditorComponent,
+    AnalysisSetConfig: AnalysisSetConfigComponent,
     checkmark: CheckmarkComponent,
     ConfusionMatrix: ConfusionMatrixComponent,
     DbView: DbViewComponent,
@@ -411,6 +403,7 @@ export default Vue.extend({
   },
   data() {
     return {
+      analysisSetId: null as null|string,
       beforeDestroyFns: [] as Array<{(): any}>,
       config: null as any,
       dbView: DbView.Decision,
@@ -429,6 +422,7 @@ export default Vue.extend({
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
       failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
+      fileFilters: new Array<[string, Set<string>]>(),
       fileSelected: 0,
       holdReferences: true,
       initReferences: false,
@@ -445,6 +439,8 @@ export default Vue.extend({
       pdfsToShowReference: [] as readonly PdfDecision[],
       // Number of PDFs to show in lists -- performance issue when too large.
       pdfsToShowMax: 20,
+      // Defines files available to the FAW; constricted by fileFilters' last
+      // entry.
       pdfGroups: {groups: {}, files: []} as PdfGroups,
       pdfGroupsDirty: false,
       plotShow: true,
@@ -461,10 +457,6 @@ export default Vue.extend({
       reprocessInnerPdfGroups: true,
       resetDbDialog: false,
       vuespaUrl: null as string|null,
-      workingSubset: true,
-      workingSubsetSize: 1000,
-      workingSubsetRegex: '',
-      workingSubsetPartition: 0,
     };
   },
   computed: {
@@ -519,39 +511,11 @@ export default Vue.extend({
         }
       },
     },
-    workingSubsetSizeStr: {
-      get(): string {
-        return this.workingSubsetSize.toString();
-      },
-      set(v: string) {
-        const u = parseInt(v);
-        this.workingSubsetSize = isNaN(u) ? 1 : u;
-      },
-    },
-    workingSubsetPartitionStr: {
-      get(): string {
-        return this.workingSubsetPartition.toString();
-      },
-      set(v: string) {
-        const u = parseInt(v);
-        this.workingSubsetPartition = isNaN(u) ? 0 : u;
-      },
-    },
-    workingSubsetPartitionCount(): number {
-      if (this.workingSubsetSize === 0) return 1;
-      return Math.ceil((this.loadingStatus.files_done - this.loadingStatus.files_err)
-          / this.workingSubsetSize);
-    },
-    /** Maximum expected partition size -- some partitions may have exactly one
-        fewer than this number.
-        */
-    workingSubsetPartitionExpectedSize(): number {
-      const c = this.workingSubsetPartitionCount;
-      const nf = this.loadingStatus.files_done - this.loadingStatus.files_err;
-      return Math.ceil(nf / c);
-    },
   },
   watch: {
+    analysisSetId() {
+      this.pdfGroupsDirty = true;
+    },
     decisionAspectSelected() {
       this.updatePdfsChanged();
     },
@@ -578,7 +542,7 @@ export default Vue.extend({
           break;
         }
       }
-      
+
       if (decRef === null) {
         decRef = {info: [], status: 'not found', testfile: testfile};
       }
@@ -587,6 +551,11 @@ export default Vue.extend({
       }
       this.decisionReference = decRef!;
       this.decisionSelectedDsl = dslRef!;
+    },
+    fileFilters() {
+      this.asyncTry(async () => {
+        await this.reprocess();
+      });
     },
     pdfGroups() {
       this.asyncTry(async () => {
@@ -641,18 +610,6 @@ export default Vue.extend({
       }
       (this.$refs.pluginIframe as any).src = URL.createObjectURL(new Blob([u8], {type: this.pluginIframeSrcMimeType}));
     },
-    workingSubset() {
-      this.pdfGroupsDirty = true;
-    },
-    workingSubsetSize() {
-      if (this.workingSubset) this.pdfGroupsDirty = true;
-    },
-    workingSubsetRegex() {
-      if (this.workingSubset) this.pdfGroupsDirty = true;
-    },
-    workingSubsetPartition() {
-      if (this.workingSubset) this.pdfGroupsDirty = true;
-    },
   },
   mounted() {
     this.beforeDestroyFns.push(this.$vuespa.httpHandler(
@@ -673,17 +630,7 @@ export default Vue.extend({
     const checkLoad = async () => {
       const oldConfig = this.loadingStatus.config_mtime;
       const oldDone = this.loadingStatus.files_done;
-      await this.$vuespa.update('loadingStatus', 'loading_get',
-          {subsetRegex: this.workingSubset ? '^' + this.workingSubsetRegex : ''});
-      if (oldDone < this.loadingStatus.files_done
-          // Don't re-load every reprocess once we have a full working subset.
-          // Makes debugging during long loads much more manageable.
-          && (
-            !this.workingSubset
-            // Add 1 to this.pdfs.length for rounding errors.
-            || this.workingSubsetPartitionExpectedSize > this.pdfs.length + 1)) {
-        this.pdfGroupsDirty = true;
-      }
+      await this.$vuespa.update('loadingStatus', 'loading_get', {});
       if (oldConfig < this.loadingStatus.config_mtime) {
         await this.$vuespa.update('config', 'config_get');
       }
@@ -804,6 +751,9 @@ export default Vue.extend({
       const filterPrefix = 'AutoFromRef';
       let nextGroup = 1;
       dd.filters = dd.filters.filter(x => !x.name.startsWith(filterPrefix));
+
+      // Filter out special FAW filters
+      dd.filters = dd.filters.filter(x => !x.name.startsWith('faw-'));
 
       // Build file: message list
       const fileMessages = new Map<string, Set<string>>();
@@ -927,6 +877,12 @@ export default Vue.extend({
       this.decisionCodeUpdated_handled = true;
       this.decisionCodeUpdated_inner();
       this.asyncTry(async () => {this.reprocess()});
+    },
+    fileFilterAdd(name: string, files: Set<string>) {
+      this.fileFilters.push([name, files]);
+    },
+    fileFilterPopTo(idx: number) {
+      this.fileFilters.splice(idx, this.fileFilters.length);
     },
     makeBaseline() {
       this.holdReferences = !this.holdReferences;
@@ -1078,11 +1034,21 @@ export default Vue.extend({
         this.pdfsReference = this.pdfs;
       }
 
+      // Build ignore list
+      const ignoreSet = new Set();
+      if (this.fileFilters.length > 0) {
+        const fset = this.fileFilters[this.fileFilters.length - 1][1];
+        for (const [fi, f] of this.pdfGroups.files.entries()) {
+          if (!fset.has(f)) ignoreSet.add(fi);
+        }
+      }
+
       // Build file list
       const newPdfs = [];
       const pdfMap = new Map<number, PdfDecision>();
       for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
         for (const f of files) {
+          if (ignoreSet.has(f[0])) continue;
           if (pdfMap.has(f[0])) continue;
           const dec = {
                 testfile: this.pdfGroups.files[f[0]],
@@ -1114,7 +1080,7 @@ export default Vue.extend({
         for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
           let matched = false;
           // Do any of our filter's patterns match this message?
-          let filesSubset = files;
+          let filesSubset = files.filter(x => !ignoreSet.has(x[0]));
 
           const evalCheck = (k: string, check: any): Set<number> => {
             const parts = new Map<string, Array<number>>();
@@ -1130,6 +1096,8 @@ export default Vue.extend({
                 }
                 throw new Error(`Could not find ${k + suffix}?`);
               }
+
+              filesWithMsg = filesWithMsg.filter(x => !ignoreSet.has(x[0]));
 
               const p = new Array<number>();
               parts.set(id, p);
@@ -1487,24 +1455,21 @@ export default Vue.extend({
       }
     },
     async _pdfGroupsUpdate() {
+      if (this.analysisSetId === null) return;
+      // Clear old data ; makes it apparent to user that data is being loaded.
+      this.pdfGroups = {groups: [], files: []};
+      this.fileFilters = [];
+
       const opts = this._pdfGroupsSubsetOptions();
-      await this.$vuespa.update('pdfGroups', 'decisions_get', opts);
+      const start = window.performance.now();
+      // Avoid reactivity pause by freezing large object before assigning
+      this.pdfGroups = Object.freeze(
+          await this.$vuespa.call('decisions_get', opts));
+      const tdelta = (window.performance.now() - start) / 1000;
+      console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
     },
     _pdfGroupsSubsetOptions() {
-      if (this.workingSubset) {
-        return {
-          subsetSize: this.workingSubsetSize,
-          subsetRegex: '^' + this.workingSubsetRegex,
-          subsetPartition: this.workingSubsetPartition,
-        };
-      }
-      else {
-        return {
-          subsetSize: 0,
-          subsetRegex: '',
-          subsetPartition: 0,
-        };
-      }
+      return {analysis_set_id: this.analysisSetId};
     },
   },
 });
