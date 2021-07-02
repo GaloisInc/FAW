@@ -180,6 +180,11 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
             exitcode = int(doc['result']['exitcode'])
             parse_fts[f"<<workbench: Exit code {exitcode}>>"] = 1
 
+        # Quick audit over mongo disallowed keys for sending data from db
+        # to user interface.
+        for k in parse_fts.keys():
+            if '\0' in k:
+                raise ValueError(f'Null byte in: {k}')
 
         # Now that all features are collected, collapse them into a mongodb
         # format which can be queried.
