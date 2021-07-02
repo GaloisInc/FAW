@@ -31,6 +31,7 @@
             version: '1',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdstar: {
                   // Report all lines of stdout and stderr, but strip numbers.
                   '.*': {
@@ -53,6 +54,7 @@
             version: 'polyfile0.3.3+-v6',
             parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 // All stdout is a mime type
                 '^.*$': {
@@ -76,6 +78,7 @@
             version: 'pdfid_v0_2_7__py3',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdout: {
                     'pdf header:(.*)': {
                         nameGroup: 'PDF Header',

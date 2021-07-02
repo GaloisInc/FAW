@@ -6,6 +6,7 @@
             version: 'chromium-4180',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdstar: {
                     '^\\s*(/opt|/lib|[#]FailureMessage).*$': {
                         nameGroup: '<<workbench: stack trace collapsed>>'

@@ -231,7 +231,10 @@ def _as_populate(as_name, mongo_info):
                     print(f'Parser {p} had more than one doc?', file=sys.stderr)
 
                 pout = {}
-                for fk, fv in doc[p][0]['result'].items():
+                for fkv in doc[p][0]['result']:
+                    fk = fkv['k']
+                    fv = fkv['v']
+
                     if fk.startswith('<<workbench: Exit code'):
                         # Parser included, include this
                         pout[fk] = fv

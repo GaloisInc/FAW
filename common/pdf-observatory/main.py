@@ -197,9 +197,9 @@ async def _app_parser_stats():
                     # Size is actually a differential. Indicates information
                     # added per additional document due to unique features.
                     size = 0
-                    fts_size = set(docs[0]['result'].keys())
+                    fts_size = set([dr['k'] for dr in docs[0]['result']])
                     for d in docs[1:]:
-                        fts_new = set(d['result'].keys())
+                        fts_new = set([dr['k'] for dr in d['result']])
                         fts_new.difference_update(fts_size)
                         size += len(pickle.dumps(fts_new))
                         fts_size.update(fts_new)
@@ -265,10 +265,6 @@ async def _db_reparse(tools_to_reset=[]):
     """
     _db_abort_process()
     await app_mongodb_conn.drop_collection('observatory')
-    # A more robust method would be fixing queue_client to remove a
-    # document from the groups to which it belongs, but this works since
-    # the UI always re-processes the full DB at the moment.
-    await app_mongodb_conn.drop_collection('invocationsparsed')
     if tools_to_reset:
         await app_mongodb_conn['rawinvocations'].delete_many(
                 {'invoker.invName': {'$in': tools_to_reset}})
@@ -696,12 +692,15 @@ class Client(vuespa.Client):
         inspection.
         """
         query = None
+        postproc = None  # In-place post processor
         if collection == 'rawinvocations':
             query = {'file': os.path.join(app_pdf_dir, pdf)}
             cursor = app_mongodb_conn[collection].find(query)
         elif collection == 'invocationsparsed':
             query = {'file': pdf}
             cursor = app_mongodb_conn[collection].find(query)
+            def postproc(d):
+                d['result'] = {dr['k']: dr['v'] for dr in d['result']}
         elif collection == 'statsbyfile':
             cursor = self._statsbyfile_cursor(options, match_id=pdf)
             options = None
@@ -714,6 +713,9 @@ class Client(vuespa.Client):
         for d in docs:
             if isinstance(d['_id'], bson.objectid.ObjectId):
                 d['_id'] = str(d['_id'])
+            # Better UI display if we use a non-mongo format
+            if postproc is not None:
+                postproc(d)
         return docs
 
 

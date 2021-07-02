@@ -152,6 +152,7 @@
           version: '15',
           parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 '^(.*): (\\d+)$': {
                   nameGroup: 1,
@@ -168,6 +169,7 @@
           version: '20',
           parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 '^(.*): (\\d+)$': {
                   nameGroup: 1,

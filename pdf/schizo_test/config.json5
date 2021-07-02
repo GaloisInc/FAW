@@ -13,6 +13,7 @@
       version: 'schizo-test71',
       parse: {
         type: 'regex-counter',
+        version: '1',
         stdstar: {
           '^(Max RMSE, .*): (.*)': {
             nameGroup: 1,

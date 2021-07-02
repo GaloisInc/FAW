@@ -6,6 +6,7 @@
             version: '10.0.1',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdout: {
                   // We do NOT want the observatory to pick these up, so just ignore
                   // every message. dumppdf must be searched via mongo!
@@ -30,6 +31,7 @@
             version: '10.0.1',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdout: {
                   // We do NOT want the observatory to pick these up, so just ignore
                   // every message. pdf2txt must be searched via mongo!

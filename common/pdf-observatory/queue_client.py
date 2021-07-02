@@ -156,6 +156,7 @@ def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
 
     coll = coll_resolver(mongo_db + '/invocationsparsed')
     coll.create_index([('file', pymongo.ASCENDING)])
+    coll.create_index([('result.k', pymongo.ASCENDING)])
 
     if retry_errors:
         coll = coll_resolver(mongo_db + '/observatory')
@@ -389,17 +390,12 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
     col_parse = coll_resolver(col_parse_name)
 
     # Parser is pretty fast - OK to delete all prior work and try again.
-    for parsedoc in col_parse.find({'file': fname}):
-        col_parse.delete_one({'_id': parsedoc['_id']})
+    existing = {d['parser']: d for d in col_parse.find({'file': fname},
+            {'_id': True, 'file': True, 'parser': True, 'version': True})}
 
     tooldocs = set()
     for tooldoc in col_tools.find({'file': tools_pdf_name}):
         tooldocs.add(tooldoc['_id'])
-
-        # How one would write a check which re-uses past work.
-        if False and col_parse.find_one({'_id': tooldoc['_id']}) is not None:
-            # Already computed
-            continue
 
         # Perhaps this tool is disabled or otherwise unavailable.
         if (tooldoc['invoker']['invName'] not in app_config['parsers']
@@ -408,6 +404,18 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
             # Non-existant
             continue
 
+        # See if it even needs to be reparsed
+        if tooldoc['invoker']['invName'] in existing:
+            parser_config = app_config['parsers'][tooldoc['invoker']['invName']]
+            parser_done = existing[tooldoc['invoker']['invName']]
+            if parser_config['parse']['version'] == parser_done.get('version'):
+                # Already computed
+                continue
+
+            # Need new; delete old
+            col_parse.delete_one({'_id': parser_done['_id']})
+
+        # Generate the new one
         pdf_etl_parse.handle_doc(tooldoc, coll_resolver, fname_rewrite=fname,
                 db_dst=col_parse_name,
                 parsers_config=app_config['parsers'])

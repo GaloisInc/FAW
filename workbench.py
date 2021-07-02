@@ -197,8 +197,18 @@ def main():
     if not development:
         extra_flags.append(IMAGE_TAG)
     else:
+        # Mount various internal components
+        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-etl-parse:/home/pdf-etl-parse'])
         extra_flags.extend(['-v', f'{faw_dir}/common/pdf-observatory:/home/pdf-observatory'])
+
+        # Mount distribution code
         extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
+
+        # Mount utilities for restarting the FAW.. can be handy.
+        for f in os.listdir(os.path.join(faw_dir, 'common', 'docker-bin')):
+            ff = os.path.join(faw_dir, 'common', 'docker-bin', f)
+            extra_flags.extend(['-v', f'{ff}:/usr/bin/{f}:ro'])
+
         # Allow profiling via e.g. py-spy
         extra_flags.extend(['--cap-add', 'sys_ptrace'])
 

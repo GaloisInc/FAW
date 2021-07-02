@@ -82,11 +82,12 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
 
     inv_name = doc['invoker']['invName']
     cfg = parsers_config[inv_name]
+    parse_version = cfg['parse']['version']
 
     try:
         inv_version = doc['invoker']['version']
         if cfg['version'] != inv_version:
-            raise ValueError(f'Expected version {cfg["version"]}; parser ran as '
+            raise ValueError(f'Expected version {cfg["version"]}; tool ran as '
                     f'version {inv_version}')
 
         parse_cfg = cfg['parse']
@@ -170,23 +171,28 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
         else:
             raise NotImplementedError(parse_cfg['type'])
 
+        # Add exit information
+        if doc['result'].get('_cons', '').lower() in ('timeout', 'runtimeerror'):
+            parse_fts['<<workbench: Exit code missing>>'] = 1
+            parse_fts[f"<<workbench: Exit status: {doc['result']['_cons']}>>"] = 1
+            exitcode = 'missing'
+        else:
+            exitcode = int(doc['result']['exitcode'])
+            parse_fts[f"<<workbench: Exit code {exitcode}>>"] = 1
+
+
+        # Now that all features are collected, collapse them into a mongodb
+        # format which can be queried.
+        parse_fts = [{'k': k, 'v': v} for k, v in parse_fts.items()]
+
         d = {
                 '_id': doc['_id'],
                 'file': fname_rewrite or doc['file'],
                 'parser': doc['invoker']['invName'],
+                'version': parse_version,
                 'result': parse_fts,
+                'exitcode': exitcode,
         }
-        if doc['result'].get('_cons', '').lower() in ('timeout',
-                'runtimeerror'):
-            d['result']['<<workbench: Exit code missing>>'] = 1
-            d['exitcode'] = 'missing'
-
-            # Make timeouts visible to user
-            d['result'][f"<<workbench: Exit status: {doc['result']['_cons']}>>"] = 1
-        else:
-            d['result'][f"<<workbench: Exit code {int(doc['result']['exitcode'])}>>"] = 1
-            d['exitcode'] = int(doc['result']['exitcode'])
-
         conn_dst.replace_one({'_id': d['_id']}, d, upsert=True)
     except:
         raise ValueError(f'While parsing {inv_name} for {doc["file"]}')

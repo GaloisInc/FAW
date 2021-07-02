@@ -13,6 +13,7 @@
       version: 'schizo-4',
       parse: {
         type: 'regex-counter',
+        version: '1',
         stdstar: {
           '^Min (\\w+ to \\w+): (.*)': {
             nameGroup: 1,

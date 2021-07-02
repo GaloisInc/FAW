@@ -118,8 +118,8 @@ def main():
                         if html_out:
                             print(f'<td>No image for {base_tool}</td>')
                         continue
-                    diff, definitely_schizo = img_diff(pageno, base_img, img,
-                            html_out=html_out)
+                    diff, definitely_schizo = img_diff(pageno, base_img,
+                            base_tool, img, t, html_out=html_out)
                     if definitely_schizo:
                         any_schizo = True
 
@@ -193,7 +193,7 @@ def main():
                 print(f'Max diff, {bt} to {ot}: {rmse:.4f}', file=sys.stderr)
 
 
-def img_diff(pageno, base, img, html_out):
+def img_diff(pageno, base, base_tool, img, img_tool, html_out):
     """Returns: diff img, definitely schizo
     """
 
@@ -215,7 +215,7 @@ def img_diff(pageno, base, img, html_out):
     if base.shape != img.shape:
         print(f'Schizophrenic: page {pageno} was size '
                 f'{base.shape} in {base_tool}, and '
-                f'{img.shape} in {t}', file=sys.stderr)
+                f'{img.shape} in {img_tool}', file=sys.stderr)
 
         if html_out:
             print(f'<br />Size mismatch: {base.shape} != {img.shape}')

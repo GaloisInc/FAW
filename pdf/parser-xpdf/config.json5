@@ -7,6 +7,7 @@
           version: 'xpdf-4.0.2',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdout: {
               // We do NOT want the observatory to pick these up, so just ignore
               // every message. pdftotext must be searched via mongo!
@@ -37,6 +38,7 @@
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stderr: {
                     '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
                         nameGroup: 1
@@ -63,6 +65,7 @@
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 '^name ': {
                   nameGroup: '',
@@ -96,6 +99,7 @@
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 // The 'regex-counter' type generates a small program which
                 // matches the parser's output line by line.
                 // See https://docs.python.org/3/howto/regex.html for Regex
@@ -150,6 +154,7 @@
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdstar: {
                     '.*': {
                         nameGroup: 'meta not implemented',
@@ -164,6 +169,7 @@
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdout: {
                     '^[ \\t]*(/?[a-zA-Z][a-zA-Z0-9]*)( \\(block\\))?([ :]|$)': {
                         nameGroup: 'struct \\1\\2',
@@ -197,6 +203,7 @@
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdstar: {
                     '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
                         nameGroup: 1
