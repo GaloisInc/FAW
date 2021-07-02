@@ -391,7 +391,8 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
 
     # Parser is pretty fast - OK to delete all prior work and try again.
     existing = {d['parser']: d for d in col_parse.find({'file': fname},
-            {'_id': True, 'file': True, 'parser': True, 'version': True})}
+            {'_id': True, 'file': True, 'parser': True, 'version_tool': True,
+                'version_parse': True})}
 
     tooldocs = set()
     for tooldoc in col_tools.find({'file': tools_pdf_name}):
@@ -408,7 +409,11 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
         if tooldoc['invoker']['invName'] in existing:
             parser_config = app_config['parsers'][tooldoc['invoker']['invName']]
             parser_done = existing[tooldoc['invoker']['invName']]
-            if parser_config['parse']['version'] == parser_done.get('version'):
+            if (
+                    parser_config['parse']['version']
+                        == parser_done.get('version_parse')
+                    and parser_config['version']
+                        == parser_done.get('version_tool')):
                 # Already computed
                 continue
 

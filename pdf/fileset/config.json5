@@ -1,0 +1,26 @@
+{
+  parsers: {
+    'f': {
+      exec: ['python3', './main.py', '<apiInfo>', '<inputFile>'],
+      version: '8',
+      parse: {
+        type: 'regex-counter',
+        version: '2',
+        stdout: {
+          '^member: .*': {
+            nameGroup: 0,
+          },
+        },
+        stderr: {
+          '^[Ff]uture': {
+            nameGroup: '',
+          },
+          '^tornado\.util': {
+            nameGroup: '',
+          },
+        },
+      },
+    },
+  },
+}
+

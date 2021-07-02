@@ -100,9 +100,13 @@ Stats collection: old statsbyfile, but new schema.
 '''
 
 async def _as_last_queueStop():
-    last_queueStop = (await _app_mongodb_conn['observatory'].find(
+    last_queueStop_doc = (await _app_mongodb_conn['observatory'].find(
             {'queueStop': {'$ne': None}}).sort('queueStop', -1)
-            .limit(1).to_list(1))[0]['queueStop']
+            .limit(1).to_list(1))
+    if last_queueStop_doc:
+        last_queueStop = last_queueStop_doc[0]['queueStop']
+    else:
+        last_queueStop = None
     return last_queueStop
 
 async def _as_manage(aset, mongo_info, last_queueStop, client, client_tasks):

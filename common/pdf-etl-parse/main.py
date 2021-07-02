@@ -189,7 +189,8 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
                 '_id': doc['_id'],
                 'file': fname_rewrite or doc['file'],
                 'parser': doc['invoker']['invName'],
-                'version': parse_version,
+                'version_parse': parse_version,
+                'version_tool': inv_version,
                 'result': parse_fts,
                 'exitcode': exitcode,
         }
