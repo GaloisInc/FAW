@@ -2,7 +2,8 @@
   parsers: {
     'f': {
       exec: ['python3', './main.py', '<apiInfo>', '<inputFile>'],
-      version: '8',
+      mustSucceed: true,
+      version: '9',
       parse: {
         type: 'regex-counter',
         version: '2',

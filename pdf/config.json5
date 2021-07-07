@@ -28,6 +28,11 @@
             // Any disabled parser has no effect -- comment this line to enable
             disabled: true,
             exec: ['file', '<inputFile>'],
+            // Most parsers can fail, and that's OK. Once in awhile though, it
+            // is useful to specify a parser which will only ever fail
+            // transiently, and must be retried if failed. Set to true for this
+            // behavior.
+            mustSucceed: false,
             version: '1',
             parse: {
                 type: 'regex-counter',

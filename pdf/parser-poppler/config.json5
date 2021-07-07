@@ -92,7 +92,7 @@
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
-              version: '1',
+              version: '1.3',
               stdout: {
                 '^name ': {
                   nameGroup: '',
@@ -100,7 +100,8 @@
                 '^----': {
                   nameGroup: '',
                 },
-                '^([a-zA-Z0-9-]+)': {
+                // Font name followed by object ID or `[none]`
+                '^(\\S+)\\s+(\\d+\\s+\\d+|\\[none\\])': {
                   nameGroup: 'Unembedded font',
                 },
               },

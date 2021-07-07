@@ -20,9 +20,14 @@ class ParserBase:
     disabled = False
 
     def run(self, fpath):
-        """Return a dict of {page: tokens found in fpath, pre-stemming}.
+        """Return a list of [tokens found in fpath, pre-stemming
+            for each page in document].
 
-        Page numbers are 0-based."""
+        May also return a dict of {page: tokens...}
+
+        Should never fail. Not all parsers must return the same size array,
+        though.
+        """
         raise NotImplementedError()
 
 
@@ -60,21 +65,49 @@ class MupdfToText(ParserBase):
     def run(self, fpath):
         stdout = self.util_get_stdout(['mutool', 'draw', '-F', 'text',
                 '-o', '-', fpath])
-        return [t.decode() for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
+class PdfBox(ParserBase):
+    def run(self, fpath):
+        pages = []
+        # pdfbox has no page delimiters, and does not fail on an empty page.
+        # So, look for N blank pages in a row
+        n_blank = 0
+        for page in range(1, 1000):
+            stdout = self.util_get_stdout(['java', '-jar',
+                    '/opt/pdfbox/pdfbox-app-2.0.17.jar',
+                    'ExtractText',
+                    '-encoding', 'UTF-8',
+                    '-startPage', str(page),
+                    '-endPage', str(page),
+                    '-console',
+                    fpath,
+            ])
+            stdout = stdout.decode(errors='replace')
+
+            if not stdout:
+                pages.append('')
+                n_blank += 1
+            else:
+                pages.append(stdout)
+
+            if n_blank >= 3:
+                break
+
+        return pages[:-n_blank]
 class PdfMinerToText(ParserBase):
     def run(self, fpath):
         stdout = self.util_get_stdout(['pdf2txt.py', fpath])
-        return [t.decode() for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
 class PopplerPdfToText(ParserBase):
     def run(self, fpath):
         stdout = self.util_get_stdout(['bash', '-c',
                 'pdftotext -enc UTF-8 $0 >(cat)', fpath])
-        return [t.decode() for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
 class XpdfToText(ParserBase):
     def run(self, fpath):
         stdout = self.util_get_stdout(['bash', '-c',
                 '/opt/xpdf/bin64/pdftotext -enc UTF-8 $0 >(cat)', fpath])
-        return [t.decode() for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
 
 tools = [cls() for cls in ParserBase.__subclasses__() if not cls.disabled]
 
@@ -87,13 +120,16 @@ def run_parser(cls_instance, fpath):
         # 0-based page index
         pass
     elif isinstance(pages, list):
-        pages = {i: pages[i] for i in range(len(pages)) if pages[i].strip()}
+        pages = {i: pages[i] for i in range(len(pages)) if pages[i] is not None}
     else:
         raise ValueError(pages)
 
     ## For each page....
     r = {}
     for k, v in pages.items():
+        if v is None:
+            continue
+
         # This doesn't appear to be what Kudu does (https://github.com/kududyn/safedocs/blob/master/pdftools/sparclur/sparclur/_text_extractor.py)
         # , but spacy interprets differing newlines as different characters.
         v = re.sub(r'\s+', ' ', v)
@@ -155,8 +191,9 @@ def main():
 
             for j in range(i+1, len(tool_names)):
                 if pages[i] is None or pages[j] is None:
-                    # Automatic schizophrenia
-                    jacard = 0.
+                    # Automatic schizophrenia -- missing page
+                    # Signify with value less than 0
+                    jacard = -1
                 else:
                     jacard = (eps + len(pages[i].intersection(pages[j]))) / (
                             eps + len(pages[i].union(pages[j])))

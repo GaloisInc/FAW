@@ -1,0 +1,46 @@
+{
+  parsers: {
+    'pdfbox-ExtractText': {
+      exec: ['java', '-jar', '/opt/pdfbox/pdfbox-app-2.0.17.jar', 'ExtractText',
+        '<inputFile>', '<tempFile>'],
+      version: 'pdfbox-2.0.17',
+      parse: {
+        type: 'regex-counter',
+        version: '1.2',
+        stdstar: {
+          // Traceback information
+          '^[ \t]+at org\\.': {
+            nameGroup: '',
+          },
+          '^\\w+ \\d\\d, \\d\\d\\d\\d.* org\\.apache': {
+            nameGroup: '',
+          },
+          '.*': {
+            nameReplace: {
+              '[0-9]': '',
+            },
+          },
+        },
+      },
+    }
+  },
+  build: {
+    stages: {
+      pdfbox: {
+        copy_output: {
+          '/opt/pdfbox': true,
+        },
+        commands: [
+          'RUN mkdir -p /opt/pdfbox \
+            && cd /opt/pdfbox \
+            && wget https://archive.apache.org/dist/pdfbox/2.0.17/pdfbox-app-2.0.17.jar',
+        ],
+      },
+      final: {
+        commands: [
+          'RUN apt-get update && apt-get install -y default-jdk',
+        ],
+      },
+    },
+  },
+}
