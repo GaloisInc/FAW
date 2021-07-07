@@ -218,6 +218,9 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         invokers_whitelist.append(k)
         delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
                 'invoker.version': {'$ne': invoker_version}})
+        if v.get('mustSucceed'):
+            delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
+                    'result.exitcode': {'$ne': 0}})
     # Used to clear out old parser data. However... since private distributions,
     # e.g. `./workbench.py ../modified-pdf ...`, it doesn't really make sense
     # to clear out the old information on the off chance it will be re-used.
@@ -276,6 +279,14 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         call(aargs,
                 cwd='/home/dist/' + invokers_cwd[k],
                 timeout=tool_timeout)
+
+        if v.get('mustSucceed'):
+            tdoc = db_coll.find_one({'file': fpath_access, 'invoker.invName': k})
+            if tdoc is None or tdoc['result']['exitcode'] != 0:
+                s = 'missing document'
+                if tdoc is not None:
+                    s = f'exit code {tdoc["result"]["exitcode"]}'
+                raise ValueError(f'Parser {k} mustSucceed, but got {s}')
 
     # For each raw invocation, parse it.
     _load_document_parse(doc['_id'],

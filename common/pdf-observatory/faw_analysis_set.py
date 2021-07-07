@@ -277,7 +277,7 @@ async def _as_populate_ids(aset, as_name):
     if 'as_i_' + as_name not in await db.list_collection_names():
         # No indices yet... sample from db.
         # Sample only from documents that are completed, though.
-        query = {'queueStop': {'$ne': None}}
+        query = {'queueStop': {'$ne': None}, 'queueErr': None}
         if aset['definition']['files']:
             reg = re.compile('^' + aset['definition']['files'],
                     flags=re.I if aset['definition']['files_case']

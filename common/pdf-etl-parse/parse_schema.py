@@ -17,6 +17,7 @@ def schema_get():
     sch = s.Schema(s.Or({}, {
             s.And(str, lambda x: '_' not in x): {
                 s.Optional('disabled', default=False): s.Or(True, False),
+                s.Optional('mustSucceed', default=False): s.Or(True, False),
                 'exec': [str],
                 s.Optional('cwd', default='.'): str,
                 s.Optional('timeout', default=None): s.Or(float, int, None),

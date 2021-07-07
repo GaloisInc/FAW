@@ -29,7 +29,7 @@
           v-row(style="display: block")
             v-expansion-panels
               v-expansion-panel(v-for="parser of saveAsUiRules" :key="parser.id")
-                v-expansion-panel-header(:color="parser.rules.length > 0 ? 'green lighten-3' : ''")
+                v-expansion-panel-header(:color="parser.rules.length > 0 ? (parser.rulesComplex ? 'orange lighten-3' : 'green lighten-3') : ''")
                   div
                     span {{parser.id}} ({{parser.size ? `~${(parser.size / 1024).toFixed(2)}kB/doc` : 'no size'}}
                     span(v-if="parser.rules.length > 0") ; included
@@ -178,7 +178,7 @@ export default Vue.extend({
       let r = [];
       const map = new Map<string, any>();
       for (const p of this.asData.parsers) {
-        r.push({id: p.id, size: p.size_doc, rules: []});
+        r.push({id: p.id, size: p.size_doc, rulesComplex: false, rules: []});
         map.set(p.id, r[r.length - 1]);
       }
       const rules = this.saveAs.definition.rules;
@@ -187,6 +187,7 @@ export default Vue.extend({
 
         let rr = map.get(rule.parser);
         if (rr === undefined) {
+          // A rule based on old data? Still show the user
           const rrName = `<NOT FOUND> ${rule.parser}`;
           rr = map.get(rrName);
           if (rr === undefined) {
@@ -196,6 +197,9 @@ export default Vue.extend({
           }
         }
         rr.rules.push({index: i, rule});
+
+        // Flag more complicated things
+        if (rule.src.trim().length || rule.dst.trim().length) rr.rulesComplex = true;
       }
       return r;
     },
