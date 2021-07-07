@@ -983,7 +983,10 @@ export default Vue.extend({
       return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     },
     resetDbErrors() {
-      this.asyncTry(async () => {this.$vuespa.call('reset_db_errors');});
+      this.asyncTry(async () => {
+        await this.$vuespa.call('reset_db_errors');
+        this.pdfGroupsDirty = true;
+      });
     },
     async reprocess() {
       /** Re-calculate decisions based on DSL */
@@ -1277,6 +1280,7 @@ export default Vue.extend({
       this.pdfsReference = [];
       this.asyncTry(async () => {
         await this.$vuespa.call('clear_db');
+        this.pdfGroupsDirty = true;
       });
     },
     async resetParsers() {
@@ -1285,6 +1289,7 @@ export default Vue.extend({
       this.pdfsReference = [];
       this.asyncTry(async () => {
         await this.$vuespa.call('reparse_db');
+        this.pdfGroupsDirty = true;
       });
     },
     scrollToFileDetails() {
