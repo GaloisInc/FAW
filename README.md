@@ -76,7 +76,14 @@ docker image in a standalone fashion; that file is packaged with any builds.
   the `common/pdf-observatory/ui/node_modules` directory and trying again. This
   can happen due to mismatches between node versions in docker containers.
 
-2. Additional documentation is in the [docs](docs) directory.
+2. In `--development` mode, attaching to the docker container gives access to
+  a variety of useful information. In particular, `s6-logwatch /var/log/observatory`
+  will show the logs for the FAW instance; `/var/log` in general contains a
+  number of logs on the various processes which comprise the FAW. Futhermore,
+  if the server itself ever needs to be rebooted, there is a `faw-restart.sh`
+  executable in the PATH which can help do this correctly.
+
+3. Additional documentation is in the [docs](docs) directory.
 
 ## Acknowledgements
 
