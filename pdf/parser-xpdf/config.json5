@@ -60,12 +60,29 @@
             },
         },
 
+        /** Standard fonts are:
+        ['Courier',
+         'Courier-Bold',
+         'Courier-Oblique',
+         'Courier-BoldOblique',
+         'Helvetica',
+         'Helvetica-Bold',
+         'Helvetica-Oblique',
+         'Helvetica-BoldOblique',
+         'Times-Roman',
+         'Times-Bold',
+         'Times-Italic',
+         'Times-BoldItalic',
+         'Symbol',
+         'ZapfDingbats']
+         */
+
         pdffonts: {
             exec: ['/opt/xpdf/bin64/pdffonts', '-loc', '<inputFile>'],
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
-              version: '1',
+              version: '2e',
               stdout: {
                 '^name ': {
                   nameGroup: '',
@@ -73,8 +90,14 @@
                 '^----': {
                   nameGroup: '',
                 },
-                '^((?!embedded).)*$': {
-                  nameGroup: 'Unembedded font',
+                //'^((?!embedded).)*$': {
+                //  nameGroup: 'Unembedded font',
+                //},
+                '^(Courier|Courier-Bold|Courier-Oblique|Courier-BoldOblique|Helvetica|Helvetica-Bold|Helvetica-Oblique|Helvetica-BoldOblique|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Symbol|ZapfDingbats)           +.*(?<!embedded)$': {
+                  nameGroup: 'system font: \\1',
+                },
+                '^(?!Courier|Courier-Bold|Courier-Oblique|Courier-BoldOblique|Helvetica|Helvetica-Bold|Helvetica-Oblique|Helvetica-BoldOblique|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Symbol|ZapfDingbats)(.*?)           +.*(?<!embedded)$': {
+                  nameGroup: 'unembedded: \\1',
                 },
                 '^.*$': {
                   nameGroup: '',
@@ -85,6 +108,8 @@
                   nameGroup: 1,
                 },
                 '^.*': {
+                  // These are all included in other XPDF tools, and don't add
+                  // special value here.
                   nameGroup: '',
                 },
               },
