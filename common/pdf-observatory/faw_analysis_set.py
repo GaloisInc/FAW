@@ -294,17 +294,21 @@ async def _as_populate_ids(aset, as_name):
         # $out would work well, but seems.. broken? So use a temporary...
         tmp_col = db['as_itmp_' + as_name]
         await tmp_col.drop()
+        col_created = False
         batch = []
         async for doc in db['observatory'].aggregate(stages):
             batch.append(doc)
             if len(batch) == 1024:
                 await tmp_col.insert_many(batch)
+                col_created = True
                 batch.clear()
         if batch:
             await tmp_col.insert_many(batch)
+            col_created = True
 
-        # Finally, rename
-        await tmp_col.rename('as_i_' + as_name)
+        # Finally, rename, but only if created (otherwise Mongo error)
+        if col_created:
+            await tmp_col.rename('as_i_' + as_name)
 
     # Reset 'done' markers
     col_ids = db['as_i_' + as_name]
