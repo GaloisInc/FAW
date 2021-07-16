@@ -157,6 +157,9 @@ def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
     coll = coll_resolver(mongo_db + '/invocationsparsed')
     coll.create_index([('file', pymongo.ASCENDING)])
     coll.create_index([('result.k', pymongo.ASCENDING)])
+    # Another index for quickly gathering information about features from
+    # different exit codes
+    coll.create_index([('parser', pymongo.ASCENDING), ('exitcode', pymongo.ASCENDING)])
 
     if retry_errors:
         coll = coll_resolver(mongo_db + '/observatory')
