@@ -94,6 +94,7 @@
                 :decisionAspectSelected="decisionAspectSelected")
             ConfusionMatrix(v-if="pdfs.length"
               @view="showFile($event)"
+              @filter-file-list="fileFilterAdd($event.name, new Set($event.files))"
               :pdfs="pdfs"
               :pdfsReference="pdfsReference"
               :decisionAspectSelected="decisionAspectSelected")

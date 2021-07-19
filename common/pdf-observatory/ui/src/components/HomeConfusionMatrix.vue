@@ -16,6 +16,7 @@
                   )  {{counts[di][ri].toFixed(1)}}%
             v-list
               v-list-item
+                v-btn(@click="$emit('filter-file-list', {name: fileFilterListName(di, ri), files: examples[di][ri]})") Filter in FAW
                 v-btn(v-clipboard="() => JSON.stringify(examples[di][ri])") (Copy file list as JSON)
               v-list-item(v-for="ex of examples[di][ri].slice(0, 10)" :key="ex" @click="$emit('view', ex)") {{ex}}
         td(v-else) 0
@@ -90,6 +91,17 @@ export default Vue.extend({
     this.update();
   },
   methods: {
+    fileFilterListName(di: number, ri: number): string {
+      const r = [
+        this.decisionAspectSelected,
+        ' == ',
+        this.decisions[di] === undefined ? 'undefined' : this.decisions[di],
+        ' (',
+        this.references[ri] === undefined ? 'undefined' : this.references[ri],
+        ')',
+      ];
+      return r.join('');
+    },
     update() {
       const dVals: Array<string> = [];
       const counts = new Array<Array<number>>();
