@@ -321,16 +321,25 @@ async def init_check_pdfs(retry_errors=False):
         col.create_index([('queueStop', pymongo.ASCENDING)]),
     ])
 
+    # Use a batch to support parallelism on mongodb's side
+    batch = set()
+    batch_max = 100
+    async def insert_or_ignore(fpath):
+        try:
+            await col.insert_one({'_id': fpath, 'queueStart': None,
+                    'queueStop': None, 'queueErr': None})
+        except pymongo.errors.DuplicateKeyError:
+            pass
     for ff in _walk_pdf_files():
         if loader_proc.aborted:
             # User re-triggered this step, so stop processing.
             return
 
-        try:
-            await col.insert_one({'_id': ff, 'queueStart': None,
-                    'queueStop': None, 'queueErr': None})
-        except pymongo.errors.DuplicateKeyError:
-            pass
+        batch.add(insert_or_ignore(ff))
+        if len(batch) > batch_max:
+            _, batch = await asyncio.wait(batch,
+                    return_when=asyncio.FIRST_COMPLETED)
+    await asyncio.wait(batch)
 
     # Now that all PDFs are guaranteed queued, run a queue helper which does
     # depth-first processing of all files
