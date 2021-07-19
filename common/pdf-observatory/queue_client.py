@@ -406,9 +406,13 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
     col_parse = coll_resolver(col_parse_name)
 
     # Parser is pretty fast - OK to delete all prior work and try again.
-    existing = {d['parser']: d for d in col_parse.find({'file': fname},
+    # Note that we must keep a list of _all_ documents per parser, so we
+    # can clean up duplicates should that situation arise.
+    existing = collections.defaultdict(lambda: [])
+    for d in col_parse.find({'file': fname},
             {'_id': True, 'file': True, 'parser': True, 'version_tool': True,
-                'version_parse': True})}
+                'version_parse': True}):
+        existing[d['parser']].append(d)
 
     tooldocs = set()
     for tooldoc in col_tools.find({'file': tools_pdf_name}):
@@ -423,8 +427,14 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
 
         # See if it even needs to be reparsed
         if tooldoc['invoker']['invName'] in existing:
-            parser_config = app_config['parsers'][tooldoc['invoker']['invName']]
             parser_done = existing[tooldoc['invoker']['invName']]
+            # Duplicates?
+            if len(parser_done) > 1:
+                col_parse.delete_many({'_id': {
+                        '$in': [d['_id'] for d in parser_done[1:]]}})
+
+            parser_done = parser_done[0]
+            parser_config = app_config['parsers'][tooldoc['invoker']['invName']]
             if (
                     parser_config['parse']['version']
                         == parser_done.get('version_parse')
