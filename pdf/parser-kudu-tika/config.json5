@@ -21,6 +21,9 @@
           },
           '^(pdf:|access_permission:).*': {
             // Permitted
+            nameReplace: {
+              '\u0000': '<NULL>',
+            },
           },
           '^(.*([Aa]uthor|[Cc]reator|[Tt]itle|DocumentID|InstanceID) -- )': {
             // Ignore value -- too many discrete values
