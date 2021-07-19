@@ -3,7 +3,7 @@
         // Dumps pdf objects to xml
         'dumppdf': {
             exec: ['python3', '/usr/local/bin/dumppdf.py', '-a', '<inputFile>'],
-            version: '10.0.1',
+            version: '10.0.1-six',
             parse: {
                 type: 'regex-counter',
                 version: '2',
@@ -28,7 +28,7 @@
         'pdf2text': {
             disabled: true,
             exec: ['python3', '/usr/local/bin/pdf2txt.py', '<inputFile>'],
-            version: '10.0.1',
+            version: '10.0.1-six',
             parse: {
                 type: 'regex-counter',
                 version: '1',
@@ -52,7 +52,7 @@
       stages: {
         final: {
           commands: [
-            'RUN pip3 install pdfminer',
+            'RUN pip3 install pdfminer.six',
           ],
         },
       },

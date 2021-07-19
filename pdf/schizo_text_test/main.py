@@ -1,15 +1,17 @@
 #! /usr/bin/env python3
 
 import collections
-import html
+import html.parser
 import io
 import os
 import re
+import requests
 import shutil
 from spacy.lang.en import English
 import subprocess
 import sys
 import tempfile
+import time
 
 ## Setup NLP
 _nlp = English()
@@ -32,13 +34,13 @@ class ParserBase:
 
 
     def util_get_stdout(self, cmd):
-        """Returns binary output"""
+        """Returns (binary output, stderr)"""
         p = subprocess.Popen(cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
         r = p.wait()
-        return stdout
+        return stdout, stderr
 
 
 class GhostscriptToText(ParserBase):
@@ -49,7 +51,7 @@ class GhostscriptToText(ParserBase):
 
         d = tempfile.mkdtemp()
         try:
-            stdout = self.util_get_stdout(['gs', '-sDEVICE=txtwrite',
+            stdout, stderr = self.util_get_stdout(['gs', '-sDEVICE=txtwrite',
                     f'-sOutputFile={os.path.join(d, "output%d.txt")}',
                     '-q', '-dNOPAUSE', '-dBATCH', fpath])
 
@@ -60,20 +62,58 @@ class GhostscriptToText(ParserBase):
         finally:
             shutil.rmtree(d)
 
-        return pages
+        return pages, stderr.decode(errors='replace')
 class MupdfToText(ParserBase):
     def run(self, fpath):
-        stdout = self.util_get_stdout(['mutool', 'draw', '-F', 'text',
+        stdout, stderr = self.util_get_stdout(['mutool', 'draw', '-F', 'text',
                 '-o', '-', fpath])
-        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')[:-1]], stderr.decode(errors='replace')
 class PdfBox(ParserBase):
     def run(self, fpath):
+        pages = [[]]
+
+        r = requests.put('http://localhost:9998/tika', data=None,
+                headers={
+                    'Content-Type': 'application/pdf',
+                    'fileUrl': 'file://' + os.path.abspath(fpath),
+                    'Accept': 'text/html'})
+        stderr = requests.status_codes._codes[r.status_code][0]
+        if r.status_code == requests.codes.ok:
+            # Parse out pages. We use HTML here because otherwise, Tika doesn't
+            # include page boundaries.
+            class HtmlByPage(html.parser.HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.stack = ['root']
+                def handle_starttag(self, tag, attrs):
+                    self.stack.append(tag)
+                    if tag == 'div':
+                        a = [v for v in attrs if v[0] == 'class']
+                        if a and a[0][1] == 'page':
+                            pages.append([])
+                def handle_endtag(self, tag):
+                    assert self.stack[-1] == tag, tag
+                    self.stack.pop()
+                def handle_data(self, data):
+                    if self.stack[-1] == 'a':
+                        # Do not include link content... other parsers seem to
+                        # ignore these too
+                        return
+                    pages[-1].append(data)
+            parser = HtmlByPage()
+            parser.feed(r.text)
+            assert parser.stack == ['root'], parser.stack
+
+        # First page was catchall, and doesn't contain useful information
+        return [''.join(p) for p in pages[1:]], stderr
+
+        # OLD METHOD -- slow due to jar call
         pages = []
         # pdfbox has no page delimiters, and does not fail on an empty page.
         # So, look for N blank pages in a row
         n_blank = 0
         for page in range(1, 1000):
-            stdout = self.util_get_stdout(['java', '-jar',
+            stdout, stderr = self.util_get_stdout(['java', '-jar',
                     '/opt/pdfbox/pdfbox-app-2.0.17.jar',
                     'ExtractText',
                     '-encoding', 'UTF-8',
@@ -93,21 +133,25 @@ class PdfBox(ParserBase):
             if n_blank >= 3:
                 break
 
-        return pages[:-n_blank]
+        return pages[:-n_blank], stderr.decode(errors='replace')
 class PdfMinerToText(ParserBase):
     def run(self, fpath):
-        stdout = self.util_get_stdout(['pdf2txt.py', fpath])
-        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
+        # pdf2txt.py seems broken on a lot of files, oops
+        stdout, stderr = self.util_get_stdout(['pdf2txt.py', fpath])
+        # But dumppdf doesn't output the right format
+        #stdout = self.util_get_stdout(['/usr/local/bin/dumppdf.py',
+        #        '-a', '-t', fpath])
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')[:-1]], stderr.decode(errors='replace')
 class PopplerPdfToText(ParserBase):
     def run(self, fpath):
-        stdout = self.util_get_stdout(['bash', '-c',
+        stdout, stderr = self.util_get_stdout(['bash', '-c',
                 'pdftotext -enc UTF-8 $0 >(cat)', fpath])
-        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')[:-1]], stderr.decode(errors='replace')
 class XpdfToText(ParserBase):
     def run(self, fpath):
-        stdout = self.util_get_stdout(['bash', '-c',
+        stdout, stderr = self.util_get_stdout(['bash', '-c',
                 '/opt/xpdf/bin64/pdftotext -enc UTF-8 $0 >(cat)', fpath])
-        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')]
+        return [t.decode(errors='replace') for t in stdout.split(b'\x0c')[:-1]], stderr.decode(errors='replace')
 
 tools = [cls() for cls in ParserBase.__subclasses__() if not cls.disabled]
 
@@ -115,7 +159,8 @@ def run_parser(cls_instance, fpath):
     """"Run the given parser class and process output per page into proper,
     uniform buckets.
     """
-    pages = cls_instance.run(fpath)
+    stime = time.monotonic()
+    pages, stderr = cls_instance.run(fpath)
     if isinstance(pages, dict):
         # 0-based page index
         pass
@@ -125,10 +170,12 @@ def run_parser(cls_instance, fpath):
         raise ValueError(pages)
 
     ## For each page....
-    r = {}
+    r = {'<stats>': {'runtime': time.monotonic() - stime, 'stderr': stderr}}
     for k, v in pages.items():
         if v is None:
             continue
+
+        v = v.strip()
 
         # This doesn't appear to be what Kudu does (https://github.com/kududyn/safedocs/blob/master/pdftools/sparclur/sparclur/_text_extractor.py)
         # , but spacy interprets differing newlines as different characters.
@@ -156,6 +203,15 @@ def main():
 
     tool_to_pages = {t.__class__.__name__: run_parser(t, fname) for t in tools}
     tool_names = sorted(tool_to_pages.keys())
+
+    if html_out:
+        print('<table>')
+        for tn in tool_names:
+            print(f'<tr><td>{tn}</td>')
+            print(f'<td>{tool_to_pages[tn]["<stats>"]["runtime"]:.3f}s</td>')
+            print(f'<td>{html.escape(tool_to_pages[tn]["<stats>"]["stderr"])}</td>')
+            print(f'</tr>')
+        print('</table>')
 
     min_similarity = {}
 
