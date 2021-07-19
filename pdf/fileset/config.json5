@@ -23,5 +23,14 @@
       },
     },
   },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'RUN pip install dask-actor-singleton',
+        ],
+      },
+    },
+  },
 }
 

@@ -3,6 +3,7 @@
 
 import asyncio
 import dask
+import dask_actor_singleton
 import faw_pipelines_util
 import os
 
@@ -12,30 +13,9 @@ def main(api_info, fname):
     api = faw_pipelines_util.Api(api_info)
     client = api.dask_get_client()
 
-    var = dask.distributed.Variable(name='filelist-f-lookup', client=client)
-    try:
-        future = var.get(timeout=1)
-    except asyncio.exceptions.TimeoutError:
-        with dask.distributed.Lock(name='filelist-f-create', client=client):
-            future = None
-
-            try:
-                future = var.get(timeout=1)
-            except asyncio.exceptions.TimeoutError:
-                # Create, have lock
-                future = client.submit(LookupInstance,
-                        path=os.path.join(_path, 'filelists'),
-                        actor=True)
-                # Allow this exception to trickle up __init__ errors
-                future.result()
-
-                # Finally, assign on success
-                var.set(future)
-            else:
-                # Retrieved future successfully
-                pass
-
-    actor = future.result()
+    actor = dask_actor_singleton.get('filelist-f-lookup',
+            create=lambda: LookupInstance(path=os.path.join(_path, 'filelists')),
+            client=client)
     sets = actor.lookup(os.path.basename(fname)).result()
 
     for s in sets:

@@ -1,4 +1,4 @@
-dask[complete]
+dask[complete] >= 2021.07.0
 jupyter-server-proxy
 motor
 pyjson5

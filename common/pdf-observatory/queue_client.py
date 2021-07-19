@@ -287,9 +287,11 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
             tdoc = db_coll.find_one({'file': fpath_access, 'invoker.invName': k})
             if tdoc is None or tdoc['result']['exitcode'] != 0:
                 s = 'missing document'
+                stderr = 'missing'
                 if tdoc is not None:
                     s = f'exit code {tdoc["result"]["exitcode"]}'
-                raise ValueError(f'Parser {k} mustSucceed, but got {s}')
+                    stderr = tdoc['result']['stderrRes']
+                raise ValueError(f'Parser {k} mustSucceed, but got {s}\n\nstderr: {stderr}')
 
     # For each raw invocation, parse it.
     _load_document_parse(doc['_id'],
