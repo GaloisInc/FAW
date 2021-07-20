@@ -42,7 +42,8 @@
                   v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
-          AnalysisSetConfig(:currentId.sync="analysisSetId" @error="error = $event")
+          AnalysisSetConfig(:currentId.sync="analysisSetId" @error="error = $event"
+              @update="pdfGroupsDirty = true")
 
           v-expansion-panels(inset :style="{'margin-top': '1em'}")
             v-expansion-panel

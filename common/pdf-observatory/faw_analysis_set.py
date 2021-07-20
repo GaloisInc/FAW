@@ -4,6 +4,7 @@ import faw_internal_util
 import asyncio
 import dask.distributed
 import enum
+import random
 import re
 import sys
 import time
@@ -276,35 +277,131 @@ async def _as_populate_ids(aset, as_name):
     doc = await db['as_metadata'].find_one({'_id': as_name})
     if 'as_i_' + as_name not in await db.list_collection_names():
         # No indices yet... sample from db.
-        # Sample only from documents that are completed, though.
-        query = {'queueStop': {'$ne': None}, 'queueErr': None}
-        if aset['definition']['files']:
-            reg = re.compile('^' + aset['definition']['files'],
-                    flags=re.I if aset['definition']['files_case']
-                        else 0)
-            query['_id'] = reg
-        ndocs = await db['observatory'].count_documents(query)
-
-        stages = []
-        sz = doc['definition']['sample']
-        stages.append({'$match': query})
-        if sz > 0 and ndocs > sz:
-            stages.append({'$sample': {'size': sz}})
-        stages.append({'$project': {'_id': True}})
         # $out would work well, but seems.. broken? So use a temporary...
         tmp_col = db['as_itmp_' + as_name]
         await tmp_col.drop()
+
+        features = aset['definition'].get('features', [])
+        cursor = None  # Iterator for documents with only '_id' field
+
+        count_map = []
+        if features:
+            # MongoDB is terrible at joins. It has no query optimizer. We have to
+            # do it manually.
+            for fi, f in enumerate(features):
+                fr = {}
+                fr['name'] = f'f{fi}'
+                fr['query'] = {
+                        'parser': f['parser'],
+                        # Don't use an re object -- breaks on $lookup
+                        'result.k': {'$regex': '^' + f['ft'],
+                            '$options': '' if f.get('ft_case') else 'i'},
+                }
+                fr['count'] = await db['invocationsparsed'].count_documents(
+                        fr['query'])
+                count_map.append(fr)
+
+            # Start with most constrained (AND assumption)
+            count_map = sorted(count_map, key=lambda m: m['count'])
+
+        idx_query = {'queueStop': {'$ne': None}, 'queueErr': None}
+        if aset['definition']['files']:
+            idx_query['_id'] = {'$regex': '^' + aset['definition']['files'],
+                    '$options': '' if aset['definition']['files_case'] else 'i'}
+        count_idx = await db['observatory'].count_documents(idx_query)
+        sz = doc['definition']['sample']
+
+        if count_map:
+            # Fancy
+            col = db['invocationsparsed']
+            stages = []
+            idx_first = (count_idx < count_map[0]['count'])
+            if idx_first:
+                # Index first
+                idx_first = True
+                col = db['observatory']
+                stages.append({'$match': idx_query})
+                # For parity with invocationsparsed schema
+                stages.append({'$addFields': {'file': '$_id'}})
+
+            # Features
+            if not idx_first:
+                stages.append({'$match': count_map[0]['query']})
+                count_map = count_map[1:]
+            for c in count_map:
+                query_not_expr = {k: v for k, v in c['query'].items()
+                        if k != 'parser'}
+                stages.append({'$lookup': {
+                    'from': 'invocationsparsed',
+                    'let': {'file': '$file'},
+                    'pipeline': [
+                        {'$match': {'$expr': {'$and': [
+                            {'$eq': ['$file', '$$file']},
+                            {'$eq': ['$parser', c['query']['parser']]},
+                        ]}}},
+                        {'$match': query_not_expr},
+                    ],
+                    'as': c['name']
+                }})
+                stages.append({'$match': {c['name']: {'$ne': []}}})
+
+            if not idx_first:
+                stages.append({'$lookup': {
+                    'from': 'observatory',
+                    'let': {'file': '$file'},
+                    'pipeline': [
+                        {'$match': {'$expr': {'$and': [
+                            {'$eq': ['$_id', '$$file']},
+                            {'$ne': ['$queueStop', None]},
+                            {'$eq': ['$queueErr', None]},
+                        ]}}},
+                    ],
+                    'as': 'idx',
+                }})
+                stages.append({'$match': {'idx': {'$ne': []}}})
+
+            stages.append({'$replaceRoot': {'newRoot': {'_id': '$file'}}})
+            cursor = col.aggregate(stages)
+        else:
+            # Sample only from documents that are completed, though.
+            stages = []
+            stages.append({'$match': idx_query})
+            if sz > 0 and count_idx > sz:
+                # Optimization -- let mongo do this work
+                stages.append({'$sample': {'size': sz}})
+            stages.append({'$project': {'_id': True}})
+            cursor = db['observatory'].aggregate(stages)
+
         col_created = False
         batch = []
-        async for doc in db['observatory'].aggregate(stages):
-            batch.append(doc)
-            if len(batch) == 1024:
-                await tmp_col.insert_many(batch)
-                col_created = True
-                batch.clear()
-        if batch:
+        n_inserted = 0  # Reservoir sampling
+        n_seen = 0
+        to_delete = 0
+        async def batch_apply():
+            nonlocal col_created, to_delete
             await tmp_col.insert_many(batch)
             col_created = True
+            batch.clear()
+            if to_delete > 0:
+                # Delete randomly... Imperfect reservoir, but more efficient
+                ids = await tmp_col.aggregate([
+                    {'$sample': {'size': to_delete}},
+                    {'$project': {'_id': True}}]).to_list(None)
+                await tmp_col.delete_many({'_id': {'$in': [i['_id'] for i in ids]}})
+                to_delete = 0
+        async for doc in cursor:
+            n_seen += 1
+            if sz <= 0 or n_inserted < sz or random.randrange(n_seen) < sz:
+                n_inserted += 1
+                batch.append(doc)
+
+                if sz > 0 and n_inserted > sz:
+                    to_delete += 1
+
+            if len(batch) == 1024:
+                await batch_apply()
+        if batch:
+            await batch_apply()
 
         # Finally, rename, but only if created (otherwise Mongo error)
         if col_created:

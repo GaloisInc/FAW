@@ -19,13 +19,32 @@
             v-row
               v-checkbox(v-model="saveAsFork" label="Fork analysis set")
           v-row
-            v-textarea(label="File specification regex" prefix="^" v-model="saveAs.definition.files")
-          v-row
-            v-checkbox(v-model="saveAs.definition.files_case" label="Case sensitive")
-          v-row
             v-text-field(label="Max documents (leave blank to disable)"
                 v-model="saveAsSample"
                 :rules="[v => /^[0-9]*$/.test(v) || 'Numbers only']")
+          v-row
+            v-textarea(label="File specification regex" prefix="^" v-model="saveAs.definition.files")
+          v-row
+            v-checkbox(v-model="saveAs.definition.files_case" label="Case sensitive"
+                style="margin-top: 0")
+          v-row
+            v-label Feature specifications
+            table(style="width: 100%")
+              tr(v-for="f of (saveAs.definition.features || [])")
+                td
+                  v-btn(@click="saveAs.definition.features.splice(saveAs.definition.features.indexOf(f), 1)")
+                    v-icon(dark) mdi-delete
+                td
+                  v-autocomplete(label="Parser" :items="saveAsUiFeatureParsers"
+                      v-model="f.parser")
+                td
+                  v-text-field(v-model="f.ft" :label="saveAsUiFeatureLabel(f)" prefix="^")
+                td
+                  v-checkbox(v-model="f.ft_case" label="Case sensitive")
+              tr
+                td
+                  v-btn(@click="saveAsNewFeature()")
+                    v-icon(dark) mdi-plus
           v-row(style="display: block")
             v-expansion-panels
               v-expansion-panel(v-for="parser of saveAsUiRules" :key="parser.id")
@@ -66,6 +85,13 @@
 <script lang="ts">
 import Vue from 'vue';
 
+/** Filter requirement for feature */
+interface AsFeature {
+  parser: string;
+  ft: string;
+  ft_case?: boolean;
+}
+
 interface AsRule {
   parser: string;
   filesets?: Array<string>;
@@ -85,6 +111,7 @@ interface AsParser {
 interface AsDefinition {
   files: string;
   files_case: boolean;
+  features?: Array<AsFeature>;
   sample: number;
   rules: Array<AsRule>;
 }
@@ -141,6 +168,7 @@ export default Vue.extend({
       asData: {asets: [], parsers: []} as AsData,
       asFormValid: false,
       expanded: false,
+      ftCountCache: new Map<string, Map<string, {count: number|string, updated: number}>>(),
       saveAs: AsStatus.makeEmpty(''),
       saveAsFork: false,
     }
@@ -172,6 +200,14 @@ export default Vue.extend({
         if (isNaN(vv)) vv = 0;
         this.saveAs.definition.sample = vv;
       },
+    },
+    /** Return information on parsers which can be used to filter analysis sets
+        via features. */
+    saveAsUiFeatureParsers(): Array<any> {
+      return this.asData.parsers.filter(x => true).map(x => {return {
+        text: x.id,
+        value: x.id,
+      }});
     },
     /** Return information on parsers cross UI rules */
     saveAsUiRules(): Array<any> {
@@ -255,6 +291,9 @@ export default Vue.extend({
         await this.$vuespa.call('analysis_set_update', this.saveAs);
         await this.update();
         this.$emit('update:currentId', this.saveAs.id);
+        // Emit a standardized "update" in case our id didn't change and a
+        // reset was not triggered.
+        this.$emit('update');
         this.expanded = false;
       });
     },
@@ -265,6 +304,59 @@ export default Vue.extend({
         this.$emit('update:currentId', undefined);
         await this.update();
       });
+    },
+    saveAsNewFeature() {
+      let f = this.saveAs.definition.features;
+      if (!f) {
+        f = [];
+        this.$set(this.saveAs.definition, 'features', f);
+      }
+      f.push({parser: '', ft: ''});
+    },
+    /** Fetches the feature label for a given query. */
+    saveAsUiFeatureLabel(f: AsFeature): string {
+      const fParser = f.parser;
+      let parserStats = this.ftCountCache.get(fParser);
+      if (parserStats === undefined) {
+        parserStats = new Map();
+        this.ftCountCache.set(fParser, parserStats);
+      }
+
+      const fFtKey = f.ft + '///' + (f.ft_case ? '' : 'i');
+      let rec = parserStats.get(fFtKey);
+      const oldTime = Date.now() - 120 * 1000;
+      let count: any = '<pending>';
+      if (rec === undefined || rec.updated < oldTime) {
+        // Update -- clean cache first to prevent memory leaks
+        for (const [k, v] of parserStats.entries()) {
+          if (v.updated < oldTime) {
+            parserStats.delete(k);
+          }
+        }
+
+        // Then insert and query
+        rec = {count: '<pending>', updated: Date.now()};
+        parserStats.set(fFtKey, rec);
+        (async () => {
+          try {
+            const r = await this.$vuespa.call('analysis_set_ft_count', f);
+            rec.count = r;
+          }
+          catch (e) {
+            rec.count = '<error>';
+            throw e;
+          }
+          finally {
+            // Reactivity
+            rec.updated = Date.now();
+            this.ftCountCache = new Map(this.ftCountCache);
+          }
+        })().catch(console.error);
+      }
+      else {
+        count = rec.count;
+      }
+      return `Feature (${count} matching files)`;
     },
     saveAsValidateName() {
       if (this.currentId === this.NEW_ID || this.saveAsFork) {

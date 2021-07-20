@@ -379,6 +379,18 @@ class Client(vuespa.Client):
         pass
 
 
+    async def api_analysis_set_ft_count(self, ft_def):
+        """Returns count of matching documents for AsFeature query.
+        """
+        regex = re.compile('^' + ft_def.get('ft', ''),
+                flags=0 if ft_def.get('ft_case') else re.I)
+        c = await app_mongodb_conn['invocationsparsed'].count_documents({
+                'parser': ft_def.get('parser', ''),
+                'result.k': regex,
+        })
+        return c
+
+
     async def api_analysis_set_data(self):
         """Returns object like AsStatus from ui/src/components/AnalysisSetConfig.vue"""
         parsers = await _app_parser_stats()
