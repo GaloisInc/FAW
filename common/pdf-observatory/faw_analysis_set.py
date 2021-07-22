@@ -496,7 +496,7 @@ def as_create_id_collection(db, aset_id, col_name, disable_sampling=False):
             # Delete randomly... Imperfect reservoir, but more efficient
             ids = tmp_col.aggregate([
                 {'$sample': {'size': to_delete}},
-                {'$project': {'_id': True}}]).to_list(None)
+                {'$project': {'_id': True}}])
             tmp_col.delete_many({'_id': {'$in': [i['_id'] for i in ids]}})
             to_delete = 0
     for doc in cursor:
