@@ -17,6 +17,14 @@ v-expansion-panel
       span(v-else)
         span Start pipeline
 
+    v-dialog(v-model="pipelineDeleteDialog" persistent max-width="800")
+      template(v-slot:activator="{on}")
+      v-card
+        v-card-title Delete all pipeline information and stop its execution?
+        v-card-actions(:style={'flex-wrap': 'wrap'})
+          v-btn(@click="pipelineDeleteDialog=false") Cancel
+          v-btn(@click="pipelineDeleteYes()" color="red") Delete and stop
+
     div(v-if="asetData !== undefined")
       div Tasks
       v-expansion-panels
@@ -46,6 +54,7 @@ export default Vue.extend({
   },
   data() {
     return {
+      pipelineDeleteDialog: false,
     };
   },
   mounted() {
@@ -59,11 +68,17 @@ export default Vue.extend({
               this.pipeline);
         }
         else {
-          // TODO confirmation modal
-          await this.$vuespa.call('analysis_set_pipeline_delete', this.aset,
-              this.pipeline);
+          this.pipelineDeleteDialog = true;
         }
         this.$emit('update');
+      })().catch(bus.error);
+    },
+    pipelineDeleteYes() {
+      (async () => {
+        await this.$vuespa.call('analysis_set_pipeline_delete', this.aset,
+            this.pipeline);
+        this.$emit('update');
+        this.pipelineDeleteDialog = false;
       })().catch(bus.error);
     },
   },
