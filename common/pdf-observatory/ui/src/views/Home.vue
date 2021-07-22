@@ -911,7 +911,7 @@ export default Vue.extend({
         return;
       }
 
-      const last = this.fileFilterLatest();
+      const last = this.fileFilterLatest()!;
       let prev: FileFilterData;
       if (this.fileFilters.length > 1) {
         prev = this.fileFilters[this.fileFilters.length - 2];
@@ -1111,7 +1111,7 @@ export default Vue.extend({
       // Narrow down to only groups pertaining to selected files
       let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
       if (this.fileFilters.length > 0) {
-        const fset = this.fileFilterLatest()[1];
+        const fset = this.fileFilterLatest()![1];
         let okSet = new Set();
         for (const [fi, f] of this.pdfGroups.files.entries()) {
           if (fset.has(f)) okSet.add(fi);
@@ -1554,7 +1554,7 @@ export default Vue.extend({
       if (filter) {
         // Include restricted list of file ids, if needed
         if (this.fileFilters.length > 0) {
-          r.file_ids = Array.from(this.fileFilterLatest()[1]);
+          r.file_ids = Array.from(this.fileFilterLatest()![1]);
         }
       }
       return r;
