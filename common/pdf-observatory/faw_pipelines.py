@@ -182,9 +182,12 @@ def _pipeline_check_tasks(db, client, api_info, pipe_name, pipe_cfg,
             tools_to_reset = []
             for k, v in pipe_cfg['parsers'].items():
                 # This parser needs to be recomputed when we finish
+                if v.get('disabled'):
+                    continue
                 tools_to_reset.append(lookup_pipeline_parser_name(
                         api_info['aset'], pipe_name, k))
-            api._internal_db_reparse(tools_to_reset)
+            if tools_to_reset:
+                api._internal_db_reparse(tools_to_reset)
             # Mark the pipeline as done in the UI
             db['as_metadata'].update_one(
                     {'_id': api_info['aset'], 'pipelines.' + pipe_name + '.done': False},
