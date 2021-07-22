@@ -64,6 +64,7 @@
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
               v-btn(v-for="f, fidx of fileFilters" :key="fidx" @click="fileFilterPopTo(fidx)") {{f[0]}}
+              v-btn(@click="fileFilterInvert()") (Invert last)
             //- Allow selection of different things.
             div(v-if="decisionDefinition")
               v-radio-group(row v-model="decisionAspectSelected")
@@ -377,6 +378,7 @@ export enum DbView {
   Stats = 3,
 }
 
+export type FileFilterData = [string, Set<string>];
 export type PdfGroups = {groups: {[message: string]: Array<[number, number]>},
     files: Array<string>};
 
@@ -422,7 +424,7 @@ export default Vue.extend({
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
       failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
-      fileFilters: new Array<[string, Set<string>]>(),
+      fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
       holdReferences: true,
       initReferences: false,
@@ -904,6 +906,27 @@ export default Vue.extend({
     fileFilterAdd(name: string, files: Set<string>) {
       this.fileFilters.push([name, files]);
     },
+    fileFilterInvert() {
+      if (this.fileFilters.length === 0) {
+        return;
+      }
+
+      const last = this.fileFilterLatest();
+      let prev: FileFilterData;
+      if (this.fileFilters.length > 1) {
+        prev = this.fileFilters[this.fileFilters.length - 2];
+      }
+      else {
+        prev = ['(all)', new Set(this.pdfGroups.files)];
+      }
+
+      this.fileFilters.push([last[0] + ' (inverted)',
+          new Set([...prev[1]].filter(x => !last[1].has(x)))]);
+    },
+    fileFilterLatest(): undefined|FileFilterData {
+      if (this.fileFilters.length === 0) return;
+      return this.fileFilters[this.fileFilters.length - 1];
+    },
     fileFilterPopTo(idx: number) {
       this.fileFilters.splice(idx, this.fileFilters.length);
     },
@@ -1088,7 +1111,7 @@ export default Vue.extend({
       // Narrow down to only groups pertaining to selected files
       let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
       if (this.fileFilters.length > 0) {
-        const fset = this.fileFilters[this.fileFilters.length - 1][1];
+        const fset = this.fileFilterLatest()[1];
         let okSet = new Set();
         for (const [fi, f] of this.pdfGroups.files.entries()) {
           if (fset.has(f)) okSet.add(fi);
@@ -1531,7 +1554,7 @@ export default Vue.extend({
       if (filter) {
         // Include restricted list of file ids, if needed
         if (this.fileFilters.length > 0) {
-          r.file_ids = Array.from(this.fileFilters[this.fileFilters.length - 1][1]);
+          r.file_ids = Array.from(this.fileFilterLatest()[1]);
         }
       }
       return r;
