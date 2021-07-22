@@ -1,7 +1,7 @@
 
 import app_util
 import faw_analysis_set
-import faw_pipelines
+import faw_analysis_set_util
 import faw_pipelines_util
 
 import aiohttp.web as web
@@ -97,8 +97,6 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     loop = asyncio.get_event_loop()
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
-    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn,
-            app_config, _get_api_info, _db_reparse))
     loop.create_task(faw_analysis_set.main_loop(app_mongodb_conn,
             app_config, _get_api_info))
     vuespa.VueSpa('ui', Client, host=host, port=port,
@@ -111,20 +109,18 @@ def config_web(app, pdf_dir):
     """Add an endpoint for direct downloading of files.
     """
     app.router.add_routes([
+            web.post('/db_reparse', _config_web_db_reparse_handler),
             web.static('/file_download', pdf_dir),
-            web.get('/file_count', _config_web_file_count_handler),
             web.get('/file_list', _config_web_file_list_handler),
     ])
 
 
-async def _config_web_file_count_handler(req):
-    # TODO maybe fix this to rely on mongo, but block until the mongo db has
-    # been populated. It's the second step that's making me not want to do this
-    # yet.
-    i = 0
-    for p in _walk_pdf_files():
-        i += 1
-    return web.Response(text=str(i))
+async def _config_web_db_reparse_handler(req):
+    """Reparse, looking at submission packet for tools to reset.
+    """
+    req_json = await req.json()
+    await _db_reparse(req_json['tools_to_reset'])
+    return web.Response(text='{}')
 
 
 async def _config_web_file_list_handler(req):
@@ -152,7 +148,7 @@ def _config_reload():
 
     ts_loaded = os.path.getmtime(app_config_path)
     app_config = app_util.config_load(app_config_path)
-    faw_pipelines.config_update(app_config)
+    faw_analysis_set.config_update(app_config)
 
     # Kick dask...
     for p in psutil.process_iter():
@@ -171,14 +167,19 @@ async def _app_parser_stats():
         id: identifier of parser
         size_doc: approximate size (bytes) per document or null
     """
+
+    parser_cfg = faw_analysis_set_util.lookup_all_parsers(
+            app_mongodb_conn.delegate, app_config)
+
     parsers = []
     promises = []
-    for k, v in app_config['parsers'].items():
+    for k, v in parser_cfg.items():
         if v.get('disabled'):
             continue
         parser = {
             'id': k,
             'size_doc': None,
+            'pipeline': True if v.get('pipeline') else False,
         }
         parsers.append(parser)
 
@@ -218,8 +219,6 @@ async def _app_parser_stats():
     if promises:
         await asyncio.wait(promises)
     return parsers
-async def _app_parser_stats_update(k):
-    pass
 
 def _get_api_info(extra_info={}):
     """NOTE: Updates here must also affect `common/teaming/pyinfra/deploy.py`,
@@ -236,11 +235,27 @@ def _get_api_info(extra_info={}):
     return r
 
 
-def _get_api_info_extra_from_plugin_view(plugin_cfg):
-    r = {}
-    if 'pipeline' in plugin_cfg:
-        r['pipeline'] = plugin_cfg['pipeline']
-    return r
+def _plugin_key_process(config_key, plugin_key):
+    """Plugin keys for non-pipeline plugins don't have exclamation points.
+    So, use those to separate them. Then, return plugin definition and extra
+    api args.
+    """
+    extra_api_info = {}
+    if '!' in plugin_key:
+        # Pipeline
+        aset_id, pipeline, plugin_key = plugin_key.split('!')
+        extra_api_info['aset'] = aset_id
+        extra_api_info['pipeline'] = pipeline
+
+        plugin_def = app_config['pipelines'][pipeline][config_key].get(plugin_key)
+        if plugin_def is None:
+            raise ValueError(f'{config_key}: {aset_id} / {pipeline} / {plugin_key} not found')
+    else:
+        plugin_def = app_config[config_key].get(plugin_key)
+        if plugin_def is None:
+            raise ValueError(f'{config_key}: {plugin_key} not found')
+
+    return plugin_def, extra_api_info
 
 
 def _walk_pdf_files():
@@ -400,6 +415,14 @@ class Client(vuespa.Client):
         }
 
 
+    async def api_analysis_set_pipeline_start(self, id, pipeline):
+        await faw_analysis_set.as_pipeline_start(id, pipeline)
+
+
+    async def api_analysis_set_pipeline_delete(self, id, pipeline):
+        await faw_analysis_set.as_pipeline_delete(id, pipeline)
+
+
     async def api_analysis_set_update(self, cfg):
         """Takes object like AsStatus from ui/src/components/AnalysisSetConfig.vue"""
         await faw_analysis_set.as_update(id=cfg['id'],
@@ -419,13 +442,11 @@ class Client(vuespa.Client):
 
     async def api_config_plugin_run(self, plugin_key, vuespa_url, json_args,
             input_spec):
-        plugin_def = app_config['file_detail_views'].get(plugin_key, {})
-        t = plugin_def.get('type')
-        assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
 
-        extra_api_info = _get_api_info_extra_from_plugin_view(plugin_def)
+        plugin_def, extra_api_info = _plugin_key_process('file_detail_views',
+                plugin_key)
 
-        if t == 'program_to_html':
+        if plugin_def['type'] == 'program_to_html':
             assert isinstance(input_spec, str), input_spec
             prefix = '/home/pdf-files/'
             input_spec = prefix + input_spec
@@ -470,7 +491,7 @@ class Client(vuespa.Client):
                 if file_out is not None:
                     os.unlink(file_out.name)
         else:
-            raise NotImplementedError(t)
+            raise NotImplementedError(plugin_def['type'])
 
 
     async def api_config_plugin_dec_run(self, plugin_key, api_url, json_args,
@@ -485,14 +506,11 @@ class Client(vuespa.Client):
             output_html.close()
             return output_html.name
 
-        plugin_def = app_config['decision_views'].get(plugin_key, {})
-        t = plugin_def.get('type')
-        assert t is not None, f'{plugin_key} -> .type -> {plugin_def}'
-
-        extra_api_info = _get_api_info_extra_from_plugin_view(plugin_def)
+        plugin_def, extra_api_info = _plugin_key_process('decision_views',
+                plugin_key)
 
         try:
-            if t == 'program':
+            if plugin_def['type'] == 'program':
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, 'exec'
                 cmd = self._cmd_plugin_template_replace(cmd, api_url, {
@@ -577,7 +595,7 @@ class Client(vuespa.Client):
                             'latin1')
                 return result
             else:
-                raise NotImplementedError(t)
+                raise NotImplementedError(plugin_def['type'])
         finally:
             if output_html is not None:
                 os.unlink(output_html.name)
@@ -740,45 +758,58 @@ class Client(vuespa.Client):
         return docs
 
 
-    async def api_pipeline_task_reset(self, pipeline, task):
+    async def api_pipeline_task_reset(self, aset, pipeline, task):
         """Resets the given task, deleting all of its data.
         """
-        api_info = _get_api_info({'pipeline': pipeline, 'task': task})
-        api = faw_pipelines_util.Api(api_info, app_mongodb_conn)
-        # What's important is that the version gets changed; the admin loop will
-        # pick up the correct version and downstream tasks.
-        await api.destructive__task_change_version(0, [])
+        api_info = _get_api_info({'aset': aset, 'pipeline': pipeline,
+                'task': task})
+        def run():
+            api = faw_pipelines_util.Api(api_info, app_mongodb_conn.delegate)
+            # What's important is that the version gets changed; the admin loop
+            # will pick up the correct version and downstream tasks.
+            api.destructive__task_change_version(0, [])
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, run)
 
 
-    async def api_pipeline_task_set_disabled(self, pipeline, task, disabled):
+    async def api_pipeline_task_set_disabled(self, aset, pipeline, task,
+            disabled):
         """Flip the state of a task being enabled or disabled.
         """
-        api_info = _get_api_info({'pipeline': pipeline, 'task': task})
-        api = faw_pipelines_util.Api(api_info, app_mongodb_conn)
-        await api._internal_task_status_set_disabled(disabled)
+        api_info = _get_api_info({'aset': aset, 'pipeline': pipeline,
+                'task': task})
+        def run():
+            api = faw_pipelines_util.Api(api_info, app_mongodb_conn.delegate)
+            api._internal_task_status_set_disabled(disabled)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, run)
 
 
-    async def api_pipeline_task_status(self, pipeline, task):
+    async def api_pipeline_task_status(self, aset, pipeline, task):
         """Returns all task information, including last run information if it
         is not yet done.
         """
-        api_info = _get_api_info({'pipeline': pipeline, 'task': task})
-        api = faw_pipelines_util.Api(api_info, app_mongodb_conn)
+        api_info = _get_api_info({'aset': aset, 'pipeline': pipeline,
+                'task': task})
+        def run():
+            api = faw_pipelines_util.Api(api_info, app_mongodb_conn.delegate)
 
-        result = {}
-        task_status = await api._internal_task_status_get_state()
-        result['version'] = task_status.version
-        result['done'] = task_status.done
-        result['disabled_by_config'] = (
-                app_config['pipelines'][pipeline]['disabled']
-                or app_config['pipelines'][pipeline]['tasks'][task]['disabled'])
-        result['disabled_by_ui'] = task_status.disabled
-        result['disabled'] = result['disabled_by_ui'] or result['disabled_by_config']
-        result['status_msg'] = task_status.status_msg
-        result['last_run_info'] = None
-        if not task_status.done:
-            result['last_run_info'] = await api._internal_task_status_get_last_run_info()
-        return result
+            result = {}
+            task_status = api._internal_task_status_get_state()
+            result['version'] = task_status.version
+            result['done'] = task_status.done
+            result['disabled_by_config'] = (
+                    app_config['pipelines'][pipeline]['disabled']
+                    or app_config['pipelines'][pipeline]['tasks'][task]['disabled'])
+            result['disabled_by_ui'] = task_status.disabled
+            result['disabled'] = result['disabled_by_ui'] or result['disabled_by_config']
+            result['status_msg'] = task_status.status_msg
+            result['last_run_info'] = None
+            if not task_status.done:
+                result['last_run_info'] = api._internal_task_status_get_last_run_info()
+            return result
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, run)
 
 
 

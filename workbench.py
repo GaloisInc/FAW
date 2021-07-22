@@ -73,6 +73,8 @@ def main():
             "files to investigate.")
     parser.add_argument('--port', default=8123, type=int,
             help="Port on which Galois Workbench is accessed.")
+    parser.add_argument('--port-dask', default=8787, type=int,
+            help="If specified, port on which to expose the dask dashboard.")
     parser.add_argument('--port-mongo', default=None, type=int,
             help="If specified, port on which to expose the mongo instance.")
     parser.add_argument('--copy-mongo-from', default=None, type=str,
@@ -191,6 +193,8 @@ def main():
         return
 
     extra_flags = []
+    if args.port_dask:
+        extra_flags.extend(['-p', f'{args.port_dask}:8787'])
     if port_mongo:
         extra_flags.extend(['-p', f'{port_mongo}:27017'])
 

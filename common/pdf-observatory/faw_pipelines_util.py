@@ -7,14 +7,18 @@ from abc import ABCMeta, abstractmethod
 import contextlib
 import dataclasses
 import gridfs
+import json
 import motor.motor_asyncio as motor_asyncio
 import os
 import pymongo
 import tempfile
 import urllib.request
 
+_FAW_ALL = '__FAW_ALL__'
+
 def _fn_implements(fn_base):
     def wrapper(fn_impl):
+        assert fn_base.__name__ == fn_impl.__name__
         if fn_impl.__doc__ is None:
             fn_impl.__doc__ = ''
         fn_impl.__doc__ = fn_base.__doc__ + '\n\n' + fn_impl.__doc__
@@ -127,6 +131,12 @@ class ApiBase(metaclass=ABCMeta):
                 )
 
 
+    def _file_col_name(self):
+        """Returns the full name of the file collection for this pipeline.
+        """
+        return self._task_col_prefix(taskname=_FAW_ALL) + 'faw_idx'
+
+
     @abstractmethod
     def file_count(self):
         """Returns total count of all files."""
@@ -169,9 +179,14 @@ class ApiBase(metaclass=ABCMeta):
 
 
     def pipeline_name(self):
-        """Returns `None` or the pipeline name.
+        """When ran inside a pipeline, returns a unique identifier denoting the
+        analysis set and pipeline combination.
+
+        Raises KeyError if called outside of a pipeline.
         """
-        return self._api_info.get('pipeline')
+        aset = self._api_info['aset']
+        pipe = self._api_info['pipeline']
+        return f'{aset}!{pipe}'
 
 
     def _task_metadata_col(self, taskname=None):
@@ -179,14 +194,34 @@ class ApiBase(metaclass=ABCMeta):
         return self._db_conn[col_name]
 
 
-    def _task_col_prefix(self, taskname=None):
+    def _task_col_prefix(self, taskname=None, pipeline=None):
+        """May set `taskname == _FAW_ALL` to get the pipeline prefix.
+
+        Similar for `pipeline == _FAW_ALL` to get the aset prefix
+        """
+
         info = self._api_info
-        pipeline = info['pipeline']
+        aset = info['aset']
+
+        if pipeline is not None:
+            # Non-standard usage
+            assert pipeline == _FAW_ALL, pipeline
+            return f'faw_pipelines_{aset}!__'
+        else:
+            pipeline = info['pipeline']
+
+        if taskname == _FAW_ALL:
+            # Internal hook
+            return f'faw_pipelines_{aset}!__{pipeline}!__'
+
         if taskname is None:
             assert 'task' in info, 'Must specify taskname when API used outside of a task'
             taskname = info['task']
 
-        return f'faw_pipelines_{pipeline}_{taskname}_'
+        assert '!' not in aset, aset
+        assert '!' not in pipeline, pipeline
+        assert '!' not in taskname, taskname
+        return f'faw_pipelines_{aset}!__{pipeline}!__{taskname}!__'
 
 
     @abstractmethod
@@ -243,128 +278,9 @@ def Api(api_info, db_conn=None):
         # default to Synchronous
         return ApiSync(api_info)
     elif db_conn.__class__.__name__ == 'AsyncIOMotorDatabase':
-        return ApiAsync(api_info, db_conn)
+        raise NotImplementedError("For simplicity, all API now synchronous")
     else:
         return ApiSync(api_info, db_conn)
-
-
-
-class ApiAsync(ApiBase):
-    async def file_count(self):
-        raise NotImplementedError()
-    @contextlib.asynccontextmanager
-    async def file_fetch(self, filename):
-        raise NotImplementedError()
-    async def file_list(self):
-        raise NotImplementedError()
-    async def file_sample(self, n):
-        raise NotImplementedError()
-    def mongo_collection(self, colname, *, taskname=None):
-        raise NotImplementedError()
-    @_fn_implements(ApiBase.task_file_list)
-    async def task_file_list(self, *, taskname=None):
-        prefix = self._task_col_prefix(taskname=taskname)
-        gfs = motor_asyncio.AsyncIOMotorGridFSBucket(
-                self._db_conn, bucket_name=f'{prefix}fs')
-        file_list = [v.filename async for v in gfs.find()]
-        return list(set(file_list))
-    @_fn_implements(ApiBase.task_file_read)
-    async def task_file_read(self, filename, *, taskname=None):
-        prefix = self._task_col_prefix(taskname=taskname)
-        gfs = motor_asyncio.AsyncIOMotorGridFSBucket(
-                self._db_conn, bucket_name=f'{prefix}fs')
-        return await gfs.open_download_stream_by_name(filename)
-    @_fn_implements(ApiBase.task_file_write)
-    async def task_file_write(self, filename, *, taskname=None):
-        prefix = self._task_col_prefix(taskname=taskname)
-        return _GridFsFileWriter(self._db_conn, f'{prefix}fs', filename)
-    async def _internal_task_status_get_last_run_info(self, taskname=None):
-        metadata = self._task_metadata_col(taskname=taskname)
-        doc = await metadata.find_one({'_id': 'computation-inspect'})
-        return doc
-    async def _internal_task_status_get_state(self, taskname=None):
-        metadata = self._task_metadata_col(taskname=taskname)
-        doc = await metadata.find_one({'_id': 'computation'})
-        if doc is None:
-            return TaskStatusState(version=None, done=False, disabled=False,
-                    status_msg='<<Not yet started>>')
-        return TaskStatusState(version=doc['version'], done=doc['done'],
-                disabled=doc.get('disabled', False),
-                status_msg=doc['status_msg'])
-    async def _internal_task_status_set_completed(self):
-        info = self._api_info
-        metadata = self._task_metadata_col()
-        await metadata.update_one(
-                {'_id': 'computation', 'version': info['task_version']},
-                {'$set': {'done': True}},
-        )
-    async def _internal_task_status_set_disabled(self, disable):
-        info = self._api_info
-        metadata = self._task_metadata_col()
-        if disable:
-            change = {'$set': {'disabled': True}}
-        else:
-            change = {'$unset': {'disabled': True}}
-        await metadata.update_one(
-                # Version not necessary, this is UI-driven
-                {'_id': 'computation'},
-                change,
-        )
-    async def _internal_task_status_set_last_run_info(self, call, exitcode, stdout, stderr):
-        info = self._api_info
-        metadata = self._task_metadata_col()
-        await metadata.update_one(
-                {'_id': 'computation-inspect', 'version': info['task_version']},
-                {'$set': {'call': call, 'exitcode': exitcode,
-                    'stdout': stdout, 'stderr': stderr}})
-    async def task_status_set_message(self, msg):
-        info = self._api_info
-        metadata = self._task_metadata_col()
-        await metadata.update_one(
-                {'_id': 'computation', 'version': info['task_version']},
-                {'$set': {'status_msg': msg}})
-    async def destructive__task_change_version(self, version, tasks_downstream):
-        """Internal usage -- delete all task data and change the version number.
-
-        This is always called first.
-
-        Internally, OK to call with `tasks_downstream=[]`, if outside of
-        pipelines admin loop. In that case, the admin loop will re-call with
-        correct version and downstreama tasks.
-        """
-
-        # First, unset done/version information for us and for downstream tasks
-        # so they kick off once we're done, and not before.
-        await self._task_col_drop()
-        for td in tasks_downstream:
-            await self._task_col_drop(taskname=td)
-
-        metadata = self._task_metadata_col()
-        # Keep status information separate for mongodb efficiency
-        await metadata.replace_one(
-            {'_id': 'computation-inspect'},
-            {
-                'version': version,
-            },
-            upsert=True)
-
-        # Finally, overwrite our done flag and set the proper version,
-        # signalling the reset as complete.
-        await metadata.replace_one(
-            {'_id': 'computation'},
-            {
-                'version': version,
-                'done': False,
-                'status_msg': '',
-            },
-            upsert=True)
-
-
-    async def _task_col_drop(self, taskname=None):
-        prefix = self._task_col_prefix(taskname=taskname)
-        for col in await self._db_conn.list_collection_names():
-            if col.startswith(prefix):
-                await self._db_conn.drop_collection(col)
 
 
 
@@ -377,13 +293,9 @@ class ApiSync(ApiBase):
 
 
     def file_count(self):
-        """Returns total count of all files."""
-        api_info = self._api_info
-        host = api_info['hostname']
-        port = api_info['hostport']
-        url = f'http://{host}:{port}/file_count'
-        data = urllib.request.urlopen(url).read().decode()
-        return int(data)
+        """Returns total count of all files available to the pipeline."""
+        return self._db_conn[self._file_col_name()].count_documents({})
+
 
     @contextlib.contextmanager
     def file_fetch(self, filename):
@@ -425,20 +337,15 @@ class ApiSync(ApiBase):
         smaller distributions, but not huge ones.
         """
         api_info = self._api_info
-        host = api_info['hostname']
-        port = api_info['hostport']
-        url = f'http://{host}:{port}/file_list'
-        data = urllib.request.urlopen(url).read().decode()
-        return data.strip().split('\n')
+        return [d['_id'] for d in self._db_conn[self._file_col_name()].find()]
 
     def file_sample(self, n):
         """Returns a sampling of 'n' file names. Uses mongodb under the hood.
         """
         return [
                 d['_id']
-                for d in self._db_conn['observatory'].aggregate([
+                for d in self._db_conn[self._file_col_name()].aggregate([
                     {'$sample': {'size': n}},
-                    {'$project': {'_id': 1}},
                 ])
         ]
 
@@ -464,6 +371,71 @@ class ApiSync(ApiBase):
     def task_file_write(self, filename, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
         return _GridFsFileWriter(self._db_conn, f'{prefix}fs', filename)
+    def task_status_set_message(self, msg):
+        info = self._api_info
+        metadata = self._task_metadata_col()
+        metadata.update_one(
+                {'_id': 'computation', 'version': info['task_version']},
+                {'$set': {'status_msg': msg}})
+
+    # Internals below
+    def destructive__purge_aset(self):
+        """Purge all data relating to any pipeline in the current aset. Used
+        when deleting an aset.
+        """
+        self._task_col_drop(pipeline=_FAW_ALL, taskname=_FAW_ALL)
+    def destructive__purge_pipeline(self):
+        """Purge all data relating to this pipeline. Used when disabling for an
+        analysis set.
+        """
+        self._task_col_drop(taskname=_FAW_ALL)
+    def destructive__task_change_version(self, version, tasks_downstream):
+        """Internal usage -- delete all task data and change the version number.
+
+        This is always called first.
+
+        Internally, OK to call with `tasks_downstream=[]`, if outside of
+        pipelines admin loop. In that case, the admin loop will re-call with
+        correct version and downstream tasks.
+        """
+
+        # First, unset done/version information for us and for downstream tasks
+        # so they kick off once we're done, and not before.
+        self._task_col_drop()
+        for td in tasks_downstream:
+            self._task_col_drop(taskname=td)
+
+        metadata = self._task_metadata_col()
+        # Keep status information separate for mongodb efficiency
+        metadata.replace_one(
+            {'_id': 'computation-inspect'},
+            {
+                'version': version,
+            },
+            upsert=True)
+
+        # Finally, overwrite our done flag and set the proper version,
+        # signalling the reset as complete.
+        metadata.replace_one(
+            {'_id': 'computation'},
+            {
+                'version': version,
+                'done': False,
+                'status_msg': '',
+            },
+            upsert=True)
+    def _internal_db_reparse(self, tools_to_reset):
+        api_info = self._api_info
+        host = api_info['hostname']
+        port = api_info['hostport']
+        req = urllib.request.Request(f'http://{host}:{port}/db_reparse',
+                data=json.dumps({'tools_to_reset': tools_to_reset}).encode(),
+                method='POST')
+        with urllib.request.urlopen(req) as f:
+            resp = f.read().decode()
+        if f.status != 200:
+            raise ValueError(f'{f.status} - {resp}')
+        return resp
     def _internal_task_status_get_last_run_info(self, taskname=None):
         metadata = self._task_metadata_col(taskname=taskname)
         doc = metadata.find_one({'_id': 'computation-inspect'})
@@ -490,10 +462,7 @@ class ApiSync(ApiBase):
             change = {'$set': {'disabled': True}}
         else:
             change = {'$unset': {'disabled': True}}
-        metadata.update_one(
-                {'_id': 'computation', 'version': info['task_version']},
-                change,
-        )
+        metadata.update_one({'_id': 'computation'}, change)
     def _internal_task_status_set_last_run_info(self, call, exitcode, stdout, stderr):
         info = self._api_info
         metadata = self._task_metadata_col()
@@ -501,10 +470,9 @@ class ApiSync(ApiBase):
                 {'_id': 'computation-inspect', 'version': info['task_version']},
                 {'$set': {'call': call, 'exitcode': exitcode,
                     'stdout': stdout, 'stderr': stderr}})
-    def task_status_set_message(self, msg):
-        info = self._api_info
-        metadata = self._task_metadata_col()
-        metadata.update_one(
-                {'_id': 'computation', 'version': info['task_version']},
-                {'$set': {'status_msg': msg}})
+    def _task_col_drop(self, taskname=None, pipeline=None):
+        prefix = self._task_col_prefix(taskname=taskname, pipeline=pipeline)
+        for col in self._db_conn.list_collection_names():
+            if col.startswith(prefix):
+                self._db_conn.drop_collection(col)
 

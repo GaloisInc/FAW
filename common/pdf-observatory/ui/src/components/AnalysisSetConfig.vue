@@ -46,6 +46,7 @@
                   v-btn(@click="saveAsNewFeature()")
                     v-icon(dark) mdi-plus
           v-row(style="display: block")
+            v-label Features included
             v-expansion-panels
               v-expansion-panel(v-for="parser of saveAsUiRules" :key="parser.id")
                 v-expansion-panel-header(:color="parser.rules.length > 0 ? (parser.rulesComplex ? 'orange lighten-3' : 'green lighten-3') : ''")
@@ -67,6 +68,25 @@
           v-row(class="btn-row")
             v-btn(@click="asFormSave" :disabled="!asFormValid") Save / regenerate
             v-btn(color="red" @click="asFormDelete" :disabled="currentId === NEW_ID") Delete
+
+    v-btn(block @click="pipeExpanded = !pipeExpanded" style="margin-top: 1em")
+      span(v-if="!pipeExpanded") Pipelines
+      span(v-else) Collapse
+    div(v-if="pipeExpanded" style="border: solid 1px #000; border-top: 0; padding: 0.25em;")
+      <!-- pipeline information for the currently selected analysis set. -->
+      div
+        span
+          v-icon mdi-help-rhombus
+        span(style="font-size:0.85em") Pipelines attached to analysis sets are a two-stage process: 1) The pipeline is initiated. All files *currently* matching the analysis set definition, ignoring max documents, will be available to the pipeline. Thus, best to wait until all non-pipeline parsers have finished. 2) When the pipeline finishes all of its tasks, all documents (including those outside of the analysis set) will be processed with attached parsers learned from this analysis set.
+      v-expansion-panels
+        AnalysisSetPipelineInfo(v-for="[k, v] of Object.entries(pipeCfg)"
+            v-if="!v.disabled"
+            :key="currentId + '-' + k"
+            :pipeline="k"
+            :aset="currentId"
+            :aset-data="currentAsPipelines[k]"
+            :cfg="v"
+            @update="update()")
 </template>
 
 <style scope lang="scss">
@@ -83,83 +103,18 @@
 </style>
 
 <script lang="ts">
+import bus from '@/bus';
+import AnalysisSetPipelineInfo from '@/components/AnalysisSetPipelineInfo.vue';
+import {AsData, AsFeature, AsPipeline, AsStatus} from '@/interface/aset.ts';
 import Vue from 'vue';
-
-/** Filter requirement for feature */
-interface AsFeature {
-  parser: string;
-  ft: string;
-  ft_case?: boolean;
-}
-
-interface AsRule {
-  parser: string;
-  filesets?: Array<string>;
-  src: string;
-  src_case?: boolean;
-  dst: string;
-}
-
-interface AsParser {
-  id: string;
-  size_doc: number;
-  filesets?: Array<string>;
-}
-
-/** Contains information required to regenerate the analysis set
-  */
-interface AsDefinition {
-  files: string;
-  files_case: boolean;
-  features?: Array<AsFeature>;
-  sample: number;
-  rules: Array<AsRule>;
-}
-
-interface AsStatus {
-  id: string;
-  size_docs: number;
-  size_disk: number;
-  status: string;
-  definition: AsDefinition,
-}
-namespace AsStatus {
-  export function makeEmpty(id: string, parsers?: Array<AsParser>): AsStatus {
-    const r: AsStatus = {
-      id,
-      size_docs: 0,
-      size_disk: 0,
-      status: '',
-      definition: {
-        files: '',
-        files_case: false,
-        sample: 0,
-        rules: [],
-      },
-    };
-
-    if (parsers) {
-      for (const p of parsers) {
-        // Include anything adding 10 or fewer bytes per file by default
-        if (p.size_doc > 10) continue;
-        r.definition.rules.push({parser: p.id, src: '', dst: ''});
-      }
-    }
-
-    return r;
-  }
-}
-
-interface AsData {
-  asets: Array<AsStatus>;
-  parsers: Array<AsParser>;
-}
 
 export default Vue.extend({
   components: {
+    AnalysisSetPipelineInfo,
   },
   props: {
     currentId: String,
+    pipeCfg: Object as () => any,
   },
   data() {
     return {
@@ -169,6 +124,7 @@ export default Vue.extend({
       asFormValid: false,
       expanded: false,
       ftCountCache: new Map<string, Map<string, {count: number|string, updated: number}>>(),
+      pipeExpanded: false,
       saveAs: AsStatus.makeEmpty(''),
       saveAsFork: false,
     }
@@ -180,6 +136,16 @@ export default Vue.extend({
             (x.size_disk / 1024 / 1024).toFixed(1), ' MB'];
         if (x.status.length) label.push(`; ${x.status}`);
         label.push(')');
+        if (Object.keys((x.pipelines || {})).length !== 0) {
+          label.push(' -- pipelines ');
+          for (const [ki, k] of Object.keys(x.pipelines!).entries()) {
+            if (ki !== 0) label.push(', ');
+            label.push(k);
+            if (!x.pipelines![k].done) {
+              label.push('[running]');
+            }
+          }
+        }
         return {
           text: label.join(''),
           value: x.id,
@@ -190,6 +156,13 @@ export default Vue.extend({
           value: '<new>',
       });
       return options;
+    },
+    currentAsPipelines(): {[key: string]: AsPipeline} {
+      const id = this.currentId;
+      for (const a of this.asData.asets) {
+        if (a.id === id) return a.pipelines;
+      }
+      return {};
     },
     saveAsSample: {
       get(): string {
@@ -204,7 +177,7 @@ export default Vue.extend({
     /** Return information on parsers which can be used to filter analysis sets
         via features. */
     saveAsUiFeatureParsers(): Array<any> {
-      return this.asData.parsers.filter(x => true).map(x => {return {
+      return this.asData.parsers.filter(x => !x.pipeline).map(x => {return {
         text: x.id,
         value: x.id,
       }});
@@ -368,6 +341,7 @@ export default Vue.extend({
     },
     async update() {
       this.asData = await this.$vuespa.call('analysis_set_data');
+      bus.$emit('analysisSetData', this.asData);
       if (!this.currentId) {
         if (this.asData.asets.length > 0) {
           this.$emit('update:currentId', this.asData.asets[0].id);
@@ -383,7 +357,7 @@ export default Vue.extend({
         await fn();
       }
       catch (e) {
-        this.$emit('error', e);
+        bus.$emit('error', e);
         throw e;
       }
     },

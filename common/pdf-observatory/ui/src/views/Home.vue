@@ -42,14 +42,15 @@
                   v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
-          AnalysisSetConfig(:currentId.sync="analysisSetId" @error="error = $event"
+          AnalysisSetConfig(:currentId.sync="analysisSetId"
+              :pipeCfg="config && config.pipelines"
               @update="pdfGroupsDirty = true")
 
           v-expansion-panels(inset :style="{'margin-top': '1em'}")
             v-expansion-panel
               v-expansion-panel-header(:class="{'grey lighten-2': true}") Decision Plugins
               v-expansion-panel-content
-                v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.decision_views || {})"
+                v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsDecision)"
                     :key="pluginKey"
                     @click="pluginDecisionView(pluginKey, {})") {{plugin.label}}
                 v-btn(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0") (Close current plugin)
@@ -57,17 +58,9 @@
                   v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
 
-            v-expansion-panel
-              v-expansion-panel-header(:class="{'grey lighten-2': true}") Long-running Task Statuses
-              v-expansion-panel-content
-                v-expansion-panels(popout)
-                  template(v-for="pipe of config && Object.keys(config.pipelines) || []")
-                    template(v-for="task of Object.keys(config.pipelines[pipe].tasks)")
-                      PipelineTaskInfo(:key="pipe + '-' + task" :pipeline="pipe" :task="task")
-
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
-              v-btn(v-for="f, fidx of fileFilters" @click="fileFilterPopTo(fidx)") {{f[0]}}
+              v-btn(v-for="f, fidx of fileFilters" :key="fidx" @click="fileFilterPopTo(fidx)") {{f[0]}}
             //- Allow selection of different things.
             div(v-if="decisionDefinition")
               v-radio-group(row v-model="decisionAspectSelected")
@@ -224,7 +217,7 @@
                   v-expansion-panel
                     v-expansion-panel-header(:class="{'grey lighten-2': true}") File Detail Plugins
                     v-expansion-panel-content
-                      v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.file_detail_views || {})"
+                      v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsFileDetail)"
                           :key="pluginKey"
                           @click="pluginFileDetailView(pluginKey, {})") {{plugin.label}}
                       v-btn(v-show="pluginIframeSrc != null || pluginIframeLoading" @click="pluginIframeSrc = null; pluginIframeLoading = 0") (Close current plugin)
@@ -266,7 +259,7 @@
     width: 100%;
     display: flex;
     flex-direction: column;
-    align-content: start;
+    align-content: flex-start;
     justify-content: center;
 
     > div {
@@ -351,6 +344,8 @@
 // @ is an alias to /src
 //import HelloWorld from '@/components/HelloWorld.vue'
 
+import bus from '@/bus';
+
 // Editor-related includes
 import AceEditorComponent from 'vue2-ace-editor';
 import 'brace/mode/yaml';
@@ -362,6 +357,7 @@ import Vue from 'vue';
 
 import {PdfDecision, sortByReject} from '@/components/common';
 import {DslExpression, DslResult, dslParser, dslDefault} from '@/dsl';
+import {AsData} from '@/interface/aset';
 
 import AnalysisSetConfigComponent from '@/components/AnalysisSetConfig.vue';
 import CheckmarkComponent from '@/components/Checkmark.vue';
@@ -370,7 +366,6 @@ import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
 import StatsComponent from '@/components/HomeStats.vue';
 import DbViewComponent from '@/components/DbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
-import PipelineTaskInfoComponent from '@/components/PipelineTaskInfo.vue';
 
 export enum DbView {
   Decision = 0,
@@ -399,13 +394,13 @@ export default Vue.extend({
     ConfusionMatrix: ConfusionMatrixComponent,
     DbView: DbViewComponent,
     FileFilterDetail: FileFilterDetailComponent,
-    PipelineTaskInfo: PipelineTaskInfoComponent,
     plot: CirclePlotComponent,
     Stats: StatsComponent,
   },
   data() {
     return {
       analysisSetId: null as null|string,
+      asData: {asets: [], parsers: []} as AsData,
       beforeDestroyFns: [] as Array<{(): any}>,
       config: null as any,
       dbView: DbView.Decision,
@@ -513,6 +508,12 @@ export default Vue.extend({
         }
       },
     },
+    uiPluginsDecision(): {[key: string]: any} {
+      return this.pluginsWithPipelines('decision_views');
+    },
+    uiPluginsFileDetail(): {[key: string]: any} {
+      return this.pluginsWithPipelines('file_detail_views');
+    },
   },
   watch: {
     analysisSetId() {
@@ -614,6 +615,21 @@ export default Vue.extend({
     },
   },
   mounted() {
+    const busOn = (event: string, callback: (event: any) => void) => {
+      bus.$on(event, callback);
+      return () => {
+        bus.$off(event, callback);
+      };
+    };
+    this.beforeDestroyFns.push(busOn('error', (error: any) => {
+      this.error = error;
+      console.log(error);
+    }));
+
+    this.beforeDestroyFns.push(busOn('analysisSetData', (data: AsData) => {
+      this.asData = data;
+    }));
+
     this.beforeDestroyFns.push(this.$vuespa.httpHandler(
         (url: string) => {this.vuespaUrl = url; console.log(url);},
         {
@@ -678,7 +694,7 @@ export default Vue.extend({
         await fn();
       }
       catch (e) {
-        this.error = e;
+        bus.error(e);
         throw e;
       }
     },
@@ -700,7 +716,9 @@ export default Vue.extend({
     },
     decisionCodeUpdated_inner() {
       // Step 1 -- resize container to appropriate height
-      const editor = (this.$refs.decisionCodeEditor as any).editor;
+      const editorContainer = this.$refs.decisionCodeEditor as any;
+      if (!editorContainer) return;
+      const editor = editorContainer.editor;
       editor.container.style.height = `${editor.getSession().getScreenLength() * editor.renderer.lineHeight}px`;
       editor.resize();
 
@@ -913,7 +931,15 @@ export default Vue.extend({
 
           // Reference decisions can be large, so only submit if needed
           let refDecs = null;
-          if (this.config['decision_views'][pluginKey]['execStdin'].indexOf('<referenceDecisions>') !== -1) {
+          let pluginDef: any = null;
+          if (pluginKey.indexOf('!') !== -1) {
+            const [aset, pipeline, plugin] = pluginKey.split('!');
+            pluginDef = this.config['pipelines'][pipeline]['decision_views'][plugin];
+          }
+          else {
+            pluginDef = this.config['decision_views'][pluginKey];
+          }
+          if (pluginDef['execStdin'].indexOf('<referenceDecisions>') !== -1) {
             refDecs = this.pdfsReference;
           }
           // Run plugin
@@ -937,7 +963,7 @@ export default Vue.extend({
         }
         catch (e) {
           if (this.pluginDecIframeLoading !== loadKey) return;
-          this.pluginDecIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
+          this.pluginDecIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
         }
         finally {
           if (this.pluginDecIframeLoading === loadKey) {
@@ -971,7 +997,7 @@ export default Vue.extend({
             // User aborted this load.
             return;
           }
-          this.pluginIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
+          this.pluginIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
           this.pluginIframeSrcMimeType = 'text/html';
         }
         finally {
@@ -980,6 +1006,23 @@ export default Vue.extend({
           }
         }
       });
+    },
+    /** Find a plugin category and return a flat list of plugins, including any
+      analysis set + pipeline combinations.
+      */
+    pluginsWithPipelines(key: string): {[key: string]: any} {
+      if (!this.config) return {};
+      const o = Object.assign({}, this.config[key]);
+      for (const aset of this.asData.asets) {
+        for (const [pk, pv] of Object.entries(aset.pipelines)) {
+          for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][key])) {
+            const pluginKey = `${aset.id}!${pk}!${ppk}`;
+            const ok: any = o[pluginKey] = Object.assign({}, ppv);
+            ok.label = `${pk} -- ${ok.label} [${aset.id}]`;
+          }
+        }
+      }
+      return o;
     },
     regexEscape(v: string): string {
       return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
