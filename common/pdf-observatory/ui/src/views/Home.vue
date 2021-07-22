@@ -48,7 +48,10 @@
 
           v-expansion-panels(inset :style="{'margin-top': '1em'}")
             v-expansion-panel
-              v-expansion-panel-header(:class="{'grey lighten-2': true}") Decision Plugins
+              v-expansion-panel-header(:class="{'grey lighten-2': true}")
+                span
+                  span Decision Plugins
+                  span(v-if="fileFilters.length") {{' '}}(filtered)
               v-expansion-panel-content
                 v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsDecision)"
                     :key="pluginKey"
@@ -944,7 +947,7 @@ export default Vue.extend({
           }
           // Run plugin
           const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey, 
-              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions());
+              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
 
@@ -1523,8 +1526,15 @@ export default Vue.extend({
       const tdelta = (window.performance.now() - start) / 1000;
       console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
     },
-    _pdfGroupsSubsetOptions() {
-      return {analysis_set_id: this.analysisSetId};
+    _pdfGroupsSubsetOptions(filter: boolean=false) {
+      const r: any = {analysis_set_id: this.analysisSetId};
+      if (filter) {
+        // Include restricted list of file ids, if needed
+        if (this.fileFilters.length > 0) {
+          r.file_ids = Array.from(this.fileFilters[this.fileFilters.length - 1][1]);
+        }
+      }
+      return r;
     },
   },
 });

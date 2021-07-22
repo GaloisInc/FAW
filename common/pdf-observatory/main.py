@@ -661,6 +661,9 @@ class Client(vuespa.Client):
         working subsetting options in `options`.
 
         Args:
+            options:
+                analysis_set_id: Analysis set to use for returning results
+                file_ids?: Optional list of file IDs to restrict results.
             match_id: Document id to return.
         """
 
@@ -674,6 +677,8 @@ class Client(vuespa.Client):
                     {'$arrayToObject': '$f'},
                 ]}}},
         ]
+        if options.get('file_ids'):
+            pipeline.insert(0, {'$match': {'_id': {'$in': options['file_ids']}}})
         if match_id is not None:
             pipeline.insert(0, {'$match': {'_id': match_id}})
         cursor = cursor_db.aggregate(pipeline)
