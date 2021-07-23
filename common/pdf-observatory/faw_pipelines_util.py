@@ -225,6 +225,12 @@ class ApiBase(metaclass=ABCMeta):
 
 
     @abstractmethod
+    def task_file_delete(self, filename, *, taskname=None):
+        """Deletes the specified file.
+        """
+
+
+    @abstractmethod
     def task_file_list(self, *, taskname=None):
         """
         Returns a list of all file objects written to the given task.
@@ -354,6 +360,13 @@ class ApiSync(ApiBase):
         prefix = self._task_col_prefix(taskname=taskname)
         return self._db_conn[f'{prefix}{colname}']
 
+    @_fn_implements(ApiBase.task_file_delete)
+    def task_file_delete(self, filename, *, taskname=None):
+        prefix = self._task_col_prefix(taskname=taskname)
+        gfs = gridfs.GridFSBucket(
+                self._db_conn, bucket_name=f'{prefix}fs')
+        for f in gfs.find({'filename': filename}):
+            gfs.delete(f._id)
     @_fn_implements(ApiBase.task_file_list)
     def task_file_list(self, *, taskname=None):
         prefix = self._task_col_prefix(taskname=taskname)
