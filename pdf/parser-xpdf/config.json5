@@ -82,7 +82,7 @@
             version: 'poppler-0.86.1',
             parse: {
               type: 'regex-counter',
-              version: '2e',
+              version: '2k',
               stdout: {
                 '^name ': {
                   nameGroup: '',
@@ -90,17 +90,18 @@
                 '^----': {
                   nameGroup: '',
                 },
-                //'^((?!embedded).)*$': {
-                //  nameGroup: 'Unembedded font',
-                //},
-                '^(Courier|Courier-Bold|Courier-Oblique|Courier-BoldOblique|Helvetica|Helvetica-Bold|Helvetica-Oblique|Helvetica-BoldOblique|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Symbol|ZapfDingbats)           +.*(?<!embedded)$': {
-                  nameGroup: 'system font: \\1',
+                // Prefix "SYS " for system fonts
+                '^(Courier|Courier-Bold|Courier-Oblique|Courier-BoldOblique|Helvetica|Helvetica-Bold|Helvetica-Oblique|Helvetica-BoldOblique|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Symbol|ZapfDingbats)         +(.*?)    +(no|yes) +(no|yes) +(no|yes).*?([\\S]+)$': {
+                  nameGroup: 'SYS FONT \\1 TYPE \\2 EMB \\3 SUB \\4 UNI \\5 LOC \\6',
                 },
-                '^(?!Courier|Courier-Bold|Courier-Oblique|Courier-BoldOblique|Helvetica|Helvetica-Bold|Helvetica-Oblique|Helvetica-BoldOblique|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Symbol|ZapfDingbats)(.*?)           +.*(?<!embedded)$': {
-                  nameGroup: 'unembedded: \\1',
+                '^(.*?)         +(.*?)    +(no|yes) +(no|yes) +(no|yes).*?([\\S]+)$': {
+                  nameGroup: 'FONT \\1 TYPE \\2 EMB \\3 SUB \\4 UNI \\5 LOC \\6',
+                },
+                // Other messages -- sometimes a font is on a line on its own
+                '^pdf-etl-tool: .*$': {
                 },
                 '^.*$': {
-                  nameGroup: '',
+                  nameGroup: 'MAYBE FONT \\g<0>',
                 },
               },
               stderr: {
