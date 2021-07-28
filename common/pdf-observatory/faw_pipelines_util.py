@@ -190,14 +190,23 @@ class ApiBase(metaclass=ABCMeta):
 
 
     def _task_metadata_col(self, taskname=None):
-        col_name = f'{self._task_col_prefix(taskname=taskname)}faw_metadata'
+        # Allow bad tasknames, since this method tends to be used to determine
+        # information about not-yet-started tasks.
+        col_prefix = self._task_col_prefix(taskname=taskname,
+                allow_bad_taskname=True)
+        col_name = f'{col_prefix}faw_metadata'
         return self._db_conn[col_name]
 
 
-    def _task_col_prefix(self, taskname=None, pipeline=None):
+    def _task_col_prefix(self, taskname=None, pipeline=None,
+            allow_bad_taskname=False):
         """May set `taskname == _FAW_ALL` to get the pipeline prefix.
 
         Similar for `pipeline == _FAW_ALL` to get the aset prefix
+
+        Args:
+            allow_bad_taskname: When ``False``, forcibly ensure that the
+                    specified task's metadata collection exists.
         """
 
         info = self._api_info
@@ -217,6 +226,19 @@ class ApiBase(metaclass=ABCMeta):
         if taskname is None:
             assert 'task' in info, 'Must specify taskname when API used outside of a task'
             taskname = info['task']
+        elif not allow_bad_taskname:
+            if not hasattr(self, '_tasks_allowed'):
+                assert isinstance(self, ApiSync), 'Synchronous support only'
+                col_names = self._db_conn.list_collection_names()
+                col_prefix = f'faw_pipelines_{aset}!__{pipeline}!__'
+                self._tasks_allowed = set([c[len(col_prefix):].split('!__')[0]
+                        for c in col_names
+                        if c.startswith(col_prefix)])
+                # Don't allow internal names
+                self._tasks_allowed = set([k for k in self._tasks_allowed
+                        if not k.startswith('faw_')])
+            assert taskname in self._tasks_allowed, \
+                    f'Cannot find task: {repr(taskname)}. Found: {self._tasks_allowed}'
 
         assert '!' not in aset, aset
         assert '!' not in pipeline, pipeline
@@ -484,7 +506,8 @@ class ApiSync(ApiBase):
                 {'$set': {'call': call, 'exitcode': exitcode,
                     'stdout': stdout, 'stderr': stderr}})
     def _task_col_drop(self, taskname=None, pipeline=None):
-        prefix = self._task_col_prefix(taskname=taskname, pipeline=pipeline)
+        prefix = self._task_col_prefix(taskname=taskname, pipeline=pipeline,
+                allow_bad_taskname=True)
         for col in self._db_conn.list_collection_names():
             if col.startswith(prefix):
                 self._db_conn.drop_collection(col)
