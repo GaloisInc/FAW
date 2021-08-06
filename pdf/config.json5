@@ -417,7 +417,7 @@
         'schizo-test': {
           exec: ['schizo_test/main.py', '<inputFile>'],
           timeout: 1200,
-          version: 'schizo-test68',
+          version: 'schizo-test70',
           parse: {
             type: 'regex-counter',
             stdstar: {
@@ -787,7 +787,7 @@ filters:  \n\
   Unsafe:  \n\
     ^polyfile_mimetype: (?!application/pdf)  \n\
     ^schizo-test_Max RMSE  \n\
-      sum > 0.05  \n\
+      sum > 0.4  \n\
     ^pdffonts_Unembedded font  \n\
   \n\
 outputs:  \n\

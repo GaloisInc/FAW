@@ -25,11 +25,18 @@
         checkmark(:status="decisionSelectedDsl['filter-' + f.name] ? 'valid' : 'rejected'")
         span {{f.name}}
 
-        .decision-reason(v-for="k of fileStats.get(f.name)"
-            :key="k[0]"
-            )
-          checkmark(:status="k[1]")
-          span {{k[0]}}
+        template(v-if="fileStats.get(f.name) && fileStats.get(f.name).length > 0")
+          v-virtual-scroll(:items="fileStats.get(f.name)" item-height="25" height="100" bench="2")
+            template(v-slot:default="{item: k}")
+              v-menu(offset-y max-width="400")
+                template(v-slot:activator="{on}")
+                  .decision-reason(:key="k[0]" v-on="on")
+                    checkmark(:status="k[1]")
+                    span {{k[0]}}
+                v-list
+                  v-list-item
+                    v-btn(v-clipboard="() => regexEscape(k[0])") (Copy regex to clipboard)
+                    v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
 
     .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
       v-virtual-scroll(:items="fileStats.get('other')" item-height="25" height="750" bench="2")
@@ -62,6 +69,7 @@ export default Vue.extend({
     checkmark: CheckmarkComponent,
   },
   props: {
+    asOptions: Object as () => any,  // Options for analysis set
     decisionDefinition: Object as () => DslResult | null,
     decisionSelected: Object as () => PdfDecision,
     decisionSelectedDsl: Object as () => PdfDecision,
@@ -87,7 +95,8 @@ export default Vue.extend({
 
       const tf = this.decisionSelectedDsl.testfile;
       if (tf) {
-        const data = await this.$vuespa.call('load_db', tf, 'statsbyfile');
+        const data = await this.$vuespa.call('load_db', tf, 'statsbyfile',
+            this.asOptions);
         // Prevent duplicates by re-setting the array whenever we get data
         this.fileStats.clear();
         this.fileStats.set('other', []);

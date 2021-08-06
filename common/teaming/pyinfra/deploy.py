@@ -5,7 +5,7 @@ import os
 import shlex
 
 from pyinfra import host, inventory
-from pyinfra.operations import apt, files, server
+from pyinfra.operations import apt, files, server, yum
 from pyinfra_docker import deploy_docker
 
 SUDO = True
@@ -13,7 +13,11 @@ user = config.deploy_name
 userhome = f'/home/{user}'
 webhost = inventory.get_group('web_host')[0].name
 
-apt.update(cache_time=24*3600)
+use_apt = host.fact.deb_packages
+pkg_man = apt if use_apt else yum
+
+if use_apt:
+    apt.update(cache_time=24*3600)
 
 # This one doesn't allow containers to chat with external IPv6 servers
 # UNLESS IPv6 NAT is enabled via the image robbertkl/ipv6nat
@@ -22,7 +26,7 @@ docker_ipv6_subnet = 'fd00:0:0:0:1::/80'
 #docker_ipv6_subnet = '2001:db8:1::/64'
 
 # Install docker
-apt.packages(packages=['curl', 'gnupg2'])
+pkg_man.packages(packages=['curl', 'gnupg2'])
 deploy_docker(config={
     'ipv6': True,
     'fixed-cidr-v6': docker_ipv6_subnet,
@@ -37,7 +41,8 @@ server.shell(name='Set up IPv6 NAT for docker', commands=[
 ])
 
 # Disable Ubuntu's weird firewall
-server.shell(name='Disable UFW firewall', commands=['ufw disable'])
+if use_apt:
+    server.shell(name='Disable UFW firewall', commands=['ufw disable'])
 
 # Set up user based on config
 server.user(user=user, home=userhome, groups=['docker'])
@@ -68,13 +73,16 @@ if 'web_host' in host.groups:
     docker_flags.extend(['-p', f'{config.port}:8123'])
     docker_flags.extend(['-p', f'{config.port_mongo}:27017'])
     docker_flags.extend(['-p', f'{config.port_dask}:8786'])
+    docker_flags.extend(['-p', f'{config.port_dask_dashboard}:8787'])
 
     # Furthermore, extend our observatory run script to be self-hostname-aware
     host_script = rf'''
 #! /bin/bash
 set -e
-echo '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
+echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
 chmod a+x /etc/services.d/observatory/run
+echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://0.0.0.0:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} localhost:8786 2>&1' > /etc/services.d/dask-worker/run
+chmod a+x /etc/services.d/dask-worker/run
 # Now, launch as normal
 /init
 '''
@@ -102,11 +110,11 @@ else:
 #! /bin/bash
 set -e
 # Fix up observatory
-echo '#! /bin/bash\ncd /home/dist\npython3 ../pdf-observatory/queue_client.py --mongo-db {webhost}:{config.port_mongo}/{user}-faw-db --pdf-dir /home/pdf-files --pdf-fetch-url http://{webhost}:{config.port}/file_download/ --config ../config.json --api-info {api_info_shell} 2>&1' > /etc/services.d/observatory/run
+echo -e '#! /bin/bash\ncd /home/dist\npython3 ../pdf-observatory/queue_client.py --mongo-db {webhost}:{config.port_mongo}/{user}-faw-db --pdf-dir /home/pdf-files --pdf-fetch-url http://{webhost}:{config.port}/file_download/ --config ../config.json --api-info {api_info_shell} 2>&1' > /etc/services.d/observatory/run
 chmod a+x /etc/services.d/observatory/run
 # Fix up dask -- disable scheduler, change worker to connect to global scheduler
 rm -rf /etc/services.d/dask-scheduler
-echo '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
+echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://0.0.0.0:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
 chmod a+x /etc/services.d/dask-worker/run
 # Disable mongo
 rm -rf /etc/services.d/mongod
@@ -122,6 +130,7 @@ rm -rf /etc/services.d/mongod
             '--entrypoint', '/bin/bash',
     ])
     docker_flags_cmd.extend(['-c', '/home/worker.sh'])
+docker_flags.extend(['-p', f'{config.port_dask_worker}:8788'])
 docker_flags.append(docker_image_name)
 docker_flags.extend(docker_flags_cmd)
 server.shell(name="Kill old docker container, launch new",

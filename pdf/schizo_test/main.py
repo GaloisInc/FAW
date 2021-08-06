@@ -277,23 +277,25 @@ def img_diff(pageno, base, img, html_out):
         bbg = scipy.ndimage.filters.gaussian_filter(bbg, sigma=(sz_blur, sz_blur, 0))
 
         if False:
-            med_ii = scipy.ndimage.filters.median_filter(iig, size=(sz_med, sz_med, 1))
-            med_bb = scipy.ndimage.filters.median_filter(bbg, size=(sz_med, sz_med, 1))
-        else:
-            # A true median filter is ridiculously expensive for large sizes.
-            # So, try a cheap one which only gets a bead on the page color.
-            med_ii = np.median(ii, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
-            med_bb = np.median(bb, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
+            # Median filter -- from before hipass preceding other filters
+            if False:
+                med_ii = scipy.ndimage.filters.median_filter(iig, size=(sz_med, sz_med, 1))
+                med_bb = scipy.ndimage.filters.median_filter(bbg, size=(sz_med, sz_med, 1))
+            else:
+                # A true median filter is ridiculously expensive for large sizes.
+                # So, try a cheap one which only gets a bead on the page color.
+                med_ii = np.median(iig, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
+                med_bb = np.median(bbg, axis=(0, 1)).reshape((1, 1, ii.shape[2]))
 
-        iig -= med_ii
-        bbg -= med_bb
+            iig -= med_ii
+            bbg -= med_bb
 
         iig_max = scipy.ndimage.filters.maximum_filter(abs(iig), size=(sz_var_max, sz_var_max, 1))
         bbg_max = scipy.ndimage.filters.maximum_filter(abs(bbg), size=(sz_var_max, sz_var_max, 1))
 
-        s = lambda v: 1 / (10 + v)
+        s = lambda a, b: (10 + a) / (10 + b)
 
-        diff = iig * s(iig_max) - bbg * s(bbg_max)
+        diff = s(iig, iig_max) - s(bbg, bbg_max)
 
         #diff = hipass(diff)
         diff = abs(diff)

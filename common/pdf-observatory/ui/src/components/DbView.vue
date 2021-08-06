@@ -50,7 +50,7 @@ export default Vue.extend({
           for (const d of data) {
             const cmdline = d.invoker.invName;//[d.invoker.exec, ...d.invoker.preArgs, ...d.invoker.postArgs].join(' ');
             if (items.hasOwnProperty(d)) {
-              throw new Error(`Tool {cmdline} ran twice?`);
+              throw new Error(`Tool ${cmdline} ran twice?`);
             }
             items[cmdline] = d;
           }
@@ -60,7 +60,7 @@ export default Vue.extend({
           const items = {} as any;
           for (const d of data) {
             if (items.hasOwnProperty(d.parser)) {
-              throw new Error(`Parser {d.parser} seen twice?`);
+              throw new Error(`Parser ${d.parser} seen twice?`);
             }
             items[d.parser] = d;
           }

@@ -1,6 +1,8 @@
 """Utility functionality for FAW pipelines.
 """
 
+import faw_internal_util
+
 from abc import ABCMeta, abstractmethod
 import contextlib
 import dataclasses
@@ -370,11 +372,8 @@ class ApiSync(ApiBase):
     def __init__(self, api_info, db_conn=None):
         super().__init__(api_info, db_conn)
         if self._db_conn is None:
-            assert '/' in api_info['mongo']
-            mhost_port, db = api_info['mongo'].split('/')
-            mhost, mport = mhost_port.split(':')
-            pym_client = pymongo.MongoClient(host=mhost, port=int(mport))
-            self._db_conn = pym_client[db]
+            self._db_conn = faw_internal_util.mongo_api_info_to_db_conn(
+                    api_info['mongo'])
 
 
     def file_count(self):

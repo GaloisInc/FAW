@@ -1,5 +1,6 @@
 
 import app_util
+import faw_analysis_set
 import faw_pipelines
 import faw_pipelines_util
 
@@ -13,6 +14,7 @@ import json
 import math
 import motor.motor_asyncio
 import os
+import pickle
 import psutil
 import pymongo
 import re
@@ -20,6 +22,7 @@ import shlex
 import strictyaml
 import sys
 import tempfile
+import time
 import traceback
 import vuespa
 
@@ -85,7 +88,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
         return
 
     app_docker = in_docker
-    
+
     mhost_port, db = app_mongodb.split('/')
     mhost, mport = mhost_port.split(':')
     app_mongodb_conn = motor.motor_asyncio.AsyncIOMotorClient(host=mhost,
@@ -94,8 +97,10 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     loop = asyncio.get_event_loop()
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
-    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn, 
+    loop.create_task(faw_pipelines.main_loop(app_mongodb_conn,
             app_config, _get_api_info, _db_reparse))
+    loop.create_task(faw_analysis_set.main_loop(app_mongodb_conn,
+            app_config, _get_api_info))
     vuespa.VueSpa('ui', Client, host=host, port=port,
             development=not production,
             config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
@@ -158,6 +163,64 @@ def _config_reload():
     app_config_loaded = ts_loaded
 
 
+_app_parser_sizetable = {}
+async def _app_parser_stats():
+    """Retrieve / update cached parser stat information.
+
+    Fields:
+        id: identifier of parser
+        size_doc: approximate size (bytes) per document or null
+    """
+    parsers = []
+    promises = []
+    for k, v in app_config['parsers'].items():
+        if v.get('disabled'):
+            continue
+        parser = {
+            'id': k,
+            'size_doc': None,
+        }
+        parsers.append(parser)
+
+        r = _app_parser_sizetable.get(k)
+        if r is not None and r[1] > time.monotonic():
+            parser['size_doc'] = r[0]
+        else:
+            async def stat_pop(k, parser):
+                ndocs = 5
+                # Only include successful runs
+                docs = await app_mongodb_conn['invocationsparsed'].find({
+                        'parser': k,
+                        'exitcode': 0}).limit(ndocs).to_list(None)
+                size = None
+                if len(docs) > 1:
+                    # Size is actually a differential. Indicates information
+                    # added per additional document due to unique features.
+                    size = 0
+                    fts_size = set(docs[0]['result'].keys())
+                    for d in docs[1:]:
+                        fts_new = set(d['result'].keys())
+                        fts_new.difference_update(fts_size)
+                        size += len(pickle.dumps(fts_new))
+                        fts_size.update(fts_new)
+                    size /= len(docs) - 1
+
+                if len(docs) == ndocs:
+                    # Keep result for a long time
+                    r = [size, time.monotonic() + 600]
+                else:
+                    # Let it load, don't hammer the DB
+                    r = [size, time.monotonic() + 30]
+
+                _app_parser_sizetable[k] = r
+                parser['size_doc'] = r[0]
+            promises.append(stat_pop(k, parser))
+    if promises:
+        await asyncio.wait(promises)
+    return parsers
+async def _app_parser_stats_update(k):
+    pass
+
 def _get_api_info(extra_info={}):
     """NOTE: Updates here must also affect `common/teaming/pyinfra/deploy.py`,
     where the worker script gets written. look for "--api-info" in that file.
@@ -206,7 +269,6 @@ async def _db_reparse(tools_to_reset=[]):
     # document from the groups to which it belongs, but this works since
     # the UI always re-processes the full DB at the moment.
     await app_mongodb_conn.drop_collection('invocationsparsed')
-    await app_mongodb_conn.drop_collection('statsbyfile')
     if tools_to_reset:
         await app_mongodb_conn['rawinvocations'].delete_many(
                 {'invoker.invName': {'$in': tools_to_reset}})
@@ -310,6 +372,26 @@ class Client(vuespa.Client):
 
     async def vuespa_on_close(self):
         pass
+
+
+    async def api_analysis_set_data(self):
+        """Returns object like AsStatus from ui/src/components/AnalysisSetConfig.vue"""
+        parsers = await _app_parser_stats()
+        return {
+                'asets': await faw_analysis_set.as_list(),
+                'parsers': parsers,
+        }
+
+
+    async def api_analysis_set_update(self, cfg):
+        """Takes object like AsStatus from ui/src/components/AnalysisSetConfig.vue"""
+        await faw_analysis_set.as_update(id=cfg['id'],
+                definition=cfg['definition'])
+
+
+    async def api_analysis_set_delete(self, id):
+        """Takes analysis set ID"""
+        await faw_analysis_set.as_delete(id)
 
 
     async def api_config_get(self):
@@ -493,6 +575,8 @@ class Client(vuespa.Client):
         files = []
         r = {'groups': groups, 'files': files}
 
+        start = time.monotonic()
+        print(f'Loading decisions for {options}')
         cursor = self._statsbyfile_cursor(options)
         async for g in cursor:
             gid = len(files)
@@ -503,6 +587,8 @@ class Client(vuespa.Client):
                 if grp is None:
                     groups[k] = grp = []
                 grp.append([gid, v])
+
+        print(f'...Decisions packaged in {time.monotonic() - start:.2f}s')
 
         return r
 
@@ -535,51 +621,35 @@ class Client(vuespa.Client):
         return r
 
 
-    async def _statsbyfile_cursor(self, options):
+    async def _statsbyfile_cursor(self, options, match_id=None):
         """Async generator which yields from `statsbyfile` according to the
         working subsetting options in `options`.
+
+        Args:
+            match_id: Document id to return.
         """
-        query = {}
-        if options['subsetRegex'] and options['subsetRegex'] != '^':
-            query['_id'] = {'$regex': options['subsetRegex']}
 
-        r_skip = 0
-        r_every = 1
+        assert 'analysis_set_id' in options
+        cursor_db = app_mongodb_conn['as_c_' + options['analysis_set_id']]
+        # Faster to convert from new format to old inline.
+        # Goes from 50s down to 28s at 100k documents.
+        pipeline = [
+                {'$replaceRoot': {'newRoot': {'$mergeObjects': [
+                    {'_id': '$_id'},
+                    {'$arrayToObject': '$f'},
+                ]}}},
+        ]
+        if match_id is not None:
+            pipeline.insert(0, {'$match': {'_id': match_id}})
+        cursor = cursor_db.aggregate(pipeline)
 
-        if options['subsetSize'] > 0:
-            max_docs = await app_mongodb_conn['statsbyfile'].count_documents(query)
-            max_subset = max(1, int(math.ceil(max_docs / options['subsetSize'])))
-            if options['subsetPartition'] >= max_subset:
-                raise ValueError(f'Found {max_docs} docs, '
-                        f'max partition {max_subset}, '
-                        f'but partition {options["subsetPartition"]} was requested.')
-
-            r_skip = options['subsetPartition']
-            r_every = max_subset
-
-        # Faster with lots of features. Get IDs first, then documents. Also,
-        # don't sort when fetching data.
-        if r_every == 1:
-            cursor = app_mongodb_conn['statsbyfile'].find(query)
-            if r_skip > 0:
-                cursor = cursor.skip(r_skip)
-        else:
-            pipeline = [{'$project': {'_id': 1}}]
-            pipeline.append({'$sort': {'_id': 1}})
-            if r_skip > 0:
-                pipeline.append({'$skip': r_skip})
-            pipeline.append({'$group': {'_id': None, 'ids': {'$push': '$_id'}}})
-            pipeline.append({'$project': {'ids': {'$map': {
-                    'input': {'$range': [0, {'$size': '$ids'}, r_every]},
-                    'as': 'index',
-                    'in': {'$arrayElemAt': ['$ids', '$$index']},
-                    }}}})
-            all_ids = [v['ids'] async for v in
-                    app_mongodb_conn['statsbyfile'].aggregate(pipeline)][0]
-            cursor = app_mongodb_conn['statsbyfile'].find(
-                    {'_id': {'$in': all_ids}})
         async for g in cursor:
             yield g
+            # Manual conversion
+            #g_new = {'_id': g['_id']}
+            #for o in g['f']:
+            #    g_new[o['k']] = o['v']
+            #yield g_new
 
 
     async def api_clear_db(self):
@@ -599,12 +669,13 @@ class Client(vuespa.Client):
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
 
-        options: {subsetRegex}
+        options: {}
         """
         col = app_mongodb_conn['observatory']
         query = {}
-        if options['subsetRegex'] and options['subsetRegex'] != '^':
-            query['_id'] = {'$regex': options['subsetRegex']}
+
+        if options:
+            raise ValueError(options)
 
         pdfs_max = await col.count_documents(query)
         pdfs_not_done = await col.count_documents(dict(**query,
@@ -620,21 +691,26 @@ class Client(vuespa.Client):
         }
 
 
-    async def api_load_db(self, pdf, collection):
+    async def api_load_db(self, pdf, collection, options=None):
         """Loads a specific entry from the pdf-etl database, for manual
         inspection.
         """
         query = None
         if collection == 'rawinvocations':
             query = {'file': os.path.join(app_pdf_dir, pdf)}
+            cursor = app_mongodb_conn[collection].find(query)
         elif collection == 'invocationsparsed':
             query = {'file': pdf}
+            cursor = app_mongodb_conn[collection].find(query)
         elif collection == 'statsbyfile':
-            query = {'_id': pdf}
+            cursor = self._statsbyfile_cursor(options, match_id=pdf)
+            options = None
         else:
             raise NotImplementedError(collection)
 
-        docs = [d async for d in app_mongodb_conn[collection].find(query)]
+        assert options is None
+
+        docs = [d async for d in cursor]
         for d in docs:
             if isinstance(d['_id'], bson.objectid.ObjectId):
                 d['_id'] = str(d['_id'])

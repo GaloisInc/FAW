@@ -9,7 +9,7 @@ This process requires that each machine(s) being
 targeted has both passwordless `sudo` privileges and a passwordless SSH key on each
 machine. A deployment may be bootstrapped as follows:
 
-    python workbench-teaming-init.py [--port 8123] [--port-mongo 9123] [--port-dask 8786] build/pdf-dist-2021-02-10 team/pdf-dist-2021-02-10 web-host /path/to/files/on/web-host [worker1 worker2 ...]
+    python workbench-teaming-init.py [--port 8123] [--port-mongo 9123] [--port-dask 8786] [--port-dask-dashboard 8787] [--port-dask-worker 8788] build/pdf-dist-2021-02-10 team/pdf-dist-2021-02-10 web-host /path/to/files/on/web-host [worker1 worker2 ...]
     cd team/pdf-2021-02-10
     pyinfra inventory.py deploy.py
 
@@ -69,6 +69,10 @@ def main():
             help="Port on which the FAW web interface will be accessed.")
     ap.add_argument('--port-dask', default=8786, type=int,
             help="Port on which the FAW's dask distribution may be accessed (UNSECURED!).")
+    ap.add_argument('--port-dask-dashboard', default=8787, type=int,
+            help="Port on which the FAW's dask dashboard may be accessed (UNSECURED!).")
+    ap.add_argument('--port-dask-worker', default=8788, type=int,
+            help="Port on which the FAW's dask workers may be accessed (UNSECURED!).")
     ap.add_argument('--port-mongo', default=9123, type=int,
             help="Port on which the FAW's mongodb will be accessed (UNSECURED!).")
     args = ap.parse_args()
@@ -91,6 +95,8 @@ web_host_file_dir = {repr(args.web_host_file_dir)}
 port = {repr(args.port)}
 port_mongo = {repr(args.port_mongo)}
 port_dask = {repr(args.port_dask)}
+port_dask_dashboard = {repr(args.port_dask_dashboard)}
+port_dask_worker = {repr(args.port_dask_worker)}
 ''')
 
     with open(os.path.join(args.deploy_dir, 'inventory.py'), 'w') as f:

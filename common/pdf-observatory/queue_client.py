@@ -282,11 +282,6 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
             coll_resolver=coll_resolver,
             mongo_db=mongo_db)
 
-    # For each parsed invocation, compute stats.
-    _load_document_stats(doc['_id'],
-            coll_resolver=coll_resolver,
-            mongo_db=mongo_db)
-
     # We used to then pre-group files into sets keyed by error message. However,
     # that index wasn't used, and the current UI requires a full table scan
     # anyway. Furthermore, that collection resulted in mongo documents greater
@@ -419,48 +414,6 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
 
     if len(tooldocs) == 0:
         raise ValueError("No successful tool invocations found?")
-
-
-def _load_document_stats(fname, coll_resolver, mongo_db):
-    """Aggregate all stats acording to the decision process."""
-    col_parse = coll_resolver(mongo_db + '/invocationsparsed')
-    stats_dbs = {'db_file': mongo_db + '/statsbyfile'}
-
-    # Explicitly remove the file-level statistics, since the observatory
-    # decision process relies on those.
-    coll_resolver(stats_dbs['db_file']).delete_one({'_id': fname})
-
-    for parsedoc in col_parse.find({'file': fname}):
-        doc = parsedoc
-        dst_file = coll_resolver(stats_dbs['db_file'])
-
-        doc_file_update = {}
-        parser = doc['parser'].replace('.', '_')
-        if 'unhandled' in doc['result']:
-            raise ValueError(f'doc {doc["file"]} needs parsers re-ran: '
-                    f'{doc["result"]["unhandled"]}')
-        for k, v in doc['result'].items():
-            # File-level, just create a doc with all keys keyed by parser name.
-            pk = f'{parser}_{k}'
-            pk = pk.replace('.', '_')
-            doc_file_update.setdefault('$set', {})[pk] = v
-
-        def update_with_retry(db, query, update):
-            ntrial = 5
-            for trial in range(ntrial):
-                try:
-                    db.update_one(query, update, upsert=True)
-                    return
-                except pymongo.errors.DuplicateKeyError:
-                    # Broke from update to upsert, but someone else finished the
-                    # upsert first.  Retry!
-                    if trial == ntrial - 1:
-                        raise
-                except:
-                    raise ValueError(update)
-
-        if doc_file_update:
-            update_with_retry(dst_file, {'_id': doc['file']}, doc_file_update)
 
 
 if __name__ == '__main__':

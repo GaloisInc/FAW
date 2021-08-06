@@ -6,7 +6,7 @@ To run the teaming tests:
 1. Install Vagrant, and `cd` to this folder
 1a. Optionally reset past tests with `vagrant destroy -f`
 2. Run `vagrant up`
-3. Point your browser at localhost:8123
+3. Point your browser at localhost:8123 ; can also check dask at localhost:8787
 4. Optionally ssh into machines with e.g., `vagrant ssh work1` or `vagrant ssh work2`
 5. Check all error messages, etc.
 5a. Error messages via e.g. `vagrant ssh work1`, `docker ps`, `docker exec -it <container> /bin/bash`, `s6-logwatch /var/log/(observatory|dask-worker)/current`
