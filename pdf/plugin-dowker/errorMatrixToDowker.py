@@ -45,7 +45,7 @@ def binaryRowHash( row ):
     return numpy.packbits(row.astype(numpy.bool_)).tobytes().hex()
 
 
-def errorMatrixToDowker(error_matrix):
+def errorMatrixToDowker(error_matrix, filenames, html_out):
     start_time = time.time()
 
     #output_directory of error matrix and place to save all python dictionaries
@@ -73,29 +73,32 @@ def errorMatrixToDowker(error_matrix):
     lengthGroupingMap = dict()
 
     #There is no file 0, so the first file is index 1
-    fileIndex=1;
-    i=1
+
+    i=0
     #iterate over all columns representing each file's error vector
-    for fileRow in error_matrix.transpose().A:
+    for fileRow in error_matrix.A:
+        if i==0:
+            i+=1
+            continue 
         rowHashStr = binaryRowHash(fileRow)
         
         pgRowStr = processGroupingCached(fileRow, rowHashStr)
 
-        i+=1
-        if (i % 1000) ==0:
-            #Print to assure the code is still running
-            print("At row " + str(i))
 
+       
         if rowHashStr in groupingFilelistMap:
-            groupingFilelistMap[rowHashStr].append(fileIndex)
+            #groupingFilelistMap[rowHashStr].append(i)
+            #if i<len(filenames):
+            groupingFilelistMap[rowHashStr].append(filenames[i-1])
             groupingCountMap[rowHashStr]= groupingCountMap[rowHashStr]+1
         else:
             groupingFilelistMap[rowHashStr]=list()
             groupingCountMap[rowHashStr]=1
             groupingToParsersMap[rowHashStr] = pgRowStr
-            groupingFilelistMap[rowHashStr].append(fileIndex)
-        fileIndex+=1;
-
+            #if i<len(filenames):
+            groupingFilelistMap[rowHashStr].append(filenames[i-1])
+           # groupingFilelistMap[rowHashStr].append(i)  
+        i+=1
         #Create all edges for complex, where an edge exists between each set of nodes
         #with a difference of 1 error
         nodeEdgeMap[ pgRowStr ] = set()
@@ -237,12 +240,12 @@ def errorMatrixToDowker(error_matrix):
                    name='',
                    marker=dict(symbol='circle',
                                  size=sizes,
-                            cmax=10,
+                            cmax=3,
                                 cmin=0,
                                  color=group,
                                  line=dict(color='rgb(50,50,50)', width=0.5)
                                  ),
-                   text= ['Grouping {}<br> File weight {} '.format(groupings[i][:50],weights[i]) for i in range(0,N)],
+                   text= ['Grouping {}<br> File weight {} <br>Files {}'.format(groupings[i][:50],weights[i],filelist[i]) for i in range(0,N)],
                     hovertemplate =
         '<i>%{text}'+
         '<br>Length: %{z}<br>',
@@ -278,7 +281,14 @@ def errorMatrixToDowker(error_matrix):
 
  #   directory="C:/Users/letitia.li/Documents/"
     plotly.offline.plot(fig, filename='dowker_faw.html')
-    print("--- %s seconds ---" % (time.time() - start_time))
+    with open("dowker_faw.html", 'r') as f1:
+        with open(html_out, 'w') as f:
+           # f.write("TEXT\n")
+            #f.write(vars['file_names']);
+            for line in f1:
+                f.write(line)
+#    with open("dowker_faw.html", 'r') as f1:
+#    print("--- %s seconds ---" % (time.time() - start_time))
 
 #errorMatrixToDowker("C:/Users/letitia.li/Documents/Safedocs/TA1/Eval/errorMatrix_internet.npz")
 

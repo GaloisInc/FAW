@@ -50,11 +50,16 @@ def main():
    
     file_names = []
     file_names_backward = {}
-    ft_names = ['pdfinfo_<<workbench: Exit code 0>>', 'pdfid_<<workbench: Exit code 0>>', 'pdffonts_<<workbench: Exit code 0>>', 'pdftocairo-pdf_<<workbench: Exit code 0>>', 'pdftops_<<workbench: Exit code 0>>', 'pdftotext_<<workbench: Exit code 0>>' 'polyfile_<<workbench: Exit code 0>>', 'qpdf-check_<<workbench: Exit code 2>>', 'pdfid_<<workbench: Exit code 0>>', 'caradoc-stats_<<workbench: Exit code 2>>', 'caradoc-strict_<<workbench: Exit code 2>>', 'mutool-clean_<<workbench: Exit code 0>>', 'pdfium_<<workbench: Exit status: RuntimeError>>']
+    ft_names=list()
+    f =  open('keys.txt', 'r')
+    allKeys = f.read()
+    for key in allKeys.split("\n"):
+        ft_names.append(key)    
+   # ft_names = ['pdfinfo_<<workbench: Exit code 0>>', 'pdfid_<<workbench: Exit code 0>>', 'pdffonts_<<workbench: Exit code 0>>', 'pdftocairo-pdf_<<workbench: Exit code 0>>', 'pdftops_<<workbench: Exit code 0>>', 'pdftotext_<<workbench: Exit code 0>>' 'polyfile_<<workbench: Exit code 0>>', 'qpdf-check_<<workbench: Exit code 2>>', 'pdfid_<<workbench: Exit code 0>>', 'caradoc-stats_<<workbench: Exit code 2>>', 'caradoc-strict_<<workbench: Exit code 2>>', 'mutool-clean_<<workbench: Exit code 0>>', 'pdfium_<<workbench: Exit status: RuntimeError>>']
     ft_lookup = {}
     matrix = []
     curr=0
-    errorMatrix = np.asmatrix(np.zeros(shape=(30,len(ft_names)+1)))
+    errorMatrix = np.asmatrix(np.zeros(shape=(64,len(ft_names)+1)))
     set1 = set()
     set2 = set()
     mode = 'files'
@@ -75,10 +80,17 @@ def main():
             file_names.append(obj.pop('_id'))
             file_names_backward[file_names[-1]] = len(file_names) - 1
             matrix.append({})
-          #  lines.append(line)
+            #if "1253.pdf" in line:
+#                lines.append(line)
+             #   allvals = line.split(",")
+              #  with open('names.txt', 'w') as f:
+             #       for val in allvals:
+              #          f.write(val+"\n")
+
             i=1
-            a="pdfinfo_<>"
-            matrix[-1][0]=file_names[-1]
+            #a="pdfinfo_<>"
+            
+            #matrix[-1][0]=file_names[-1]
             curr+=1
           #  errorMatrix.resize(len(ft_names),curr, False)
             
@@ -94,22 +106,13 @@ def main():
                         break
                 if not(matched):
                     errorMatrix[curr, i]=1
-           #     matrix[-1][i]="|"+list(obj.keys())[0] +"|"
-               # matrix[-1][i]=obj[list(obj.keys())[0]]
-               # if name in obj:
-                #    matrix[-1][i]=obj[name]
-               # else:
-                #    matrix[-1][i]=name
-              #  matrix[-1][i]=line[0:300]
                 i+=1
-#            for k, v in obj.items():
- #               print(k)
-                
+
         elif mode == 'refs':
             # Ensure UI maintains its old decision (this was a regression; the
             # new code does not have this flaw)
             #print(line)
-            lines.append(line)
+           # lines.append(line)
             if not use_refs:
                 continue
 
@@ -121,15 +124,14 @@ def main():
         else:
             raise NotImplementedError(mode)
     file1.close()
-	#Create Dowker from matrix
-    errorMatrixToDowker(errorMatrix)
-	#Return plotly args
-	
-
+    #Create Dowker from matrix
+    errorMatrixToDowker(errorMatrix, file_names, args.html_out)
+    #Return plotly args
+  #  html_vars['file_names']=str(curr)
     # Sort files based on likelihood of being 'odd'
-
-    html_vars['lines']=str(errorMatrix)
-    write_html(os.path.join(_path, 'index.pug'), html_vars, args.html_out)
+   # html_vars['lines']=lines[0]
+   # html_vars['lines']=str(errorMatrix)
+ #   write_html(os.path.join(_path, 'index.pug'), html_vars, args.html_out)
 
 
 def write_html(template_file, vars, html_out):
@@ -153,10 +155,11 @@ def write_html(template_file, vars, html_out):
     compiler.global_context = vars
     with open("dowker_faw.html", 'r') as f1:
         with open(html_out, 'w') as f:
-            #f.write("TEXT\n")
+           # f.write("TEXT\n")
+            #f.write(vars['file_names']);
             for line in f1:
                 f.write(line)
-           # f.write(vars['lines'])
+            #f.write(vars['lines'])
 #            f.write(compiler.compile())
 
 
