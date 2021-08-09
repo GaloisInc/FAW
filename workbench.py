@@ -807,6 +807,8 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             ENTRYPOINT ["/init"]
             ''')
 
+    FIX DASK-WORKER TO BE WRAPPED IN SCRIPT WHICH LOOKS AT os.cpu_count() AND MAKES 1 PROC PER 2-4 cores.
+
     config_json = _export_config_json(config_data)
     # Shell execution limit
     config_json = config_json.replace('\\', '\\\\')
