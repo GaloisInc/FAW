@@ -21,13 +21,7 @@ def processGroupingCached(group, rowHashStr):
     if rowHashStr in pgCache:
         return pgCache[rowHashStr]
     else:
-        name=""
-        for index in range(len(group)):
-            if (group[index]==1):
-                name=name+str(index)+","
-
-        name=name.rstrip(",")
-
+        name = tuple(group.nonzero()[0])
         return name
 
 #Gets the error/parser index names in a more dowker-friendly format
@@ -45,7 +39,7 @@ def binaryRowHash( row ):
     return numpy.packbits(row.astype(numpy.bool_)).tobytes().hex()
 
 
-def errorMatrixToDowker(error_matrix, filenames, html_out):
+def errorMatrixToDowker(error_matrix, filenames, ft_names):
     start_time = time.time()
 
     #output_directory of error matrix and place to save all python dictionaries
@@ -74,52 +68,39 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
 
     #There is no file 0, so the first file is index 1
 
-    i=0
     #iterate over all columns representing each file's error vector
-    for fileRow in error_matrix.A:
-        if i==0:
-            i+=1
-            continue 
+    for i, fileRow in enumerate(error_matrix):
         rowHashStr = binaryRowHash(fileRow)
-        
         pgRowStr = processGroupingCached(fileRow, rowHashStr)
 
-
-       
         if rowHashStr in groupingFilelistMap:
             #groupingFilelistMap[rowHashStr].append(i)
             #if i<len(filenames):
-            groupingFilelistMap[rowHashStr].append(filenames[i-1])
+            groupingFilelistMap[rowHashStr].append(filenames[i])
             groupingCountMap[rowHashStr]= groupingCountMap[rowHashStr]+1
         else:
             groupingFilelistMap[rowHashStr]=list()
             groupingCountMap[rowHashStr]=1
             groupingToParsersMap[rowHashStr] = pgRowStr
             #if i<len(filenames):
-            groupingFilelistMap[rowHashStr].append(filenames[i-1])
-           # groupingFilelistMap[rowHashStr].append(i)  
-        i+=1
+            groupingFilelistMap[rowHashStr].append(filenames[i])
+           # groupingFilelistMap[rowHashStr].append(i)
         #Create all edges for complex, where an edge exists between each set of nodes
         #with a difference of 1 error
         nodeEdgeMap[ pgRowStr ] = set()
-        for index in range(len(fileRow)):
-            if fileRow[index]==1:
-                connNode = fileRow.tolist()
-                connRow = fileRow.copy()
-                connRow[index]=0
-                # Since connNode is just fileRow as list
-                # processGrouping(connNode) and processGrouping(fileRow) should be identical
-                rowHashStr2 = binaryRowHash(connRow)
-                connStr = processGroupingCached(connRow, rowHashStr2) 
-            #  print("edge from " + str(fileRow) + " " +  processGrouping(fileRow) + " " + connStr)
-                nodeEdgeMap[ pgRowStr ].add(connStr)
+        for index in fileRow.nonzero()[0]:
+            connRow = fileRow.copy()
+            connRow[index]=0
+            # Since connNode is just fileRow as list
+            # processGrouping(connNode) and processGrouping(fileRow) should be identical
+            rowHashStr2 = binaryRowHash(connRow)
+            connStr = processGroupingCached(connRow, rowHashStr2)
+            nodeEdgeMap[ pgRowStr ].add(connStr)
 
     #Build up length grouping map for node positioning
     for key in groupingToParsersMap:
         groupingStr = groupingToParsersMap[key]
-        groupLen=len(groupingStr.split(","))+1
-        if groupingStr=="":
-            groupLen=0
+        groupLen = len(groupingStr)
         if groupLen in lengthGroupingMap:
             lengthGroupingMap[groupLen].append(groupingStr)
         else:
@@ -137,8 +118,8 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
             r=math.sqrt(n)
             stringPosMap[groupingStr]=(r*math.cos(tk), r*math.sin(tk), length)
             k+=1
-    
-    
+
+
 
     labels=[]
     groupings=list()
@@ -158,22 +139,22 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
 
 
     groupingRows=list()
-    
+
     for node in groupingCountMap:
         groupingStr = groupingToParsersMap[node]
-        if groupingStr in stringPosMap: 
+        if groupingStr in stringPosMap:
             groupingRows.append(node)
-            
-           
+
+
             groupings.append(groupingStr)
             goodGroupingSet.add(node)
             weights.append(groupingCountMap[node])
             filelist.append(str(groupingFilelistMap[node]))
 
-            labels.append(groupingStr+"_"+ str(groupingCountMap[node]))
-            
+            labels.append(str(groupingStr)+"_"+ str(groupingCountMap[node]))
+
             sizes.append(10)
-      
+
             group.append(math.log(int(groupingCountMap[node])))
             if stringPosMap[groupingStr][2]==0:
                 Zn.append(stringPosMap[groupingStr][2])
@@ -188,7 +169,6 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
     for node in groupingCountMap:
         groupingStr = groupingToParsersMap[node]
         if groupingStr in nodeEdgeMap:
-                
             for connNode in nodeEdgeMap[groupingStr]:
                 if connNode in groupings and groupingStr in groupings:
                     highCount= groupingCountMap[node]
@@ -215,14 +195,23 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
     Ye=[]
     Ze=[]
     edgeColors=[]
+    hoverlabels = []
     for e in Edges:
         Xe+=[Xn[e[0]],Xn[e[1]], None]# x-coordinates of edge ends
         Ye+=[Yn[e[0]],Yn[e[1]], None]
         Ze+=[Zn[e[0]],Zn[e[1]], None]
-      
+
         edgeColors.append(e[2])
         edgeColors.append(e[2])
         edgeColors.append(e[2])
+
+        g_changed = set(groupings[e[0]]).symmetric_difference(groupings[e[1]])
+        gnames = [ft_names[g] for g in g_changed]
+        t = [f'Relation of {len(gnames)} different features']
+        for g in gnames:
+            t.append(f'<br />  {g}')
+        t = ''.join(t)
+        hoverlabels.extend([t, t, t])
     print(len(Xe))
     print(len(edgeColors))
     trace1=go.Scatter3d(x=Xe,
@@ -230,9 +219,19 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
                    z=Ze,
                    mode='lines',
                    line=dict(color=edgeColors, width=1),
-                   hoverinfo='none'
+                   text=hoverlabels,
+                   hovertemplate='<i>%{text}',
+                   hoverinfo='text',
                    )
 
+    hoverlabels = []
+    for i in range(N):
+        gnames = [ft_names[g] for g in groupings[i]]
+        t = [f'Grouping of {len(gnames)} features']
+        for g in gnames:
+            t.append(f'<br />  {g}')
+        t.append(f'<br /># Files: {weights[i]}')
+        hoverlabels.append(''.join(t))
     trace2=go.Scatter3d(x=Xn,
                    y=Yn,
                    z=Zn,
@@ -245,8 +244,8 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
                                  color=group,
                                  line=dict(color='rgb(50,50,50)', width=0.5)
                                  ),
-                   text= ['Grouping {}<br> File weight {} <br>Files {}'.format(groupings[i][:50],weights[i],filelist[i]) for i in range(0,N)],
-                    hovertemplate =
+                   text=hoverlabels,
+                   hovertemplate =
         '<i>%{text}'+
         '<br>Length: %{z}<br>',
                    hoverinfo='text',
@@ -280,15 +279,7 @@ def errorMatrixToDowker(error_matrix, filenames, html_out):
     fig=go.Figure(data=data, layout=layout)
 
  #   directory="C:/Users/letitia.li/Documents/"
-    plotly.offline.plot(fig, filename='dowker_faw.html')
-    with open("dowker_faw.html", 'r') as f1:
-        with open(html_out, 'w') as f:
-           # f.write("TEXT\n")
-            #f.write(vars['file_names']);
-            for line in f1:
-                f.write(line)
-#    with open("dowker_faw.html", 'r') as f1:
-#    print("--- %s seconds ---" % (time.time() - start_time))
+    return plotly.offline.plot(fig, output_type='div')
 
 #errorMatrixToDowker("C:/Users/letitia.li/Documents/Safedocs/TA1/Eval/errorMatrix_internet.npz")
 

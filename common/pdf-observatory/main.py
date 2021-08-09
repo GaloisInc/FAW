@@ -459,7 +459,8 @@ class Client(vuespa.Client):
             def get_output_html():
                 nonlocal file_out
                 assert file_out is None, 'Cannot use <outputHtml> twice'
-                file_out = tempfile.NamedTemporaryFile(delete=False)
+                file_out = tempfile.NamedTemporaryFile(delete=False,
+                        suffix='.html')
                 file_out.close()
                 return file_out.name
             cmd = self._cmd_plugin_template_replace(cmd, vuespa_url, {
@@ -502,7 +503,8 @@ class Client(vuespa.Client):
         def get_output_html():
             nonlocal output_html
             assert output_html is None, 'Cannot use <outputHtml> twice'
-            output_html = tempfile.NamedTemporaryFile(delete=False)
+            output_html = tempfile.NamedTemporaryFile(delete=False,
+                    suffix='.html')
             output_html.close()
             return output_html.name
 
