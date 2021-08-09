@@ -10,6 +10,11 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     # Load parameters
     dec_args = json.loads(json_arguments)
 
+    # Set defaults
+    debug_str = ''
+    dec_args.setdefault('dependent', False)
+    dec_args.setdefault('linkage', 'complete')
+
     # Compute sparse features
     file_to_idx = {}
     ft_to_idx = {}
@@ -66,16 +71,73 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     # X is (file, ft) at the moment. We actually want to find features which
     # are the same.
     X = X.T
-    label_counts = X.sum(1)
+    label_counts = X.sum(1).astype(int)
 
-    # And we want each dim to be zero mean, unit std s.t. euclidean distance
-    # takes rarity into account.
-    X -= X.mean(1, keepdims=True)
-    X /= X.std(1, keepdims=True) + 1e-30
+    X_debug = False
+    if X_debug:
+        # Lots of debug info -- suitable only for very small sets
+        X_raw = X.copy()
+
+    if False:
+        # Compute cosine similarity using zero-mean vectors
+        X -= X.mean(1, keepdims=True)
+        X /= (X ** 2).sum(1, keepdims=True) ** 0.5 + 1e-30
+        X = 1. - (X @ X.T)
+    elif True:
+        # Predictive power.... 0 means no correlation, 1 means synchronized...
+        # Want 1 - P(knowing B tells you something about A)
+        # P(A|B) vs P(A|~B)... there's no way it's that simple?
+
+        # https://en.wikipedia.org/wiki/Relative_risk_reduction
+        # Risk reduction methodology. Specifically, "attributable risk"
+
+        # X is (ft, file)
+        N = X.shape[1]
+        X_sum = X.sum(1, keepdims=True)
+        eps = 1e-20
+        X_b = (
+                # P(A|B)
+                (X @ X.T) / (X_sum.T + eps)
+                # P(A|~B)
+                - (X @ (1 - X.T)) / (N - X_sum.T + eps)
+        )
+        X_a = (
+                (X @ X.T) / (X_sum + eps)
+                - ((1 - X) @ X.T) / (N - X_sum + eps))
+
+        # Default is independence, which lets us peruse highly related features.
+        # Auxiliary is dependence, which lets us peruse "implies" relationships
+        u = (abs(X_a) < abs(X_b))
+        if dec_args['dependent']:
+            # Max dependence
+            u = 1 - u
+        X = X_a * u + (1 - u) * X_b
+
+        X = 1 - X
+    else:
+        # Compute 1 - min(P(A|B))
+        X_sum = X.sum(1, keepdims=True)
+        X = (X @ X.T) / np.maximum(X_sum, X_sum.T)
+        X = 1. - X
 
     labels = [None for _ in range(len(ft_to_idx))]
     for k, v in ft_to_idx.items():
         labels[v] = k
+        if X_debug:
+            # Table lines up if prefix
+            labels[v] = f'{X_raw[v].astype(int)} - {k}'
+
+    if False:
+        # Debug code to inspect distances
+        fts = ['CalledProcessError', "'<' not supported"]
+        idx = [-1 for _ in fts]
+        for k, v in ft_to_idx.items():
+            for fti, ft in enumerate(fts):
+                if ft in k:
+                    assert idx[fti] < 0, 'Duplicate for ' + ft
+                    idx[fti] = v
+
+        debug_str = str(X[np.asarray(idx)][:, np.asarray(idx)])
 
     if False:
         # Summarize
@@ -86,11 +148,14 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     # NOTE -- tried HDBSCAN, ran in about 2x the time as scikit-learn's
     # AgglomerativeClustering. Also, had worse results (on this linkage tree
     # problem).
+    # Linkage = 'single' means min between cluster and new candidate point;
+    # 'complete' means max.
     print(f'About to hierarchically cluster on {X.shape}', file=sys.stderr)
     import time
     cluster_start = time.time()
 
     model = AgglomerativeClustering(
+            affinity='precomputed', linkage=dec_args['linkage'],
             distance_threshold=0.,
             n_clusters=None,
             ).fit(X)
@@ -140,16 +205,30 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 </style>''')
         f.write('<script>')
         data = {
+                'debug_str': debug_str,
+                'distance_matrix': X.tolist(),
                 'linkage': linkage_matrix.tolist(),
                 'labels': labels,
                 'label_counts': label_counts.tolist(),
+                'api_url': workbench_api_url,
+                'dec_args': dec_args,
         }
         f.write(f'window.data = {json.dumps(data)};\n')
         f.write(r'''
+                let dEpsilon = 1e-8;
+                function callRedecide(args) {
+                    let argsNew = Object.assign({}, window.data.dec_args, args);
+
+                    let req = new XMLHttpRequest();
+                    let url = window.data.api_url + 'redecide';
+                    req.open('post', url, true);
+                    req.setRequestHeader('Content-Type', 'application/json');
+                    req.send(JSON.stringify(argsNew));
+                }
                 Vue.component('dendrogram', {
                     template: `<div class="dendrogram">
                         <div v-if="leafNodeIs" class="header leaf">{{leafLabel}}</div>
-                        <div v-else-if="childDistance === 0" class="header leaf">
+                        <div v-else-if="childDistance < dEpsilon" class="header leaf">
                             <!-- special case -- everything here matches perfectly -->
                             <ul>
                                 <li v-for="v of getChildLabels()">{{v}}</li>
@@ -170,21 +249,25 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 <td>
                                     <dendrogram
                                             :id="childLeft" :linkage="linkage"
-                                            :labels="labels" />
+                                            :labels="labels"
+                                            :label-counts="labelCounts" />
                                 </td>
                                 <td>
-                                    Distance: {{childDistance}}
+                                    <span v-if="false">Distance: {{childDistance}}</span>
+                                    <span v-else>Similarity: {{1 - childDistance}}</span>
                                 </td>
                                 <td>
                                     <dendrogram
                                             :id="childRight" :linkage="linkage"
-                                            :labels="labels" />
+                                            :labels="labels"
+                                            :label-counts="labelCounts" />
                                 </td>
                             </tr>
                         </table>
                     </div>`,
                     props: {
                         labels: Object,
+                        labelCounts: Object,
                         linkage: Object,
                         id: Number,
                         startUncollapsed: Boolean,
@@ -211,7 +294,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             return this.linkage[this.id - this.labels.length][2];
                         },
                         leafLabel() {
-                            return this.labels[this.id];
+                            return this.getLabelFor(this.id);
                         },
                         leafNodeIs() {
                             return this.id < this.labels.length;
@@ -224,7 +307,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             while (stack.length > 0) {
                                 let i = stack.pop();
                                 if (i < this.labels.length) {
-                                    r.push(this.labels[i]);
+                                    r.push(this.getLabelFor(i));
                                 }
                                 else {
                                     i -= this.labels.length;
@@ -234,6 +317,22 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             }
                             return r;
                         },
+                        getLabelFor(i) {
+                            return `[${this.labelCounts[i]}] - ${this.labels[i]}`;
+                        },
+                    },
+                });
+
+                Vue.component('vue-header', {
+                    template: `<div class="header">
+                        <div v-if="debugStr.length">DEBUG: {{debugStr}}</div>
+                        <div>Similarities shown are absolute attributable risk; using '{{decArgs.dependent ? 'IMPLIES' : 'AND'}}' relationships with '{{decArgs.linkage}}' linkage</div>
+                        <div><input type="button" :value="'Switch to ' + (decArgs.dependent ? 'AND' : 'IMPLIES')" @click="callRedecide({dependent: !decArgs.dependent})" /></div>
+                        <div><input type="button" :value="'Switch to ' + (decArgs.linkage === 'single' ? 'complete' : 'single') + ' linkage'" @click="callRedecide({linkage: decArgs.linkage === 'single' ? 'complete' : 'single'})" /></div>
+                    </div>`,
+                    props: {
+                        debugStr: String,
+                        decArgs: Object,
                     },
                 });
 
@@ -242,14 +341,17 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
                         <ul class="search-results">
                             <li v-for="v of searchList" @click="searchActual = v">
-                                <span v-if="v !== -1">{{labels[v]}}  [{{labelCounts[v]}}]</span>
+                                <span v-if="v !== -1">[{{labelCounts[v]}}] {{labels[v]}} </span>
                                 <span v-else>(truncated)</span>
                             </li>
                         </ul>
                         <ul v-if="searchActual >= 0" class="similar-results">
                             <li v-for="v of results">
-                                <span v-if="typeof v === 'number'" @click="searchActual = v">{{labels[v]}}  [{{labelCounts[v]}}]</span>
-                                <span v-else style="font-weight: bold">Distance: {{v.distance}}</span>
+                                <span v-if="typeof v === 'number'" @click="searchActual = v">[{{labelCounts[v]}}] {{labels[v]}}</span>
+                                <span v-else style="font-weight: bold">
+                                    <span v-if="false">Distance: {{v.distance}}</span>
+                                    <span v-else>Similarity: {{1 - v.distance}}</span>
+                                </span>
                             </li>
                             <li>
                                 <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
@@ -305,7 +407,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
                             this.searchNextDistance = 0;
                             this.searchNext = this.searchActual;
-                            while (this.searchNextDistance === 0) {
+                            while (this.searchNextDistance < dEpsilon) {
                                 this.resultAddNext();
                             }
                         },
@@ -365,6 +467,100 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         },
                     },
                 });
+
+                // Direct version, not going through cluster
+                Vue.component('similarity-search-direct', {
+                    template: `<div class="similarity-search">
+                        Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
+                        <ul class="search-results">
+                            <li v-for="v of searchList" @click="searchActual = v">
+                                <span v-if="v !== -1">[{{labelCounts[v]}}] {{labels[v]}} </span>
+                                <span v-else>(truncated)</span>
+                            </li>
+                        </ul>
+                        <ul v-if="searchActual >= 0" class="similar-results">
+                            <li v-for="v of results">
+                                <span @click="searchActual = v">{{(1 - searchDistance(v)).toFixed(3)}} [{{labelCounts[v]}}] {{labels[v]}}</span>
+                            </li>
+                            <li>
+                                <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
+                            </li>
+                            <li>
+                                <input type="button" value="Clear" @click="searchActual = -1" />
+                            </li>
+                        </ul>
+                    </div>
+                    `,
+                    props: {
+                        distances: Object,
+                        labels: Object,
+                        labelCounts: Object,
+                    },
+                    data() {
+                        return {
+                            results: [],
+                            search: '',
+                            searchActual: -1,
+                            searchCaseSensitive: false,
+                            searchList: [],
+                            searchListMax: 10,
+                            searchNext: null,
+                            searchTimeout: null,
+                        };
+                    },
+                    watch: {
+                        search() {
+                            this.searchTimeout !== null && clearTimeout(this.searchTimeout);
+                            this.searchTimeout = setTimeout(() => this.searchUpdate(), 300);
+                        },
+                        searchCaseSensitive() {
+                            this.searchTimeout !== null && clearTimeout(this.searchTimeout);
+                            this.searchTimeout = setTimeout(() => this.searchUpdate(), 300);
+                        },
+                        searchActual() {
+                            this.results = [];
+                            if (this.searchActual === -1) {
+                                this.searchNext = null;
+                                return;
+                            }
+
+                            this.results.push(this.searchActual);
+
+                            // Compute searchNext
+                            this.searchNext = (this.distances[this.searchActual]
+                                    .map((x, idx) => [x, idx])
+                                    .sort((a, b) => a[0] - b[0])
+                                    .map(x => x[1]));
+
+                            this.resultAddNext();
+                        },
+                    },
+                    methods: {
+                        searchDistance(i) {
+                            return this.distances[this.searchActual][i];
+                        },
+                        searchUpdate() {
+                            this.searchList = [];
+                            const flags = (this.searchCaseSensitive ? '' : 'i');
+                            const re = new RegExp(this.search, flags);
+                            for (let i = 0, m = this.labels.length; i < m; i++) {
+                                if (!re.test(this.labels[i])) continue;
+
+                                this.searchList.push(i);
+                                if (this.searchList.length >= this.searchListMax) {
+                                    this.searchList.push(-1);
+                                    break;
+                                }
+                            }
+                        },
+                        /** Adds the sibling of `node`, all of its descendents,
+                            and the parent. Returns parent. */
+                        resultAddNext() {
+                            let i = Math.min(this.searchNext.length, 10);
+                            this.results.push.apply(this.results, this.searchNext.splice(0, i));
+                        },
+                    },
+                });
         ''')
         f.write('\n</script>')
         f.write('</head>')
@@ -373,8 +569,10 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         f.write('<div id="app">If you see this, Vue is loading or broken</div>')
         f.write(r'''<script>let app = new Vue({el: '#app', data: window.data,
                 template: `<div>
-                    <similarity-search :linkage="linkage" :labels="labels" :label-counts="label_counts" />
-                    <dendrogram :id="labels.length + linkage.length - 1" :linkage="linkage" :labels="labels" :start-uncollapsed="true" />
+                    <vue-header :dec-args="window.data.dec_args" :debug-str="debug_str" />
+                    <!-- <similarity-search :linkage="linkage" :labels="labels" :label-counts="label_counts" /> -->
+                    <similarity-search-direct :distances="distance_matrix" :labels="labels" :label-counts="label_counts" />
+                    <dendrogram :id="labels.length + linkage.length - 1" :linkage="linkage" :labels="labels" :label-counts="label_counts" :start-uncollapsed="true" />
                 </div>`})</script>''')
         f.write('</body>')
         f.write('</html>')

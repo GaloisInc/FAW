@@ -19,17 +19,37 @@
             v-row
               v-checkbox(v-model="saveAsFork" label="Fork analysis set")
           v-row
-            v-textarea(label="File specification regex" prefix="^" v-model="saveAs.definition.files")
-          v-row
-            v-checkbox(v-model="saveAs.definition.files_case" label="Case sensitive")
-          v-row
             v-text-field(label="Max documents (leave blank to disable)"
                 v-model="saveAsSample"
                 :rules="[v => /^[0-9]*$/.test(v) || 'Numbers only']")
+          v-row
+            v-textarea(label="File specification regex" prefix="^" v-model="saveAs.definition.files")
+          v-row
+            v-checkbox(v-model="saveAs.definition.files_case" label="Case sensitive"
+                style="margin-top: 0")
+          v-row
+            v-label Feature specifications
+            table(style="width: 100%")
+              tr(v-for="f of (saveAs.definition.features || [])")
+                td
+                  v-btn(@click="saveAs.definition.features.splice(saveAs.definition.features.indexOf(f), 1)")
+                    v-icon(dark) mdi-delete
+                td
+                  v-autocomplete(label="Parser" :items="saveAsUiFeatureParsers"
+                      v-model="f.parser")
+                td
+                  v-text-field(v-model="f.ft" :label="saveAsUiFeatureLabel(f)" prefix="^")
+                td
+                  v-checkbox(v-model="f.ft_case" label="Case sensitive")
+              tr
+                td
+                  v-btn(@click="saveAsNewFeature()")
+                    v-icon(dark) mdi-plus
           v-row(style="display: block")
+            v-label Features included
             v-expansion-panels
               v-expansion-panel(v-for="parser of saveAsUiRules" :key="parser.id")
-                v-expansion-panel-header(:color="parser.rules.length > 0 ? 'green lighten-3' : ''")
+                v-expansion-panel-header(:color="parser.rules.length > 0 ? (parser.rulesComplex ? 'orange lighten-3' : 'green lighten-3') : ''")
                   div
                     span {{parser.id}} ({{parser.size ? `~${(parser.size / 1024).toFixed(2)}kB/doc` : 'no size'}}
                     span(v-if="parser.rules.length > 0") ; included
@@ -48,6 +68,25 @@
           v-row(class="btn-row")
             v-btn(@click="asFormSave" :disabled="!asFormValid") Save / regenerate
             v-btn(color="red" @click="asFormDelete" :disabled="currentId === NEW_ID") Delete
+
+    v-btn(block @click="pipeExpanded = !pipeExpanded" style="margin-top: 1em")
+      span(v-if="!pipeExpanded") Pipelines
+      span(v-else) Collapse
+    div(v-if="pipeExpanded" style="border: solid 1px #000; border-top: 0; padding: 0.25em;")
+      <!-- pipeline information for the currently selected analysis set. -->
+      div
+        span
+          v-icon mdi-help-rhombus
+        span(style="font-size:0.85em") Pipelines attached to analysis sets are a two-stage process: 1) The pipeline is initiated. All files *currently* matching the analysis set definition, ignoring max documents, will be available to the pipeline. Thus, best to wait until all non-pipeline parsers have finished. 2) When the pipeline finishes all of its tasks, all documents (including those outside of the analysis set) will be processed with attached parsers learned from this analysis set.
+      v-expansion-panels
+        AnalysisSetPipelineInfo(v-for="[k, v] of Object.entries(pipeCfg)"
+            v-if="!v.disabled"
+            :key="currentId + '-' + k"
+            :pipeline="k"
+            :aset="currentId"
+            :aset-data="currentAsPipelines[k]"
+            :cfg="v"
+            @update="update()")
 </template>
 
 <style scope lang="scss">
@@ -64,75 +103,18 @@
 </style>
 
 <script lang="ts">
+import bus from '@/bus';
+import AnalysisSetPipelineInfo from '@/components/AnalysisSetPipelineInfo.vue';
+import {AsData, AsFeature, AsPipeline, AsStatus} from '@/interface/aset.ts';
 import Vue from 'vue';
-
-interface AsRule {
-  parser: string;
-  filesets?: Array<string>;
-  src: string;
-  src_case?: boolean;
-  dst: string;
-}
-
-interface AsParser {
-  id: string;
-  size_doc: number;
-  filesets?: Array<string>;
-}
-
-/** Contains information required to regenerate the analysis set
-  */
-interface AsDefinition {
-  files: string;
-  files_case: boolean;
-  sample: number;
-  rules: Array<AsRule>;
-}
-
-interface AsStatus {
-  id: string;
-  size_docs: number;
-  size_disk: number;
-  status: string;
-  definition: AsDefinition,
-}
-namespace AsStatus {
-  export function makeEmpty(id: string, parsers?: Array<AsParser>): AsStatus {
-    const r: AsStatus = {
-      id,
-      size_docs: 0,
-      size_disk: 0,
-      status: '',
-      definition: {
-        files: '',
-        files_case: false,
-        sample: 0,
-        rules: [],
-      },
-    };
-
-    if (parsers) {
-      for (const p of parsers) {
-        // Include anything adding 10 or fewer bytes per file by default
-        if (p.size_doc > 10) continue;
-        r.definition.rules.push({parser: p.id, src: '', dst: ''});
-      }
-    }
-
-    return r;
-  }
-}
-
-interface AsData {
-  asets: Array<AsStatus>;
-  parsers: Array<AsParser>;
-}
 
 export default Vue.extend({
   components: {
+    AnalysisSetPipelineInfo,
   },
   props: {
     currentId: String,
+    pipeCfg: Object as () => any,
   },
   data() {
     return {
@@ -141,6 +123,8 @@ export default Vue.extend({
       asData: {asets: [], parsers: []} as AsData,
       asFormValid: false,
       expanded: false,
+      ftCountCache: new Map<string, Map<string, {count: number|string, updated: number}>>(),
+      pipeExpanded: false,
       saveAs: AsStatus.makeEmpty(''),
       saveAsFork: false,
     }
@@ -152,6 +136,16 @@ export default Vue.extend({
             (x.size_disk / 1024 / 1024).toFixed(1), ' MB'];
         if (x.status.length) label.push(`; ${x.status}`);
         label.push(')');
+        if (Object.keys((x.pipelines || {})).length !== 0) {
+          label.push(' -- pipelines ');
+          for (const [ki, k] of Object.keys(x.pipelines!).entries()) {
+            if (ki !== 0) label.push(', ');
+            label.push(k);
+            if (!x.pipelines![k].done) {
+              label.push('[running]');
+            }
+          }
+        }
         return {
           text: label.join(''),
           value: x.id,
@@ -163,6 +157,13 @@ export default Vue.extend({
       });
       return options;
     },
+    currentAsPipelines(): {[key: string]: AsPipeline} {
+      const id = this.currentId;
+      for (const a of this.asData.asets) {
+        if (a.id === id) return a.pipelines;
+      }
+      return {};
+    },
     saveAsSample: {
       get(): string {
         return this.saveAs.definition.sample ? this.saveAs.definition.sample.toString() : '';
@@ -173,12 +174,20 @@ export default Vue.extend({
         this.saveAs.definition.sample = vv;
       },
     },
+    /** Return information on parsers which can be used to filter analysis sets
+        via features. */
+    saveAsUiFeatureParsers(): Array<any> {
+      return this.asData.parsers.filter(x => !x.pipeline).map(x => {return {
+        text: x.id,
+        value: x.id,
+      }});
+    },
     /** Return information on parsers cross UI rules */
     saveAsUiRules(): Array<any> {
       let r = [];
       const map = new Map<string, any>();
       for (const p of this.asData.parsers) {
-        r.push({id: p.id, size: p.size_doc, rules: []});
+        r.push({id: p.id, size: p.size_doc, rulesComplex: false, rules: []});
         map.set(p.id, r[r.length - 1]);
       }
       const rules = this.saveAs.definition.rules;
@@ -187,6 +196,7 @@ export default Vue.extend({
 
         let rr = map.get(rule.parser);
         if (rr === undefined) {
+          // A rule based on old data? Still show the user
           const rrName = `<NOT FOUND> ${rule.parser}`;
           rr = map.get(rrName);
           if (rr === undefined) {
@@ -196,6 +206,9 @@ export default Vue.extend({
           }
         }
         rr.rules.push({index: i, rule});
+
+        // Flag more complicated things
+        if (rule.src.trim().length || rule.dst.trim().length) rr.rulesComplex = true;
       }
       return r;
     },
@@ -251,6 +264,9 @@ export default Vue.extend({
         await this.$vuespa.call('analysis_set_update', this.saveAs);
         await this.update();
         this.$emit('update:currentId', this.saveAs.id);
+        // Emit a standardized "update" in case our id didn't change and a
+        // reset was not triggered.
+        this.$emit('update');
         this.expanded = false;
       });
     },
@@ -262,6 +278,59 @@ export default Vue.extend({
         await this.update();
       });
     },
+    saveAsNewFeature() {
+      let f = this.saveAs.definition.features;
+      if (!f) {
+        f = [];
+        this.$set(this.saveAs.definition, 'features', f);
+      }
+      f.push({parser: '', ft: ''});
+    },
+    /** Fetches the feature label for a given query. */
+    saveAsUiFeatureLabel(f: AsFeature): string {
+      const fParser = f.parser;
+      let parserStats = this.ftCountCache.get(fParser);
+      if (parserStats === undefined) {
+        parserStats = new Map();
+        this.ftCountCache.set(fParser, parserStats);
+      }
+
+      const fFtKey = f.ft + '///' + (f.ft_case ? '' : 'i');
+      let rec = parserStats.get(fFtKey);
+      const oldTime = Date.now() - 120 * 1000;
+      let count: any = '<pending>';
+      if (rec === undefined || rec.updated < oldTime) {
+        // Update -- clean cache first to prevent memory leaks
+        for (const [k, v] of parserStats.entries()) {
+          if (v.updated < oldTime) {
+            parserStats.delete(k);
+          }
+        }
+
+        // Then insert and query
+        rec = {count: '<pending>', updated: Date.now()};
+        parserStats.set(fFtKey, rec);
+        (async () => {
+          try {
+            const r = await this.$vuespa.call('analysis_set_ft_count', f);
+            rec.count = r;
+          }
+          catch (e) {
+            rec.count = '<error>';
+            throw e;
+          }
+          finally {
+            // Reactivity
+            rec.updated = Date.now();
+            this.ftCountCache = new Map(this.ftCountCache);
+          }
+        })().catch(console.error);
+      }
+      else {
+        count = rec.count;
+      }
+      return `Feature (${count} matching files)`;
+    },
     saveAsValidateName() {
       if (this.currentId === this.NEW_ID || this.saveAsFork) {
         // Must not be in list
@@ -272,6 +341,7 @@ export default Vue.extend({
     },
     async update() {
       this.asData = await this.$vuespa.call('analysis_set_data');
+      bus.$emit('analysisSetData', this.asData);
       if (!this.currentId) {
         if (this.asData.asets.length > 0) {
           this.$emit('update:currentId', this.asData.asets[0].id);
@@ -287,7 +357,7 @@ export default Vue.extend({
         await fn();
       }
       catch (e) {
-        this.$emit('error', e);
+        bus.$emit('error', e);
         throw e;
       }
     },

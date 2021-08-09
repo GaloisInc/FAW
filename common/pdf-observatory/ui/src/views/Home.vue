@@ -42,13 +42,18 @@
                   v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
-          AnalysisSetConfig(:currentId.sync="analysisSetId" @error="error = $event")
+          AnalysisSetConfig(:currentId.sync="analysisSetId"
+              :pipeCfg="config && config.pipelines"
+              @update="pdfGroupsDirty = true")
 
           v-expansion-panels(inset :style="{'margin-top': '1em'}")
             v-expansion-panel
-              v-expansion-panel-header(:class="{'grey lighten-2': true}") Decision Plugins
+              v-expansion-panel-header(:class="{'grey lighten-2': true}")
+                span
+                  span Decision Plugins
+                  span(v-if="fileFilters.length") {{' '}}(filtered)
               v-expansion-panel-content
-                v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.decision_views || {})"
+                v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsDecision)"
                     :key="pluginKey"
                     @click="pluginDecisionView(pluginKey, {})") {{plugin.label}}
                 v-btn(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0") (Close current plugin)
@@ -56,17 +61,10 @@
                   v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
 
-            v-expansion-panel
-              v-expansion-panel-header(:class="{'grey lighten-2': true}") Long-running Task Statuses
-              v-expansion-panel-content
-                v-expansion-panels(popout)
-                  template(v-for="pipe of config && Object.keys(config.pipelines) || []")
-                    template(v-for="task of Object.keys(config.pipelines[pipe].tasks)")
-                      PipelineTaskInfo(:key="pipe + '-' + task" :pipeline="pipe" :task="task")
-
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
-              v-btn(v-for="f, fidx of fileFilters" @click="fileFilterPopTo(fidx)") {{f[0]}}
+              v-btn(v-for="f, fidx of fileFilters" :key="fidx" @click="fileFilterPopTo(fidx)") {{f[0]}}
+              v-btn(@click="fileFilterInvert()") (Invert last)
             //- Allow selection of different things.
             div(v-if="decisionDefinition")
               v-radio-group(row v-model="decisionAspectSelected")
@@ -94,6 +92,7 @@
                 :decisionAspectSelected="decisionAspectSelected")
             ConfusionMatrix(v-if="pdfs.length"
               @view="showFile($event)"
+              @filter-file-list="fileFilterAdd($event.name, new Set($event.files))"
               :pdfs="pdfs"
               :pdfsReference="pdfsReference"
               :decisionAspectSelected="decisionAspectSelected")
@@ -222,7 +221,7 @@
                   v-expansion-panel
                     v-expansion-panel-header(:class="{'grey lighten-2': true}") File Detail Plugins
                     v-expansion-panel-content
-                      v-btn(v-for="[pluginKey, plugin] of Object.entries(config && config.file_detail_views || {})"
+                      v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsFileDetail)"
                           :key="pluginKey"
                           @click="pluginFileDetailView(pluginKey, {})") {{plugin.label}}
                       v-btn(v-show="pluginIframeSrc != null || pluginIframeLoading" @click="pluginIframeSrc = null; pluginIframeLoading = 0") (Close current plugin)
@@ -264,7 +263,7 @@
     width: 100%;
     display: flex;
     flex-direction: column;
-    align-content: start;
+    align-content: flex-start;
     justify-content: center;
 
     > div {
@@ -349,6 +348,8 @@
 // @ is an alias to /src
 //import HelloWorld from '@/components/HelloWorld.vue'
 
+import bus from '@/bus';
+
 // Editor-related includes
 import AceEditorComponent from 'vue2-ace-editor';
 import 'brace/mode/yaml';
@@ -360,6 +361,7 @@ import Vue from 'vue';
 
 import {PdfDecision, sortByReject} from '@/components/common';
 import {DslExpression, DslResult, dslParser, dslDefault} from '@/dsl';
+import {AsData} from '@/interface/aset';
 
 import AnalysisSetConfigComponent from '@/components/AnalysisSetConfig.vue';
 import CheckmarkComponent from '@/components/Checkmark.vue';
@@ -368,7 +370,6 @@ import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
 import StatsComponent from '@/components/HomeStats.vue';
 import DbViewComponent from '@/components/DbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
-import PipelineTaskInfoComponent from '@/components/PipelineTaskInfo.vue';
 
 export enum DbView {
   Decision = 0,
@@ -377,6 +378,7 @@ export enum DbView {
   Stats = 3,
 }
 
+export type FileFilterData = [string, Set<string>];
 export type PdfGroups = {groups: {[message: string]: Array<[number, number]>},
     files: Array<string>};
 
@@ -397,13 +399,13 @@ export default Vue.extend({
     ConfusionMatrix: ConfusionMatrixComponent,
     DbView: DbViewComponent,
     FileFilterDetail: FileFilterDetailComponent,
-    PipelineTaskInfo: PipelineTaskInfoComponent,
     plot: CirclePlotComponent,
     Stats: StatsComponent,
   },
   data() {
     return {
       analysisSetId: null as null|string,
+      asData: {asets: [], parsers: []} as AsData,
       beforeDestroyFns: [] as Array<{(): any}>,
       config: null as any,
       dbView: DbView.Decision,
@@ -422,7 +424,7 @@ export default Vue.extend({
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
       failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
-      fileFilters: new Array<[string, Set<string>]>(),
+      fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
       holdReferences: true,
       initReferences: false,
@@ -510,6 +512,12 @@ export default Vue.extend({
           this.scrollToFileDetails();
         }
       },
+    },
+    uiPluginsDecision(): {[key: string]: any} {
+      return this.pluginsWithPipelines('decision_views');
+    },
+    uiPluginsFileDetail(): {[key: string]: any} {
+      return this.pluginsWithPipelines('file_detail_views');
     },
   },
   watch: {
@@ -612,6 +620,21 @@ export default Vue.extend({
     },
   },
   mounted() {
+    const busOn = (event: string, callback: (event: any) => void) => {
+      bus.$on(event, callback);
+      return () => {
+        bus.$off(event, callback);
+      };
+    };
+    this.beforeDestroyFns.push(busOn('error', (error: any) => {
+      this.error = error;
+      console.log(error);
+    }));
+
+    this.beforeDestroyFns.push(busOn('analysisSetData', (data: AsData) => {
+      this.asData = data;
+    }));
+
     this.beforeDestroyFns.push(this.$vuespa.httpHandler(
         (url: string) => {this.vuespaUrl = url; console.log(url);},
         {
@@ -676,7 +699,7 @@ export default Vue.extend({
         await fn();
       }
       catch (e) {
-        this.error = e;
+        bus.error(e);
         throw e;
       }
     },
@@ -698,7 +721,9 @@ export default Vue.extend({
     },
     decisionCodeUpdated_inner() {
       // Step 1 -- resize container to appropriate height
-      const editor = (this.$refs.decisionCodeEditor as any).editor;
+      const editorContainer = this.$refs.decisionCodeEditor as any;
+      if (!editorContainer) return;
+      const editor = editorContainer.editor;
       editor.container.style.height = `${editor.getSession().getScreenLength() * editor.renderer.lineHeight}px`;
       editor.resize();
 
@@ -881,6 +906,27 @@ export default Vue.extend({
     fileFilterAdd(name: string, files: Set<string>) {
       this.fileFilters.push([name, files]);
     },
+    fileFilterInvert() {
+      if (this.fileFilters.length === 0) {
+        return;
+      }
+
+      const last = this.fileFilterLatest()!;
+      let prev: FileFilterData;
+      if (this.fileFilters.length > 1) {
+        prev = this.fileFilters[this.fileFilters.length - 2];
+      }
+      else {
+        prev = ['(all)', new Set(this.pdfGroups.files)];
+      }
+
+      this.fileFilters.push([last[0] + ' (inverted)',
+          new Set([...prev[1]].filter(x => !last[1].has(x)))]);
+    },
+    fileFilterLatest(): undefined|FileFilterData {
+      if (this.fileFilters.length === 0) return;
+      return this.fileFilters[this.fileFilters.length - 1];
+    },
     fileFilterPopTo(idx: number) {
       this.fileFilters.splice(idx, this.fileFilters.length);
     },
@@ -911,12 +957,20 @@ export default Vue.extend({
 
           // Reference decisions can be large, so only submit if needed
           let refDecs = null;
-          if (this.config['decision_views'][pluginKey]['execStdin'].indexOf('<referenceDecisions>') !== -1) {
+          let pluginDef: any = null;
+          if (pluginKey.indexOf('!') !== -1) {
+            const [aset, pipeline, plugin] = pluginKey.split('!');
+            pluginDef = this.config['pipelines'][pipeline]['decision_views'][plugin];
+          }
+          else {
+            pluginDef = this.config['decision_views'][pluginKey];
+          }
+          if (pluginDef['execStdin'].indexOf('<referenceDecisions>') !== -1) {
             refDecs = this.pdfsReference;
           }
           // Run plugin
           const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey, 
-              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions());
+              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
 
@@ -935,7 +989,7 @@ export default Vue.extend({
         }
         catch (e) {
           if (this.pluginDecIframeLoading !== loadKey) return;
-          this.pluginDecIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
+          this.pluginDecIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
         }
         finally {
           if (this.pluginDecIframeLoading === loadKey) {
@@ -969,7 +1023,7 @@ export default Vue.extend({
             // User aborted this load.
             return;
           }
-          this.pluginIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
+          this.pluginIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
           this.pluginIframeSrcMimeType = 'text/html';
         }
         finally {
@@ -979,11 +1033,31 @@ export default Vue.extend({
         }
       });
     },
+    /** Find a plugin category and return a flat list of plugins, including any
+      analysis set + pipeline combinations.
+      */
+    pluginsWithPipelines(key: string): {[key: string]: any} {
+      if (!this.config) return {};
+      const o = Object.assign({}, this.config[key]);
+      for (const aset of this.asData.asets) {
+        for (const [pk, pv] of Object.entries(aset.pipelines)) {
+          for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][key])) {
+            const pluginKey = `${aset.id}!${pk}!${ppk}`;
+            const ok: any = o[pluginKey] = Object.assign({}, ppv);
+            ok.label = `${pk} -- ${ok.label} [${aset.id}]`;
+          }
+        }
+      }
+      return o;
+    },
     regexEscape(v: string): string {
       return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     },
     resetDbErrors() {
-      this.asyncTry(async () => {this.$vuespa.call('reset_db_errors');});
+      this.asyncTry(async () => {
+        await this.$vuespa.call('reset_db_errors');
+        this.pdfGroupsDirty = true;
+      });
     },
     async reprocess() {
       /** Re-calculate decisions based on DSL */
@@ -1034,21 +1108,28 @@ export default Vue.extend({
         this.pdfsReference = this.pdfs;
       }
 
-      // Build ignore list
-      const ignoreSet = new Set();
+      // Narrow down to only groups pertaining to selected files
+      let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
       if (this.fileFilters.length > 0) {
-        const fset = this.fileFilters[this.fileFilters.length - 1][1];
+        const fset = this.fileFilterLatest()![1];
+        let okSet = new Set();
         for (const [fi, f] of this.pdfGroups.files.entries()) {
-          if (!fset.has(f)) ignoreSet.add(fi);
+          if (fset.has(f)) okSet.add(fi);
+        }
+
+        groups = {};
+        for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
+          let nfiles = files.filter(x => okSet.has(x[0]));
+          if (nfiles.length === 0) continue;
+          groups[k] = nfiles;
         }
       }
 
       // Build file list
       const newPdfs = [];
       const pdfMap = new Map<number, PdfDecision>();
-      for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
+      for (const [k, files] of Object.entries(groups)) {
         for (const f of files) {
-          if (ignoreSet.has(f[0])) continue;
           if (pdfMap.has(f[0])) continue;
           const dec = {
                 testfile: this.pdfGroups.files[f[0]],
@@ -1077,16 +1158,16 @@ export default Vue.extend({
             pat: new RegExp(p.pat, f.caseInsensitive ? 'i' : undefined),
             check: p.check,
         }));
-        for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
+        for (const [k, files] of Object.entries(groups)) {
           let matched = false;
           // Do any of our filter's patterns match this message?
-          let filesSubset = files.filter(x => !ignoreSet.has(x[0]));
+          let filesSubset = files;
 
           const evalCheck = (k: string, check: any): Set<number> => {
             const parts = new Map<string, Array<number>>();
             for (const [id, suffix] of [['sum', '_sum'], ['nan', '_nan'],
                 ['count', '']]) {
-              let filesWithMsg = this.pdfGroups.groups[k + suffix];
+              let filesWithMsg = groups[k + suffix];
               if (filesWithMsg === undefined) {
                 if (['sum', 'nan'].indexOf(k.split('_').pop()!) !== -1) {
                   // If we can't find this, this is NOT a number, but likely a
@@ -1096,8 +1177,6 @@ export default Vue.extend({
                 }
                 throw new Error(`Could not find ${k + suffix}?`);
               }
-
-              filesWithMsg = filesWithMsg.filter(x => !ignoreSet.has(x[0]));
 
               const p = new Array<number>();
               parts.set(id, p);
@@ -1277,6 +1356,7 @@ export default Vue.extend({
       this.pdfsReference = [];
       this.asyncTry(async () => {
         await this.$vuespa.call('clear_db');
+        this.pdfGroupsDirty = true;
       });
     },
     async resetParsers() {
@@ -1285,6 +1365,7 @@ export default Vue.extend({
       this.pdfsReference = [];
       this.asyncTry(async () => {
         await this.$vuespa.call('reparse_db');
+        this.pdfGroupsDirty = true;
       });
     },
     scrollToFileDetails() {
@@ -1468,8 +1549,15 @@ export default Vue.extend({
       const tdelta = (window.performance.now() - start) / 1000;
       console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
     },
-    _pdfGroupsSubsetOptions() {
-      return {analysis_set_id: this.analysisSetId};
+    _pdfGroupsSubsetOptions(filter: boolean=false) {
+      const r: any = {analysis_set_id: this.analysisSetId};
+      if (filter) {
+        // Include restricted list of file ids, if needed
+        if (this.fileFilters.length > 0) {
+          r.file_ids = Array.from(this.fileFilterLatest()![1]);
+        }
+      }
+      return r;
     },
   },
 });

@@ -14,6 +14,7 @@ import click
 import collections
 import contextlib
 from dataclasses import dataclass
+import faw_analysis_set_util
 import faw_pipelines_util
 import functools
 import json
@@ -40,6 +41,8 @@ pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
 app_api_info = None
 app_config = None
+app_parsers = None
+app_parsers_updated = None
 
 @click.command()
 @click.option('--mongo-db', type=str, required=True, help="Path to observatory "
@@ -71,6 +74,9 @@ def main(mongo_db, pdf_dir, pdf_fetch_url, config, clean, retry_errors, api_info
     timeout_default = app_config['parserDefaultTimeout']
     timeout_total = sum([p['timeout'] or timeout_default
             for p in app_config['parsers'].values()])
+    for pp in app_config['pipelines'].values():
+        timeout_total += sum([p['timeout'] or timeout_default
+                for p in pp['parsers'].values()])
 
     # Before running, ensure that pdf-etl-tool is built
     assert os.path.lexists('/usr/local/bin/pdf-etl-tool'), \
@@ -125,6 +131,20 @@ def main(mongo_db, pdf_dir, pdf_fetch_url, config, clean, retry_errors, api_info
             allow_exceptions=True)
 
 
+_refresh_parser_lock = threading.Lock()
+def _refresh_parser_info(coll_resolver, mongo_db):
+    global app_parsers, app_parsers_updated
+    if app_parsers_updated is not None and time.monotonic() - app_parsers_updated < 2:
+        # Up-to-date
+        return
+
+    with _refresh_parser_lock:
+        db = coll_resolver(mongo_db + '/observatory').database
+        app_parsers = faw_analysis_set_util.lookup_all_parsers(db, app_config,
+                exclude_unfinished=True)
+        app_parsers_updated = time.monotonic()
+
+
 def call(args, cwd=None, input=None, timeout=None):
     p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             stdin=subprocess.PIPE, cwd=cwd)
@@ -156,6 +176,10 @@ def db_init(coll_resolver, mongo_db, pdf_dir, retry_errors):
 
     coll = coll_resolver(mongo_db + '/invocationsparsed')
     coll.create_index([('file', pymongo.ASCENDING)])
+    coll.create_index([('result.k', pymongo.ASCENDING)])
+    # Another index for quickly gathering information about features from
+    # different exit codes
+    coll.create_index([('parser', pymongo.ASCENDING), ('exitcode', pymongo.ASCENDING)])
 
     if retry_errors:
         coll = coll_resolver(mongo_db + '/observatory')
@@ -193,6 +217,10 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         retry_errors):
     db_coll = coll_resolver(mongo_db + '/rawinvocations')
 
+    # Ensure we're using up-to-date parser information. Can change rapidly due
+    # to analysis sets.
+    _refresh_parser_info(coll_resolver, mongo_db)
+
     # Clear previous raw invocations which timed out -- assume those which
     # did not time out were OK.  By assuming the ok-ness of those which did
     # not time out, the parsers may be re-run without re-running the tools.
@@ -207,7 +235,7 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     invokers_whitelist = []
     invokers_config_files = {}
     invokers_cwd = {}
-    for k, v in app_config['parsers'].items():
+    for k, v in app_parsers.items():
         if v.get('disabled'):
             continue
         invoker_cfg, invoker_version, invoker_cwd = _invokers_build_cfg(k, v)
@@ -217,6 +245,9 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         invokers_whitelist.append(k)
         delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
                 'invoker.version': {'$ne': invoker_version}})
+        if v.get('mustSucceed'):
+            delete_or_clause.append({'file': fpath_access, 'invoker.invName': k,
+                    'result.exitcode': {'$ne': 0}})
     # Used to clear out old parser data. However... since private distributions,
     # e.g. `./workbench.py ../modified-pdf ...`, it doesn't really make sense
     # to clear out the old information on the off chance it will be re-used.
@@ -247,7 +278,7 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
     # was very slow. Faster to do this.
     inv_left = len(set(invokers_whitelist).difference(invs_seen))
     timeout_default = app_config['parserDefaultTimeout']
-    for k, v in app_config['parsers'].items():
+    for k, v in app_parsers.items():
         if v.get('disabled') or k in invs_seen:
             continue
         aargs = args[:]
@@ -275,6 +306,16 @@ def _load_document_inner(doc, coll_resolver, fpath_access, mongo_db,
         call(aargs,
                 cwd='/home/dist/' + invokers_cwd[k],
                 timeout=tool_timeout)
+
+        if v.get('mustSucceed'):
+            tdoc = db_coll.find_one({'file': fpath_access, 'invoker.invName': k})
+            if tdoc is None or tdoc['result']['exitcode'] != 0:
+                s = 'missing document'
+                stderr = 'missing'
+                if tdoc is not None:
+                    s = f'exit code {tdoc["result"]["exitcode"]}'
+                    stderr = tdoc['result']['stderrRes']
+                raise ValueError(f'Parser {k} mustSucceed, but got {s}\n\nstderr: {stderr}')
 
     # For each raw invocation, parse it.
     _load_document_parse(doc['_id'],
@@ -320,6 +361,7 @@ def _invokers_build_cfg(inv_name, inv_config):
     api_info = app_api_info.copy()
     if 'pipeline' in inv_config:
         # Special case -- need to fetch task versions
+        api_info['aset'] = inv_config['aset']
         api_info['pipeline'] = inv_config['pipeline']
 
     # Prevent situation where temporary file gets deleted too early by locking
@@ -389,28 +431,50 @@ def _load_document_parse(fname, tools_pdf_name, coll_resolver, mongo_db):
     col_parse = coll_resolver(col_parse_name)
 
     # Parser is pretty fast - OK to delete all prior work and try again.
-    for parsedoc in col_parse.find({'file': fname}):
-        col_parse.delete_one({'_id': parsedoc['_id']})
+    # Note that we must keep a list of _all_ documents per parser, so we
+    # can clean up duplicates should that situation arise.
+    existing = collections.defaultdict(lambda: [])
+    for d in col_parse.find({'file': fname},
+            {'_id': True, 'file': True, 'parser': True, 'version_tool': True,
+                'version_parse': True}):
+        existing[d['parser']].append(d)
 
     tooldocs = set()
     for tooldoc in col_tools.find({'file': tools_pdf_name}):
         tooldocs.add(tooldoc['_id'])
 
-        # How one would write a check which re-uses past work.
-        if False and col_parse.find_one({'_id': tooldoc['_id']}) is not None:
-            # Already computed
-            continue
-
         # Perhaps this tool is disabled or otherwise unavailable.
-        if (tooldoc['invoker']['invName'] not in app_config['parsers']
-                or app_config['parsers'][tooldoc['invoker']['invName']].get(
+        if (tooldoc['invoker']['invName'] not in app_parsers
+                or app_parsers[tooldoc['invoker']['invName']].get(
                     'disabled')):
             # Non-existant
             continue
 
+        # See if it even needs to be reparsed
+        if tooldoc['invoker']['invName'] in existing:
+            parser_done = existing[tooldoc['invoker']['invName']]
+            # Duplicates?
+            if len(parser_done) > 1:
+                col_parse.delete_many({'_id': {
+                        '$in': [d['_id'] for d in parser_done[1:]]}})
+
+            parser_done = parser_done[0]
+            parser_config = app_parsers[tooldoc['invoker']['invName']]
+            if (
+                    parser_config['parse']['version']
+                        == parser_done.get('version_parse')
+                    and parser_config['version']
+                        == parser_done.get('version_tool')):
+                # Already computed
+                continue
+
+            # Need new; delete old
+            col_parse.delete_one({'_id': parser_done['_id']})
+
+        # Generate the new one
         pdf_etl_parse.handle_doc(tooldoc, coll_resolver, fname_rewrite=fname,
                 db_dst=col_parse_name,
-                parsers_config=app_config['parsers'])
+                parsers_config=app_parsers)
 
     if len(tooldocs) == 0:
         raise ValueError("No successful tool invocations found?")

@@ -1,0 +1,290 @@
+ {
+    parsers: {
+
+        pdftotext: {
+          exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
+          version: 'poppler-0.86.1',
+          parse: {
+            type: 'regex-counter',
+            version: '1',
+            stdout: {
+              // We do NOT want the observatory to pick these up, so just ignore
+              // every message. pdftotext must be searched via mongo!
+              '^.*$': {
+                nameGroup: '',
+              },
+            },
+            stderr: {
+              '^.*(Unknown operator).*$': {
+                nameGroup: 1
+              },
+              '^.*(Illegal character).*$': {
+                nameGroup: 1
+              },
+              '.*': {
+                nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
+              },
+            },
+          },
+        },
+
+        pdfinfo: {
+            disabled: true,
+            exec: ['pdfinfo', '<inputFile>'],
+            // Could specify a timeout for this parser specifically (seconds):
+            //timeout: 10,
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                // The 'regex-counter' type generates a small program which
+                // matches the parser's output line by line.
+                // See https://docs.python.org/3/howto/regex.html for Regex
+                // flavor. Counts are binary only.
+                //
+                // There are three parameters: 'stdstar', 'stdout', and
+                // 'stderr'.
+                //
+                // 'stdstar' applies to both, and is tried after the
+                // more-specific 'stdout' and 'stderr' arguments.
+                stdout: {
+                    '^File size: *(.*) bytes$': {
+                      nameGroup: 'File size',
+                      countGroup: 1,
+                      countAsNumber: true,
+                    },
+                    '^([a-zA-Z0-9_ ]+): *(.*)$': {
+                        nameGroup: 1,
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                        countGroup: 2,
+                        // countAsMissing can be used to
+                        countAsMissing: ['no', 'none', '0', '0.0'],
+                        // countAsNumber can be used to also add '_sum' to the
+                        // database, which is handy for aggregating numeric
+                        // values. Requires that `countGroup` points to
+                        // a string which may be cast to a number, though.
+                        //countAsNumber: true,
+                    },
+
+                    '.*': {
+                        nameGroup: 'unrecognized',
+                    },
+                },
+                stderr: {
+                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                    },
+
+                    '^Bogus.*': {
+                    },
+                },
+            },
+        },
+
+        pdffonts: {
+            // `-subst` shows only font substitutions, which are non-embedded
+            // fonts.
+            exec: ['pdffonts', '-subst', '<inputFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+              type: 'regex-counter',
+              version: '1.3',
+              stdout: {
+                '^name ': {
+                  nameGroup: '',
+                },
+                '^----': {
+                  nameGroup: '',
+                },
+                // Font name followed by object ID or `[none]`
+                '^(\\S+)\\s+(\\d+\\s+\\d+|\\[none\\])': {
+                  nameGroup: 'Unembedded font',
+                },
+              },
+              stderr: {
+                '^\\s*(Syntax Error: Top-level pages object is wrong type).*$': {
+                  nameGroup: 1,
+                },
+                '^\\s*(Wrong page range given).*$': {
+                  nameGroup: 1,
+                },
+                '^\\s*(Internal Error: xref num [0-9]+ not found but needed, try to reconstruct).*$': {
+                  nameReplace: {
+                      '[0-9]': '',
+                  },
+                  nameGroup: 1,
+                },
+                '^.*': {
+                  nameGroup: '',
+                },
+              },
+            },
+        },
+
+        "pdfinfo-meta": {
+            disabled: true,
+            exec: ['pdfinfo', '-meta', '<inputFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdstar: {
+                    '.*': {
+                        nameGroup: 'meta not implemented',
+                    },
+                },
+            },
+        },
+
+        "pdfinfo-struct": {
+            disabled: true,
+            exec: ['pdfinfo', '-struct', '<inputFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                    '^[ \\t]*(/?[a-zA-Z][a-zA-Z0-9]*)( \\(block\\))?([ :]|$)': {
+                        nameGroup: 'struct \\1\\2',
+                    },
+                    // These attributes may explode in count, but may be worth
+                    // considering unique counts...
+                    '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
+                        nameGroup: '\\g<type>',
+                    },
+                    // Anything else gets stripped
+                    '.*': {
+                        nameGroup: 'unrecognized',
+                    },
+                },
+                stderr: {
+                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                    },
+
+                    '^Bogus.*': {
+                    },
+                },
+            },
+        },
+
+        "pdftocairo-pdf": {
+            disabled: true,
+            exec: ['pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        "pdftoppm": {
+            disabled: false,
+            exec: ['pdftoppm', '<inputFile>', '<tempFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*(Unknown operator).*$': {
+                        nameGroup: 1
+                    },
+                    '^.*(Illegal character).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        "pdftocairo-ps": {
+            disabled: true,
+            exec: ['pdftocairo', '-ps', '<inputFile>', '<tempFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        pdftops: {
+            disabled: true,
+            exec: ['pdftops', '<inputFile>', '<tempFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdstar: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+
+    build: {
+       stages: {
+           final: {
+                // poppler-utils has a web of dependencies -- easiest to install
+                // directly, and use the installed binaries.
+                commands: [
+                    'RUN apt-get update \
+                        && apt-get install -y poppler-utils \
+                        ',
+                ],
+           },
+       },
+   },
+}

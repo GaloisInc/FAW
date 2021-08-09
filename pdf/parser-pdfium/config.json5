@@ -1,0 +1,62 @@
+{
+    disabled: true,
+    parsers: {
+        "pdfium": {
+            exec: ['/opt/pdfium/pdfium_test', '<inputFile>'],
+            version: 'chromium-4180',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdstar: {
+                    '^\\s*(/opt|/lib|[#]FailureMessage).*$': {
+                        nameGroup: '<<workbench: stack trace collapsed>>'
+                    },
+
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+
+    build: {
+        stages: {
+            pdfium: {
+                from: 'ubuntu:18.04',
+                copy_output: {
+                  '/src/pdfium/pdfium/out/Workbench': '/opt/pdfium',
+                },
+                commands: [
+                  'WORKDIR /src',
+                  'RUN apt-get update && apt-get install -y \
+                      cmake \
+                      curl \
+                      git \
+                      pkg-config \
+                      python2.7 \
+                      python2.7-dev \
+                      python3 \
+                      python3-dev \
+                      python3-pip \
+                      xpdf \
+                      wget \
+                      ',
+                // Setup per https://pdfium.googlesource.com/pdfium/
+                  'RUN git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git',
+                  'ENV PATH /src/depot_tools:$PATH',
+                  'RUN mkdir pdfium && cd pdfium && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git && gclient sync',
+                  // Google tools refer to python as 'python', not 'python3'.
+                  'RUN ln -s /usr/bin/python3 /usr/bin/python',
+                  // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
+                  'RUN cd pdfium/pdfium \
+                    && git checkout chromium/4260 \
+                    && echo Not needed: ./build/install-build-deps.sh \
+                    && EDITOR="python3 -c \'import sys; f = open(sys.argv[1], \\"w\\"); f.write(\\"pdf_is_standalone = true\\\\npdf_enable_xfa = true\\\\npdf_enable_v8 = true\\\\n\\"); f.close()\'" gn args out/Workbench \
+                    && ninja -C out/Workbench pdfium_test \
+                    ',
+                ],
+            },
+        }
+    }
+}

@@ -17,6 +17,7 @@ def schema_get():
     sch = s.Schema(s.Or({}, {
             s.And(str, lambda x: '_' not in x): {
                 s.Optional('disabled', default=False): s.Or(True, False),
+                s.Optional('mustSucceed', default=False): s.Or(True, False),
                 'exec': [str],
                 s.Optional('cwd', default='.'): str,
                 s.Optional('timeout', default=None): s.Or(float, int, None),
@@ -24,10 +25,11 @@ def schema_get():
                 'parse': s.Or(
                     # Run an external program with the stdout+stderr, which
                     # should output a json encoding
-                    {'type': 'program', 'exec': [str]},
+                    #{'type': 'program', 'exec': [str]},
 
                     # Run a custom, limited program to get counts.
                     {'type': 'regex-counter',
+                        'version': str,
                         s.Optional('stdstar', default={}): regex_counter_stream_handler_type,
                         s.Optional('stdout', default={}): regex_counter_stream_handler_type,
                         s.Optional('stderr', default={}): regex_counter_stream_handler_type,

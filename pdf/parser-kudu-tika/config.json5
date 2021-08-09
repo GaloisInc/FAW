@@ -1,0 +1,88 @@
+{
+  parsers: {
+    'rmeta': {
+      exec: ['./rmeta.py', '<inputFile>'],
+      version: '1.5',
+      parse: {
+        type: 'regex-counter',
+        version: '1.6',
+        stdout: {
+          '^(.*PerPage|Content-Length) -- (\\d+)$': {
+            nameGroup: 1,
+            countGroup: 2,
+            countAsNumber: true,
+            nameReplace: {
+              '\u0000': '<NULL>',
+            },
+          },
+          '^(dc:|pdf:docinfo:(?!creator_tool|producer)).*': {
+            // Duplicates, ignore
+            nameGroup: '',
+          },
+          '^(pdf:|access_permission:).*': {
+            // Permitted
+            nameReplace: {
+              '\u0000': '<NULL>',
+            },
+          },
+          '^(.*([Aa]uthor|[Cc]reator|[Tt]itle|DocumentID|InstanceID) -- )': {
+            // Ignore value -- too many discrete values
+            nameGroup: 1,
+            nameReplace: {
+              '\u0000': '<NULL>',
+            },
+          },
+          '.*': {
+            // Too much crap from tika, ignore most
+            nameGroup: '',
+          },
+        },
+        stderr: {
+          '.*': {
+            nameReplace: {
+              '[0-9]': '',
+              '\u0000': '<NULL>',
+            },
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      tikaserver: {
+        from: 'maven:3.6.3-ibmjava-8-alpine',
+        copy_output: {
+          '/tika_repo/tika-server/target/*.jar': '/tika_bin/',
+        },
+        commands: [
+          'ENV TIKA_COMMIT 79f6c6',
+          'RUN \
+            apk --update add git less openssh \
+            && rm -rf /var/lib/apt/lists/* \
+            && rm /var/cache/apk/* \
+            && git clone https://github.com/apache/tika /tika_repo \
+            && cd /tika_repo \
+            && git checkout $TIKA_COMMIT \
+            && mvn -DskipTests=true -Dossindex.fail=false -am -pl tika-server clean install',
+        ],
+      },
+      final: {
+        commands: [
+          // Set up service to run Tika server for s6-overlay
+          'SHELL ["/bin/bash", "-c"]',
+          'RUN \
+            mkdir -p /etc/services.d/kudu-tika \
+            && echo -e \'#! /bin/sh\\njava -cp "/tika_bin/*" org.apache.tika.server.TikaServerCli -spawnChild -s -enableUnsecureFeatures -enableFileUrl -h 0.0.0.0 2>&1\' >> /etc/services.d/kudu-tika/run \
+            && chmod a+x /etc/services.d/kudu-tika/run \
+            && mkdir -p /etc/services.d/kudu-tika/log \
+            && echo -e \'#! /usr/bin/execlineb -P\\nlogutil-service /var/log/kudu-tika\' >> /etc/services.d/kudu-tika/log/run \
+            && chmod a+x /etc/services.d/kudu-tika/log/run \
+            && mkdir -p /etc/cont-init.d \
+            && echo -e \'#! /bin/sh\\nmkdir -p /var/log/kudu-tika\\nchown -R nobody:nogroup /var/log/kudu-tika\' > /etc/cont-init.d/kudu-tika \
+            && echo ok'
+        ],
+      },
+    },
+  },
+}

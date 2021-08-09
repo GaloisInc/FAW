@@ -28,9 +28,15 @@
             // Any disabled parser has no effect -- comment this line to enable
             disabled: true,
             exec: ['file', '<inputFile>'],
+            // Most parsers can fail, and that's OK. Once in awhile though, it
+            // is useful to specify a parser which will only ever fail
+            // transiently, and must be retried if failed. Set to true for this
+            // behavior.
+            mustSucceed: false,
             version: '1',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdstar: {
                   // Report all lines of stdout and stderr, but strip numbers.
                   '.*': {
@@ -44,218 +50,16 @@
 
         // Definitions should follow old `invokers.cfg`, BUT eventually we also
         // want to specify `pdf-etl-parse` toolchain here.
-        pdfinfo: {
-            exec: ['/usr/local/bin/pdfinfo', '<inputFile>'],
-            // Could specify a timeout for this parser specifically (seconds):
-            //timeout: 10,
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                // The 'regex-counter' type generates a small program which
-                // matches the parser's output line by line.
-                // See https://docs.python.org/3/howto/regex.html for Regex
-                // flavor. Counts are binary only.
-                //
-                // There are three parameters: 'stdstar', 'stdout', and
-                // 'stderr'.
-                //
-                // 'stdstar' applies to both, and is tried after the
-                // more-specific 'stdout' and 'stderr' arguments.
-                stdout: {
-                    '^File size: *(.*) bytes$': {
-                      nameGroup: 'File size',
-                      countGroup: 1,
-                      countAsNumber: true,
-                    },
-                    '^([a-zA-Z0-9_ ]+): *(.*)$': {
-                        nameGroup: 1,
-                        nameReplace: {
-                            '[0-9]': '',
-                        },
-                        countGroup: 2,
-                        // countAsMissing can be used to
-                        countAsMissing: ['no', 'none', '0', '0.0'],
-                        // countAsNumber can be used to also add '_sum' to the
-                        // database, which is handy for aggregating numeric
-                        // values. Requires that `countGroup` points to
-                        // a string which may be cast to a number, though.
-                        //countAsNumber: true,
-                    },
-
-                    '.*': {
-                        nameGroup: 'unrecognized',
-                    },
-                },
-                stderr: {
-                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
-                        nameReplace: {
-                            '[0-9]': '',
-                        },
-                    },
-
-                    '^Bogus.*': {
-                    },
-                },
-            },
-        },
-
-        pdffonts: {
-            // `-subst` shows only font substitutions, which are non-embedded
-            // fonts.
-            exec: ['/usr/local/bin/pdffonts', '-subst', '<inputFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-              type: 'regex-counter',
-              stdout: {
-                '^name ': {
-                  nameGroup: '',
-                },
-                '^----': {
-                  nameGroup: '',
-                },
-                '^([a-zA-Z0-9-]+)': {
-                  nameGroup: 'Unembedded font',
-                },
-              },
-              stderr: {
-                '^.*': {
-                  nameGroup: '',
-                },
-              },
-            },
-        },
-
-        "pdfinfo-meta": {
-            exec: ['/usr/local/bin/pdfinfo', '-meta', '<inputFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stdstar: {
-                    '.*': {
-                        nameGroup: 'meta not implemented',
-                    },
-                },
-            },
-        },
-
-        "pdfinfo-struct": {
-            exec: ['/usr/local/bin/pdfinfo', '-struct', '<inputFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stdout: {
-                    '^[ \\t]*(/?[a-zA-Z][a-zA-Z0-9]*)( \\(block\\))?([ :]|$)': {
-                        nameGroup: 'struct \\1\\2',
-                    },
-                    // These attributes may explode in count, but may be worth
-                    // considering unique counts...
-                    '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
-                        nameGroup: '\\g<type>',
-                    },
-                    // Anything else gets stripped
-                    '.*': {
-                        nameGroup: 'unrecognized',
-                    },
-                },
-                stderr: {
-                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
-                        nameReplace: {
-                            '[0-9]': '',
-                        },
-                    },
-
-                    '^Bogus.*': {
-                    },
-                },
-            },
-        },
-
-        "pdfium": {
-            exec: ['/opt/pdfium/pdfium_test', '<inputFile>'],
-            version: 'chromium-4180',
-            parse: {
-                type: 'regex-counter',
-                stdstar: {
-                    '^\\s*(/opt|/lib|[#]FailureMessage).*$': {
-                        nameGroup: '<<workbench: stack trace collapsed>>'
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        "pdftocairo-pdf": {
-            exec: ['/usr/local/bin/pdftocairo', '-pdf', '<inputFile>', '<tempFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stderr: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        pdftops: {
-            exec: ['/usr/local/bin/pdftops', '<inputFile>', '<tempFile>'],
-            version: 'poppler-20.09.0',
-            parse: {
-                type: 'regex-counter',
-                stdstar: {
-                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Syntax Error: Unknown character collection).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        pdftotext: {
-          exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
-          version: 'pdftotext2',
-          parse: {
-            type: 'regex-counter',
-            stdout: {
-              // We do NOT want the observatory to pick these up, so just ignore
-              // every message. pdftotext must be searched via mongo!
-              '^.*$': {
-                nameGroup: '',
-              },
-            },
-            stderr: {
-              '^Syntax Error: .*': {
-                nameReplace: {'[0-9]': ''},
-              },
-            },
-          },
-        },
 
         polyfile: {
             // Prevent DB clutter
             //exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
+            disabled: false,
             exec: ['polyfile', '-I', '<inputFile>'],
             version: 'polyfile0.3.3+-v6',
             parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 // All stdout is a mime type
                 '^.*$': {
@@ -271,116 +75,15 @@
             },
         },
 
-        'qpdf-check': {
-            exec: ['qpdf', '--check', '<inputFile>'],
-            version: '10.0.1',
-            parse: {
-                type: 'regex-counter',
-                stdout: {
-                    // Allowed / not allowed flags
-                    '^([^:]+): (allowed|not allowed)$': {
-                        nameGroup: 1,
-                        countGroup: 2,
-                        countAsMissing: ['not allowed'],
-                    },
-
-                    // Is file linearized?
-                    '^[Ff]ile is (not )?([a-zA-Z]+)$': {
-                        nameGroup: 'file is \\2',
-                        countGroup: 1,
-                        countAsMissing: ['not '],
-                    },
-
-                    // Copy errors without numbers...
-                    '^ERROR: .*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-
-                    '^(WARNING: error decoding stream data for object).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^(WARNING: operation for dictionary attempted on object of type).*$': {
-                        nameGroup: 1
-                    },
-
-                    // Copy warnings without numbers....
-                    '^WARNING: .*': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-
-                    // Checking line is pointless
-                    '^checking ': {
-                        countReplace: {'.*': ''},
-                    },
-
-                    // As is this warning
-                    '^(No syntax or stream encoding errors found; the file may still contain|errors that qpdf cannot detect)$': {
-                        countReplace: {'.*': ''},
-                    },
-
-                    // PDF version
-                    '^PDF Version': {
-                        countReplace: {'.*': ''},
-                    },
-
-                    'end of.*section \\(/E\\) mismatch:': {
-                        nameGroup: 'end of section mismatch',
-                    },
-
-                    // Unable to get object for item in shared objects hint
-                    // table
-                    '^unable to get .*': {
-                    },
-
-                    // Unexpected has a different format, like:
-                    // page 1: page object 40 0 stream 1 0 (content, offset 126347): unexpected )
-                    '.*: unexpected .+$': {
-                        nameGroup: 'unexpected symbol: \\g<0>',
-                        nameReplace: {'[0-9]': ''},
-                    },
-
-                    // Who knows what R or P or user password will be
-                    '^([a-zA-Z0-9_ ]+?) *= *(.*)$': {
-                        countReplace: {'.*': ''},
-                    },
-
-                    // QPDF has a lot of random error messages. Prefix them
-                    // with ungrouped...
-                    '.*': {
-                        nameGroup: 'pdf-workbench ungrouped output: \\g<0>',
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-                stderr: {
-                    '^WARNING: .*?(pdf|\\)|[0-9]): (?P<warning>.*)$': {
-                        nameGroup: 'WARNING: \\g<warning>',
-                        nameReplace: {'[0-9]': ''},
-                    },
-
-                    '^.*?\\.pdf[ :](?P<warning>.*)$': {
-                        nameGroup: 'pdf \\g<warning>',
-                        nameReplace: {'[0-9]': ''},
-                    },
-
-                    '^qpdf: libqpdf/.*': {
-                    },
-
-                    '.*': {
-                        nameGroup: 'pdf-etl-parse ungrouped error: \\g<0>',
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
         'pdfid': {
+            disabled: true,
             exec: ['python3', 'lib/pdfid_v0_2_7/pdfid.py',
                 // FIXME: a bit ugly that we have a relative path above
                 '-e', '<inputFile>'],
             version: 'pdfid_v0_2_7__py3',
             parse: {
                 type: 'regex-counter',
+                version: '1',
                 stdout: {
                     'pdf header:(.*)': {
                         nameGroup: 'PDF Header',
@@ -414,342 +117,6 @@
             },
         },
 
-        'schizo-test': {
-          exec: ['schizo_test/main.py', '<inputFile>'],
-          timeout: 1200,
-          version: 'schizo-test70',
-          parse: {
-            type: 'regex-counter',
-            stdstar: {
-              '^(Max RMSE, .*): (.*)': {
-                nameGroup: 1,
-                countGroup: 2,
-                countAsNumber: true,
-              },
-              '^(Max diff, .*): (.*)': {
-                nameGroup: 1,
-                countGroup: 2,
-                countAsNumber: true,
-              },
-              '^Schizophrenic: .*': {
-                nameReplace: {
-                  '[0-9]': '',
-                },
-              },
-              '^(subprocess\.CalledProcessError)': {
-                nameGroup: 1,
-              },
-              '^Page ': {
-                nameGroup: '',
-              },
-              '^(Traceback|  )': {
-                nameGroup: '<<workbench: collapsed errors>>',
-                nameReplace: {
-                  '[0-9]': '',
-                },
-              },
-            },
-          },
-        },
-
-        'caradoc-stats': {
-            exec: ['caradoc', 'stats', '<inputFile>'],
-            version: 'caradoc-0.3',
-            parse: {
-                type: 'regex-counter',
-                stdout: {
-                    '^(([a-zA-Z ]|\\(s\\))+)$': {
-                    },
-
-                    '^\\s*(?P<key>.*) -> (?P<value>\\d+) times$': {
-                        nameGroup: '\\g<key>',
-                        countGroup: '\\g<value>',
-                    },
-
-                    '^\\s*(?P<key>[a-zA-Z/]+( [a-zA-Z]+)*)\\s*:\\s*(?P<value>.*)$': {
-                        nameGroup: '\\g<key>',
-                        countGroup: '\\g<value>',
-                    },
-                },
-                stderr: {
-                    '^\\s*(PDF error : Lexing error).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(PDF error : The same name appears several times in dict).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(PDF error : Unexpected command).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(PDF error : Xref table contains object).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Type error : Inconsistent type inference).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Type error : Invalid variant type).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Type error : Unexpected entry).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {
-                            '0x[0-9a-f]+b?|[0-9]': '',
-                        },
-                    },
-                },
-            },
-        },
-
-        'caradoc-strict': {
-            exec: ['caradoc', 'stats', '--strict', '<inputFile>'],
-            version: 'caradoc-0.3',
-            parse: {
-                type: 'regex-counter',
-                stdout: {
-                    '^(([a-zA-Z ]|\\(s\\))+)$': {
-                    },
-
-                    '^\\s*(?P<key>.*) -> (?P<value>\\d+) times$': {
-                        nameGroup: '\\g<key>',
-                        countGroup: '\\g<value>',
-                    },
-
-                    '^\\s*(?P<key>[a-zA-Z/]+( [a-zA-Z]+)*)\\s*:\\s*(?P<value>.*)$': {
-                        nameGroup: '\\g<key>',
-                        countGroup: '\\g<value>',
-                    },
-                },
-                stderr: {
-                    '^\\s*(PDF error : Lexing error).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(PDF error : The same name appears several times in dict).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(PDF error : Unexpected command).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(PDF error : Xref table contains object).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Type error : Inconsistent type inference).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Type error : Invalid variant type).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(Type error : Unexpected entry).*$': {
-                        nameGroup: 1
-                    },
-
-                    '.*': {
-                        nameReplace: {
-                            '0x[0-9a-f]+b?|[0-9]': '',
-                        },
-                    },
-                },
-            },
-        },
-
-        'mutool-convert-pdf': {
-            exec: ['mutool', 'convert', '-F', 'pdf', '-o', '<tempFile .pdf>', '<inputFile>'],
-            version: 'mupdf-1.17',
-            parse: {
-                type: 'regex-counter',
-                stdout: {},
-                stderr: {
-                    '^\\s*(error: cannot create appearance stream).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(error: unknown colorspace).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(error: zlib error: invalid).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: cannot create ToUnicode mapping).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: ignoring one to many mapping in cmap).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: non-embedded font using identity encoding).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: non-page object in page tree).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        'mutool-clean': {
-            // "mutool clean -s" requires a .pdf extension, or it hangs
-            exec: ['mutool', 'clean', '-s', '<inputFile>', '<tempFile .pdf>'],
-            version: 'mupdf-1.17',
-            parse: {
-                type: 'regex-counter',
-                stdout: {},
-                stderr: {
-                    '^\\s*(error: cannot create appearance stream).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(error: unknown colorspace).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(error: zlib error: invalid).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: cannot create ToUnicode mapping).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: ignoring one to many mapping in cmap).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: non-embedded font using identity encoding).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: non-page object in page tree).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
-
-        'mutool-clean-zipbomb': {
-          // Time = seconds, mem = kilobytes
-          exec: ['timeout_pshved', '-t', '5', '-m', '1000000', 'mutool',
-              'clean', '-s', '<inputFile>'],
-          version: 'mupdf-1.17',
-          parse: {
-            type: 'regex-counter',
-            stdout: {
-              '.*': {
-                nameGroup: '',
-              },
-            },
-            stderr: {
-              '^MEM CPU .* MEM .* MAXMEM': {
-                nameGroup: 'Possible zip bomb -- >1G RAM in 5 CPU seconds',
-                fallthrough: true,
-              },
-              '^.*CPU .* MEM .* MAXMEM ([^ ]+)': {
-                nameGroup: 'Memory at 5s',
-                countGroup: 1,
-                countAsNumber: true,
-              },
-
-              '^\\s*(error: cannot create appearance stream).*$': {
-                  nameGroup: 1
-              },
-
-              '^\\s*(error: unknown colorspace).*$': {
-                  nameGroup: 1
-              },
-
-              '^\\s*(error: zlib error: invalid).*$': {
-                  nameGroup: 1
-              },
-
-              '^\\s*(warning: cannot create ToUnicode mapping).*$': {
-                  nameGroup: 1
-              },
-
-              '^\\s*(warning: ignoring one to many mapping in cmap).*$': {
-                  nameGroup: 1
-              },
-
-              '^\\s*(warning: non-embedded font using identity encoding).*$': {
-                  nameGroup: 1
-              },
-
-              '^\\s*(warning: non-page object in page tree).*$': {
-                  nameGroup: 1
-              },
-
-              '.*': {
-                nameGroup: '',
-              },
-            },
-          },
-        },
-
-        'mutool-draw': {
-            exec: ['mutool', 'draw', '-F', 'png', '-o', '<tempFile>', '<inputFile>'],
-            version: 'mupdf-1.17',
-            parse: {
-                type: 'regex-counter',
-                stdout: {},
-                stderr: {
-                    '^\\s*(error: cannot create appearance stream).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(error: unknown colorspace).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(error: zlib error: invalid).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: cannot create ToUnicode mapping).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: ignoring one to many mapping in cmap).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: non-embedded font using identity encoding).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^\\s*(warning: non-page object in page tree).*$': {
-                        nameGroup: 1
-                    },
-
-                    '^.*$': {
-                        nameReplace: {'[0-9]': ''},
-                    },
-                },
-            },
-        },
     },
 
     pipelines: {
@@ -786,14 +153,16 @@ filters:  \n\
   \n\
   Unsafe:  \n\
     ^polyfile_mimetype: (?!application/pdf)  \n\
-    ^schizo-test_Max RMSE  \n\
+    ^schizo-test-schizo-test_Max RMSE  \n\
       sum > 0.4  \n\
+    ^schizo-text-test-schizo-text-test_\\w+ to \\w+  \n\
+      sum < 0.5  \n\
     ^pdffonts_Unembedded font  \n\
   \n\
 outputs:  \n\
   \n\
   status:  \n\
-    "valid" is PdfiumAccept & !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
+    "valid" is !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
     #"valid" is !MutoolCleanError  \n\
     "rejected" else  \n\
   status-strict:  \n\
@@ -934,12 +303,6 @@ with open(sys.argv[1], 'w') as html: \n\
             exec: ['polyfile', '--html', '<outputHtml>', '<inputFile>'],
         },
 
-        schizo: {
-            label: 'Schizophrenic Comparison',
-            type: 'program_to_html',
-            exec: ['schizo_test/main.py', '<inputFile>', '--html'],
-        },
-
         viewer: {
             label: 'View PDF in browser',
             type: 'program_to_html',
@@ -993,22 +356,13 @@ with open(sys.argv[1], 'w') as html: \n\
             base: {
                 'from': 'ubuntu:20.04',
                 commands: [
+                    'ENV DEBIAN_FRONTEND=noninteractive',
+
                     // Note that we will *also* install a newer version of poppler in /usr/local/bin
                     'RUN apt-get update && apt-get install -y \
-                        poppler-utils libopenjp2-7 \
+                        libopenjp2-7 \
                         ',
-                    // Documented caradoc dependencies
-                    'RUN apt-get update && apt-get install -y \
-                        ocaml \
-                        opam \
-                        zlib1g-dev \
-                        ',
-                    // Undocumented caradoc dependencies
-                    'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-                        m4 \
-                        pkg-config \
-                        libgmp3-dev \
-                        ',
+
                     // Requirements for building poppler utils from source
                     // No effort has been made to distinguish what's required only
                     // for the build, so we install them all up front.
@@ -1029,10 +383,6 @@ with open(sys.argv[1], 'w') as html: \n\
                     // Needed to build pdftocairo target in poppler
                     'RUN apt-get update && apt-get install -y \
                         libcairo2-dev \
-                        ',
-                    // Needed to build qpdf
-                    'RUN apt-get update && apt-get install -y \
-                        libjpeg-dev \
                         ',
                     // Ensure poppler has fonts installed and available; installs both MS fonts and
                     // uses a nuclear option to select all available ubuntu fonts packages.
@@ -1069,189 +419,8 @@ with open(sys.argv[1], 'w') as html: \n\
                     'COPY {dist}/qpdf_plugin/requirements.txt /home/dist/qpdf_plugin/requirements.txt',
                     'RUN pip3 install -r /home/dist/qpdf_plugin/requirements.txt',
 
-                    'COPY {dist}/schizo_test/requirements.txt /home/dist/schizo_test/requirements.txt',
-                    'RUN pip3 install -r /home/dist/schizo_test/requirements.txt',
-
                     'COPY {dist}/ml_test/requirements.txt /home/dist/ml_test/requirements.txt',
                     'RUN pip3 install -r /home/dist/ml_test/requirements.txt',
-                ],
-            },
-
-            caradoc: {
-                from: 'base',
-                copy_output: {
-                    '/usr/local/bin/caradoc': true,
-                },
-                commands: [
-                    'RUN opam init --auto-setup --disable-sandboxing --compiler=4.05.0 \
-                        && opam install -y ocamlbuild ocamlfind cryptokit ounit menhir \
-                        ',
-                    'RUN \
-                        wget -q https://github.com/ANSSI-FR/caradoc/raw/master/releases/caradoc-0.3.tar.gz \
-                        && tar xf caradoc-0.3.tar.gz \
-                        && rm caradoc-0.3.tar.gz \
-                        ',
-                    // Original options:
-                    // OCAML_OPTS=-w,+a-3-4-32..39,-warn-error,+a,-strict-sequence,-noautolink
-                    //    && echo \"patch for caradoc-0.3 w/ new ocamlbuild\" \
-                    //    && sed -i -e \"s/OCAML_OPTS=\\(.*\\),-warn-error/OCAML_OPTS=\\1-44,-warn-error/\" Makefile \
-                    //    && head Makefile \
-                    //    && echo \"resume normal install\" \
-                    "RUN bash -c '\
-                        cd caradoc-0.3 \
-                        && eval `opam config env` \
-                        && make \
-                        && install caradoc /usr/local/bin \
-                        '",
-                ],
-            },
-
-            mupdf: {
-                copy_output: {
-                    '/usr/local/bin/mutool': true,
-                },
-                commands: [
-                    'RUN \
-                        wget -q https://mupdf.com/downloads/archive/mupdf-1.17.0-source.tar.gz \
-                        && tar xf mupdf-1.17.0-source.tar.gz \
-                        && rm mupdf-1.17.0-source.tar.gz \
-                        ',
-                    "RUN bash -c '\
-                        cd mupdf-1.17.0-source \
-                        && make XCFLAGS='-DDEBUG_PROGESSIVE_ADVANCE=1' tools\
-                        && install build/release/mutool /usr/local/bin \
-                        '",
-                ],
-            },
-
-            pdfium: {
-                from: 'ubuntu:18.04',
-                copy_output: {
-                  '/src/pdfium/pdfium/out/Workbench': '/opt/pdfium',
-                },
-                commands: [
-                  'WORKDIR /src',
-                  'RUN apt-get update && apt-get install -y \
-                      cmake \
-                      curl \
-                      git \
-                      pkg-config \
-                      python2.7 \
-                      python2.7-dev \
-                      python3 \
-                      python3-dev \
-                      python3-pip \
-                      xpdf \
-                      wget \
-                      ',
-                  // Setup per https://pdfium.googlesource.com/pdfium/
-                  'RUN git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git',
-                  'ENV PATH /src/depot_tools:$PATH',
-                  'RUN mkdir pdfium && cd pdfium && gclient config --unmanaged https://pdfium.googlesource.com/pdfium.git && gclient sync',
-                  // Google tools refer to python as 'python', not 'python3'.
-                  'RUN ln -s /usr/bin/python3 /usr/bin/python',
-                  // Note the EDITOR= trick to populate the arbitrarily-specified file ... maybe could fill it in after gn exits, oh well
-                  // OLD -- trying to pin the version is the normal way to do
-                  // things like this. However, pinning to e.g. chromium/4260
-                  // keeps breaking periodically, so it's better to use the
-                  // most up-to-date version.
-                  // && git checkout chromium/4260 \
-                  'RUN cd pdfium/pdfium \
-                    && echo Not needed: ./build/install-build-deps.sh \
-                    && EDITOR="python3 -c \'import sys; f = open(sys.argv[1], \\"w\\"); f.write(\\"pdf_is_standalone = true\\\\npdf_enable_xfa = true\\\\npdf_enable_v8 = true\\\\n\\"); f.close()\'" gn args out/Workbench \
-                    && ninja -C out/Workbench pdfium_test \
-                    ',
-                ],
-            },
-
-            poppler: {
-                copy_output: {
-                    '/usr/local': '/usr/local',
-                },
-                commands: [
-                    // ==== build freetype ====
-                    'WORKDIR /src',
-
-                    // FreeType http://www.linuxfromscratch.org/blfs/view/svn/general/freetype2.html
-                    'RUN wget https://downloads.sourceforge.net/freetype/freetype-2.10.2.tar.xz',
-                    'RUN tar -xvf freetype-2.10.2.tar.xz',
-
-                    'WORKDIR /src/freetype-2.10.2',
-
-                    // Some linux from scratch magic
-                    'RUN sed -ri "s:.*(AUX_MODULES.*valid):\\1:" modules.cfg',
-                    'RUN sed -r "s:.*(#.*SUBPIXEL_RENDERING) .*:\\1:" -i include/freetype/config/ftoption.h',
-                    'RUN ./configure --prefix=/usr/local --enable-freetype-config',
-                    'RUN make -j5 install',
-
-                    // ==== build zlib ====
-                    'WORKDIR /src',
-
-                    // zlib
-                    'RUN wget https://www.zlib.net/zlib-1.2.11.tar.gz',
-                    'RUN tar -xzvf zlib-1.2.11.tar.gz',
-
-                    'WORKDIR /src/zlib-1.2.11',
-                    'RUN ./configure --prefix=/usr/local  && make -j$(nproc) test && make -j$(nproc) install',
-
-                    // ==== build libxml ====
-                    'WORKDIR /src',
-
-                    // Libxml2
-                    'RUN wget http://xmlsoft.org/sources/libxml2-2.9.10.tar.gz',
-                    'RUN tar -xvf libxml2-2.9.10.tar.gz',
-
-                    'WORKDIR /src/libxml2-2.9.10',
-                    'RUN ./configure --prefix=/usr/local --with-python=/usr/bin/python3',
-                    'RUN make -j5',
-                    'RUN make install',
-
-                    // ==== build fontconfig ====
-                    'WORKDIR /src/',
-
-                    'RUN wget https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.13.92.tar.xz',
-                    'RUN tar -xf fontconfig-2.13.92.tar.xz',
-
-                    'WORKDIR /src/fontconfig-2.13.92/',
-
-                    'RUN ./configure --sysconfdir=/etc --prefix=/usr/local --enable-libxml2 --mandir=/usr/local/share/man',
-                    'RUN make -j5 install',
-
-                    // ==== build poppler-utils ====
-                    'WORKDIR /src/',
-
-                    // Poppler 20.09 for parity w/ EvalTwo
-                    'RUN wget https://poppler.freedesktop.org/poppler-20.09.0.tar.xz',
-                    'RUN tar -xvf poppler-20.09.0.tar.xz',
-
-                    'WORKDIR /src/poppler-20.09.0',
-                    // 'RUN cmake -DBUILD_SHARED_LIBS=OFF -DENABLE_LIBOPENJPEG=unmaintained -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang ..',
-
-                    'WORKDIR build',
-                    'RUN cmake -DBUILD_SHARED_LIBS=OFF -DBUILD_GTK_TESTS=OFF -DBUILD_QT5_TESTS=OFF -DBUILD_CPP_TESTS=OFF -DENABLE_SPLASH=OFF -DENABLE_CPP=OFF -DENABLE_GLIB=OFF -DENABLE_GTK_DOC=OFF -DENABLE_QT5=OFF -DENABLE_LIBOPENJPEG=unmaintained -DENABLE_CMS=none -DENABLE_LIBCURL=OFF -DENABLE_ZLIB=OFF -DENABLE_DCTDECODER=unmaintained -DENABLE_ZLIB_UNCOMPRESS=OFF -DWITH_JPEG=OFF -DWITH_PNG=ON -DWITH_TIFF=OFF -DWITH_NSS3=OFF -DWITH_Cairo=ON -DWITH_FONTCONFIGURATION_FONTCONFIG=ON -DCMAKE_EXE_LINKER_FLAGS="-pthread" ../',
-
-                    // installs to /usr/local:
-                    'RUN make -j5 install',
-                ],
-            },
-
-            qpdf: {
-                copy_output: {
-                    '/usr/local': true,
-                    '/usr/local/lib/libqpdf*': '/usr/lib/',
-                                    // qdpf install is broken: efficient way around.
-                },
-                commands: [
-                     'WORKDIR /src/',
-                     'RUN \
-                          wget https://github.com/qpdf/qpdf/archive/release-qpdf-10.0.1.tar.gz \
-                          && tar xf release-qpdf-10.0.1.tar.gz \
-                          && rm release-qpdf-10.0.1.tar.gz \
-                          ',
-                     'WORKDIR /src/qpdf-release-qpdf-10.0.1/',
-                     'RUN ./configure',
-                     'RUN make -j5',
-                     'RUN make install',
                 ],
             },
         },

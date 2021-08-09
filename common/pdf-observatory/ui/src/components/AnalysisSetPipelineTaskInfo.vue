@@ -25,10 +25,12 @@
 </style>
 
 <script lang="ts">
+import {AsPipeline} from '@/interface/aset.ts';
 import Vue from 'vue';
 
 export default Vue.extend({
   props: {
+    aset: String,
     pipeline: String,
     task: String,
   },
@@ -57,16 +59,17 @@ export default Vue.extend({
   },
   methods: {
     async dbReset() {
-      await this.$vuespa.call('pipeline_task_reset', this.pipeline, this.task);
+      await this.$vuespa.call('pipeline_task_reset', this.aset, this.pipeline,
+          this.task);
       await this.reload();
     },
     async dbToggleDisabled() {
-      await this.$vuespa.call('pipeline_task_set_disabled', this.pipeline,
-          this.task, !this.status.disabled_by_ui);
+      await this.$vuespa.call('pipeline_task_set_disabled', this.aset,
+          this.pipeline, this.task, !this.status.disabled_by_ui);
       await this.reload();
     },
     async reload() {
-      await this.$vuespa.update('status', 'pipeline_task_status',
+      await this.$vuespa.update('status', 'pipeline_task_status', this.aset,
           this.pipeline, this.task);
     },
   },

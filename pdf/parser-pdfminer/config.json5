@@ -1,0 +1,60 @@
+{
+    parsers: {
+        // Dumps pdf objects to xml
+        'dumppdf': {
+            exec: ['python3', '/usr/local/bin/dumppdf.py', '-a', '<inputFile>'],
+            version: '10.0.1-six',
+            parse: {
+                type: 'regex-counter',
+                version: '2',
+                stdout: {
+                  // We do NOT want the observatory to pick these up, so just ignore
+                  // every message. dumppdf must be searched via mongo!
+                  '^.*$': {
+                    nameGroup: '',
+                  },
+                },
+                stderr: {
+                    '^.*Error.*$': {
+                        nameReplace: {'[0-9]': '', '\0': '<NUL>'},
+                    },
+                    '.*': {
+                        nameGroup: '',
+                    },
+                },
+            },
+        },
+        // Dumps pdf to text
+        'pdf2text': {
+            disabled: true,
+            exec: ['python3', '/usr/local/bin/pdf2txt.py', '<inputFile>'],
+            version: '10.0.1-six',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                  // We do NOT want the observatory to pick these up, so just ignore
+                  // every message. pdf2txt must be searched via mongo!
+                  '^.*$': {
+                    nameGroup: '',
+                  },
+                },
+                stderr: {
+                    '.*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+
+    build: {
+      stages: {
+        final: {
+          commands: [
+            'RUN pip3 install pdfminer.six',
+          ],
+        },
+      },
+    },
+}

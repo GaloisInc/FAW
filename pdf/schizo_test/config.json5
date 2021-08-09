@@ -1,0 +1,62 @@
+{
+  file_detail_views: {
+    schizo: {
+        label: 'Schizophrenic Comparison',
+        type: 'program_to_html',
+        exec: ['./main.py', '<inputFile>', '--html'],
+    },
+  },
+  parsers: {
+    'schizo-test': {
+      exec: ['./main.py', '<inputFile>'],
+      timeout: 1200,
+      version: 'schizo-test71',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stdstar: {
+          '^(Max RMSE, .*): (.*)': {
+            nameGroup: 1,
+            countGroup: 2,
+            countAsNumber: true,
+          },
+          '^(Max diff, .*): (.*)': {
+            nameGroup: 1,
+            countGroup: 2,
+            countAsNumber: true,
+          },
+          '^Schizophrenic: .*': {
+            nameReplace: {
+              '[0-9]': '',
+            },
+          },
+          '^(subprocess\.CalledProcessError)': {
+            nameGroup: 1,
+          },
+          '^Page ': {
+            nameGroup: '',
+          },
+          '^(Traceback|  )': {
+            nameGroup: '<<workbench: collapsed errors>>',
+            nameReplace: {
+              '[0-9]': '',
+            },
+          },
+        },
+      },
+    },
+  },
+
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install --upgrade pip \
+            && pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
+    },
+  },
+}
+

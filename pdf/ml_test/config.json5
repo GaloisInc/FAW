@@ -135,6 +135,19 @@
       // Parsers depend on all tasks, and will only run after they all have
       // finished. Unless user presses a button?
       parsers: {
+        'test': {
+          exec: ['ls', '<inputFile>'],
+          version: '1',
+          parse: {
+            type: 'regex-counter',
+            version: '1',
+            stdstar: {
+              '.*': {
+                nameGroup: '',
+              },
+            },
+          },
+        },
         'unique-rule-printer': {
           disabled: true,
           // TODO!!! Requires a means of accessing a Dask object... one can expose
@@ -152,6 +165,7 @@
           version: '15',
           parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 '^(.*): (\\d+)$': {
                   nameGroup: 1,
@@ -162,11 +176,13 @@
           },
         },
         'unique-bytes-printer': {
+          disabled: true,
           exec: ['python3', 'main.py', '<apiInfo>', 'unique_bytes_printer',
             '<inputFile>'],
           version: '20',
           parse: {
               type: 'regex-counter',
+              version: '1',
               stdout: {
                 '^(.*): (\\d+)$': {
                   nameGroup: 1,

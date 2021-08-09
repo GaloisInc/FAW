@@ -1,0 +1,36 @@
+{
+  parsers: {
+    'f': {
+      exec: ['python3', './main.py', '<apiInfo>', '<inputFile>'],
+      mustSucceed: true,
+      version: '9',
+      parse: {
+        type: 'regex-counter',
+        version: '2',
+        stdout: {
+          '^member: .*': {
+            nameGroup: 0,
+          },
+        },
+        stderr: {
+          '^[Ff]uture': {
+            nameGroup: '',
+          },
+          '^tornado\.util': {
+            nameGroup: '',
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'RUN pip install dask-actor-singleton',
+        ],
+      },
+    },
+  },
+}
+

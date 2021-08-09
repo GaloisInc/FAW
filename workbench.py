@@ -73,6 +73,8 @@ def main():
             "files to investigate.")
     parser.add_argument('--port', default=8123, type=int,
             help="Port on which Galois Workbench is accessed.")
+    parser.add_argument('--port-dask', default=8787, type=int,
+            help="If specified, port on which to expose the dask dashboard.")
     parser.add_argument('--port-mongo', default=None, type=int,
             help="If specified, port on which to expose the mongo instance.")
     parser.add_argument('--copy-mongo-from', default=None, type=str,
@@ -191,14 +193,26 @@ def main():
         return
 
     extra_flags = []
+    if args.port_dask:
+        extra_flags.extend(['-p', f'{args.port_dask}:8787'])
     if port_mongo:
         extra_flags.extend(['-p', f'{port_mongo}:27017'])
 
     if not development:
         extra_flags.append(IMAGE_TAG)
     else:
+        # Mount various internal components
+        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-etl-parse:/home/pdf-etl-parse'])
         extra_flags.extend(['-v', f'{faw_dir}/common/pdf-observatory:/home/pdf-observatory'])
+
+        # Mount distribution code
         extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
+
+        # Mount utilities for restarting the FAW.. can be handy.
+        for f in os.listdir(os.path.join(faw_dir, 'common', 'docker-bin')):
+            ff = os.path.join(faw_dir, 'common', 'docker-bin', f)
+            extra_flags.extend(['-v', f'{ff}:/usr/bin/{f}:ro'])
+
         # Allow profiling via e.g. py-spy
         extra_flags.extend(['--cap-add', 'sys_ptrace'])
 
@@ -312,7 +326,10 @@ def _check_config_file(config):
     config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             'config.json5')))
 
-    # Before applying schema, merge in child configs
+    # Before applying schema, merge in child configs. Do this in order of
+    # increasing modification time. This is important so that developers
+    # don't have to keep rebuilding unnecessary stages.
+    child_configs = []
     for child_name in os.listdir(CONFIG_FOLDER):
         child_path = os.path.join(CONFIG_FOLDER, child_name)
         if not os.path.isdir(child_path):
@@ -322,7 +339,16 @@ def _check_config_file(config):
             continue
 
         child_config = pyjson5.load(open(child_config_path))
+        if child_config.get('disabled'):
+            # Do not integrate this child config
+            continue
 
+        modtime = os.path.getmtime(child_config_path)
+        child_configs.append((modtime, child_name, child_config))
+
+    # Stable sort; mod time first, then child name
+    child_configs.sort(key=lambda m: (m[0], m[1]))
+    for _, child_name, child_config in child_configs:
         # First traversal -- patch keys and values
         nodes = [([], child_config)]
         while nodes:

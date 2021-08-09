@@ -1,0 +1,269 @@
+{
+    parsers: {
+
+        "pdftotext": {
+          disabled: false,
+          exec: ['bash', '-c', '/opt/xpdf/bin64/pdftotext $0 >(cat)', '<inputFile>'],
+          version: 'xpdf-4.0.2',
+          parse: {
+            type: 'regex-counter',
+            version: '1',
+            stdout: {
+              // We do NOT want the observatory to pick these up, so just ignore
+              // every message. pdftotext must be searched via mongo!
+              '^.*$': {
+                nameGroup: '',
+              },
+            },
+            stderr: {
+              '^\\s*(Syntax Error: Page tree reference is wrong type).*$': {
+                nameGroup: 1
+              },
+              '^\\s*(Syntax Error: Unknown font tag).*$': {
+                nameGroup: 1
+              },
+              '^.*(Unknown operator).*$': {
+                nameGroup: 1
+              },
+              '.*': {
+                nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
+              },
+            },
+          },
+        },
+
+        "pdftoppm": {
+            disabled: false,
+            exec: ['/opt/xpdf/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stderr: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+                    '^\\s*(Syntax Error: Couldn\'t find a font for).*$': {
+                        nameGroup: 1 
+                    },
+                    '^\\s*(Config Error: No display font for).*$': {
+                        nameGroup: 1 
+                    },
+                    '.*': {
+                        nameReplace: {'<[a-zA-Z]*>|[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        /** Standard fonts are:
+        ['Courier',
+         'Courier-Bold',
+         'Courier-Oblique',
+         'Courier-BoldOblique',
+         'Helvetica',
+         'Helvetica-Bold',
+         'Helvetica-Oblique',
+         'Helvetica-BoldOblique',
+         'Times-Roman',
+         'Times-Bold',
+         'Times-Italic',
+         'Times-BoldItalic',
+         'Symbol',
+         'ZapfDingbats']
+         */
+
+        pdffonts: {
+            exec: ['/opt/xpdf/bin64/pdffonts', '-loc', '<inputFile>'],
+            version: 'poppler-0.86.1',
+            parse: {
+              type: 'regex-counter',
+              version: '2k',
+              stdout: {
+                '^name ': {
+                  nameGroup: '',
+                },
+                '^----': {
+                  nameGroup: '',
+                },
+                // Prefix "SYS " for system fonts
+                '^(Courier|Courier-Bold|Courier-Oblique|Courier-BoldOblique|Helvetica|Helvetica-Bold|Helvetica-Oblique|Helvetica-BoldOblique|Times-Roman|Times-Bold|Times-Italic|Times-BoldItalic|Symbol|ZapfDingbats)         +(.*?)    +(no|yes) +(no|yes) +(no|yes).*?([\\S]+)$': {
+                  nameGroup: 'SYS FONT \\1 TYPE \\2 EMB \\3 SUB \\4 UNI \\5 LOC \\6',
+                },
+                '^(.*?)         +(.*?)    +(no|yes) +(no|yes) +(no|yes).*?([\\S]+)$': {
+                  nameGroup: 'FONT \\1 TYPE \\2 EMB \\3 SUB \\4 UNI \\5 LOC \\6',
+                },
+                // Other messages -- sometimes a font is on a line on its own
+                '^pdf-etl-tool: .*$': {
+                },
+                '^.*$': {
+                  nameGroup: 'MAYBE FONT \\g<0>',
+                },
+              },
+              stderr: {
+                '^\\s*(Config Error: No display font for).*$': {
+                  nameGroup: 1,
+                },
+                '^.*': {
+                  // These are all included in other XPDF tools, and don't add
+                  // special value here.
+                  nameGroup: '',
+                },
+              },
+            },
+        },
+
+        "pdfinfo": {
+            disabled: true,
+            exec: ['/opt/xpdf/bin64/pdfinfo', '<inputFile>'],
+            // Could specify a timeout for this parser specifically (seconds):
+            //timeout: 10,
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                // The 'regex-counter' type generates a small program which
+                // matches the parser's output line by line.
+                // See https://docs.python.org/3/howto/regex.html for Regex
+                // flavor. Counts are binary only.
+                //
+                // There are three parameters: 'stdstar', 'stdout', and
+                // 'stderr'.
+                //
+                // 'stdstar' applies to both, and is tried after the
+                // more-specific 'stdout' and 'stderr' arguments.
+                stdout: {
+                    '^File size: *(.*) bytes$': {
+                      nameGroup: 'File size',
+                      countGroup: 1,
+                      countAsNumber: true,
+                    },
+                    '^([a-zA-Z0-9_ ]+): *(.*)$': {
+                        nameGroup: 1,
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                        countGroup: 2,
+                        // countAsMissing can be used to
+                        countAsMissing: ['no', 'none', '0', '0.0'],
+                        // countAsNumber can be used to also add '_sum' to the
+                        // database, which is handy for aggregating numeric
+                        // values. Requires that `countGroup` points to
+                        // a string which may be cast to a number, though.
+                        //countAsNumber: true,
+                    },
+
+                    '.*': {
+                        nameGroup: 'unrecognized',
+                    },
+                },
+                stderr: {
+                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                    },
+
+                    '^Bogus.*': {
+                    },
+                },
+            },
+        },
+
+        "pdfinfo-meta": {
+            disabled: true,
+            exec: ['/opt/xpdf/bin64/pdfinfo', '-meta', '<inputFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdstar: {
+                    '.*': {
+                        nameGroup: 'meta not implemented',
+                    },
+                },
+            },
+        },
+
+        "pdfinfo-struct": {
+            disabled: true,
+            exec: ['/opt/xpdf/bin64/pdfinfo', '-struct', '<inputFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                    '^[ \\t]*(/?[a-zA-Z][a-zA-Z0-9]*)( \\(block\\))?([ :]|$)': {
+                        nameGroup: 'struct \\1\\2',
+                    },
+                    // These attributes may explode in count, but may be worth
+                    // considering unique counts...
+                    '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
+                        nameGroup: '\\g<type>',
+                    },
+                    // Anything else gets stripped
+                    '.*': {
+                        nameGroup: 'unrecognized',
+                    },
+                },
+                stderr: {
+                    '^(Syntax|Internal|Command Line) (Error|Warning)( \\([0-9]+\\))?: .*': {
+                        nameReplace: {
+                            '[0-9]': '',
+                        },
+                    },
+
+                    '^Bogus.*': {
+                    },
+                },
+            },
+        },
+
+        "pdftops": {
+            disabled: true,
+            exec: ['/opt/xpdf/bin64/pdftops', '<inputFile>', '<tempFile>'],
+            version: 'xpdf-4.0.2',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdstar: {
+                    '^\\s*(Syntax Warning: Could not parse ligature component).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(Syntax Error: Unknown character collection).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+
+    build: {
+       stages: {
+           poppler: {
+                copy_output: {
+                  '/opt/xpdf': true,
+                },
+                commands: [
+                    'RUN mkdir -p /opt/xpdf \
+                        && cd /opt/xpdf \
+                        && wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
+                        && tar xf xpdf-tools-linux-4.03.tar.gz \
+                        && rm xpdf-tools-linux-4.03.tar.gz \
+                        && mv */* ./ \
+                        && rm -rf xpdf-tools-linux-4.03 \
+                        ',
+                ],
+           },
+       },
+   },
+}

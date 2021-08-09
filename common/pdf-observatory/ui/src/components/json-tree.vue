@@ -40,7 +40,7 @@
 </template>
 
 <script>
-function parse (data, maxArrayDisplay, depth = 0, last = true, key = undefined) {
+function parse (data, sortObjects, maxArrayDisplay, depth = 0, last = true, key = undefined) {
   let kv = { depth, last, primitive: true, key: JSON.stringify(key) }
   if (typeof data === 'string') {
     return Object.assign(kv, { type: 'string', value: data });
@@ -59,13 +59,14 @@ function parse (data, maxArrayDisplay, depth = 0, last = true, key = undefined) 
         return { depth, last: true, primitive: true, type: 'displayEnd',
             value: `... and ${item.remaining} additional rows` };
       }
-      return parse(item, maxArrayDisplay, depth + 1, index === data.length - 1)
+      return parse(item, sortObjects, maxArrayDisplay, depth + 1, index === data.length - 1)
     })
     return Object.assign(kv, { primitive: false, type: 'array', value })
   } else {
     let keys = Object.keys(data)
+    if (sortObjects) keys = keys.sort()
     let value = keys.map((key, index) => {
-      return parse(data[key], maxArrayDisplay, depth + 1, index === keys.length - 1, key)
+      return parse(data[key], sortObjects, maxArrayDisplay, depth + 1, index === keys.length - 1, key)
     })
     return Object.assign(kv, { primitive: false, type: 'object', value })
   }
@@ -90,6 +91,10 @@ export default {
       type: Number,
       default: 100
     },
+    sortObjects: {
+      type: Boolean,
+      default: true
+    },
   },
 
   data () {
@@ -107,7 +112,7 @@ export default {
       let result
       try {
         if (this.raw) {
-          result = JSON.parse(this.raw)
+          result = JSON.parse(this.raw, this.sortObjects)
         } else if (typeof this.data !== 'undefined') {
           result = this.data
         } else {
@@ -118,7 +123,7 @@ export default {
         result = '[Vue JSON Tree] Invalid raw JSON.'
         console.warn(result)
       }
-      return parse(result, this.maxArrayDisplay)
+      return parse(result, this.sortObjects, this.maxArrayDisplay)
     }
   },
 

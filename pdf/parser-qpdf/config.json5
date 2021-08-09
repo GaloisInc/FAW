@@ -1,0 +1,171 @@
+{
+    parsers: {
+        'qpdf-json' : {
+            exec: ['qpdf', '--json', '<inputFile>'],
+            version: '10.0.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                    // We do NOT want the observatory to pick these up, so just ignore
+                    // every message. pdftotext must be searched via mongo!
+                    '^.*$': {
+                       nameGroup: '',
+                    },
+                },
+                stderr: {
+                    '^WARNING: .*?(pdf|\\)|[0-9]): (?P<warning>.*)$': {
+                        nameGroup: 'WARNING: \\g<warning>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    '^.*?\\.pdf[ :](?P<warning>.*)$': {
+                        nameGroup: 'pdf \\g<warning>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    '^qpdf: libqpdf/.*': {
+                    },
+
+                    '.*': {
+                        nameGroup: 'pdf-etl-parse ungrouped error: \\g<0>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+        'qpdf-check': {
+            disabled: true,
+            exec: ['qpdf', '--check', '<inputFile>'],
+            version: '10.0.1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                    // Allowed / not allowed flags
+                    '^([^:]+): (allowed|not allowed)$': {
+                        nameGroup: 1,
+                        countGroup: 2,
+                        countAsMissing: ['not allowed'],
+                    },
+
+                    // Is file linearized?
+                    '^[Ff]ile is (not )?([a-zA-Z]+)$': {
+                        nameGroup: 'file is \\2',
+                        countGroup: 1,
+                        countAsMissing: ['not '],
+                    },
+
+                    // Copy errors without numbers...
+                    '^ERROR: .*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    '^(WARNING: error decoding stream data for object).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^(WARNING: operation for dictionary attempted on object of type).*$': {
+                        nameGroup: 1
+                    },
+
+                    // Copy warnings without numbers....
+                    '^WARNING: .*': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    // Checking line is pointless
+                    '^checking ': {
+                        countReplace: {'.*': ''},
+                    },
+
+                    // As is this warning
+                    '^(No syntax or stream encoding errors found; the file may still contain|errors that qpdf cannot detect)$': {
+                        countReplace: {'.*': ''},
+                    },
+
+                    // PDF version
+                    '^PDF Version': {
+                        countReplace: {'.*': ''},
+                    },
+
+                    'end of.*section \\(/E\\) mismatch:': {
+                        nameGroup: 'end of section mismatch',
+                    },
+
+                    // Unable to get object for item in shared objects hint
+                    // table
+                    '^unable to get .*': {
+                    },
+
+                    // Unexpected has a different format, like:
+                    // page 1: page object 40 0 stream 1 0 (content, offset 126347): unexpected )
+                    '.*: unexpected .+$': {
+                        nameGroup: 'unexpected symbol: \\g<0>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    // Who knows what R or P or user password will be
+                    '^([a-zA-Z0-9_ ]+?) *= *(.*)$': {
+                        countReplace: {'.*': ''},
+                    },
+
+                    // QPDF has a lot of random error messages. Prefix them
+                    // with ungrouped...
+                    '.*': {
+                        nameGroup: 'pdf-workbench ungrouped output: \\g<0>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+                stderr: {
+                    '^WARNING: .*?(pdf|\\)|[0-9]): (?P<warning>.*)$': {
+                        nameGroup: 'WARNING: \\g<warning>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    '^.*?\\.pdf[ :](?P<warning>.*)$': {
+                        nameGroup: 'pdf \\g<warning>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+
+                    '^qpdf: libqpdf/.*': {
+                    },
+
+                    '.*': {
+                        nameGroup: 'pdf-etl-parse ungrouped error: \\g<0>',
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+
+    build: {
+       stages: {
+            qpdf: {
+                copy_output: {
+                    '/usr/local/bin/qpdf': '/usr/bin/',
+                    '/usr/local/lib/libqpdf*': '/usr/lib/',
+                                    // qdpf install is broken: efficient way around.
+                },
+                commands: [
+                    // Needed to build qpdf
+                    'RUN apt-get update && apt-get install -y \
+                        libjpeg-dev \
+                        ',
+                    'RUN \
+                      mkdir -p /src \
+                      && cd /src \
+                      && wget https://github.com/qpdf/qpdf/archive/release-qpdf-10.1.0.tar.gz \
+                      && tar xf release-qpdf-10.1.0.tar.gz \
+                      && cd qpdf-release-qpdf-10.1.0 \
+                      && ./configure \
+                      && make -j5 \
+                      && make install \
+                      && rm -rf /src \
+                      ',
+                ],
+            },
+       },
+   },
+}
