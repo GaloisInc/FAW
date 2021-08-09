@@ -12,7 +12,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
     # Set defaults
     debug_str = ''
-    dec_args.setdefault('dependent', False)
+    dec_args.setdefault('dependent', True)
     dec_args.setdefault('linkage', 'complete')
 
     # Compute sparse features
@@ -567,7 +567,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         f.write('<body>')
         #f.write(f'<img src="data:image/png;base64,{base64.b64encode(img).decode()}" />')
         f.write('<div id="app">If you see this, Vue is loading or broken</div>')
-        f.write(r'''<script>let app = new Vue({el: '#app', data: window.data,
+        f.write(r'''<script>let app = new Vue({el: '#app', data: Object.freeze(window.data),
                 template: `<div>
                     <vue-header :dec-args="window.data.dec_args" :debug-str="debug_str" />
                     <!-- <similarity-search :linkage="linkage" :labels="labels" :label-counts="label_counts" /> -->
