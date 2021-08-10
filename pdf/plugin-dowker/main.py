@@ -24,7 +24,7 @@ def main():
     args = ap.parse_args()
 
     dec_args = json.loads(args.json_arguments)
-    dec_args.setdefault('feature_regex', ': exit code 0')
+    dec_args.setdefault('feature_regex', ': exit code (?!0)')
 
     file_names = []
     file_names_backward = {}
