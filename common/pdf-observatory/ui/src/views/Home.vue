@@ -969,7 +969,7 @@ export default Vue.extend({
             refDecs = this.pdfsReference;
           }
           // Run plugin
-          const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey, 
+          const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey,
               this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
@@ -989,7 +989,23 @@ export default Vue.extend({
         }
         catch (e) {
           if (this.pluginDecIframeLoading !== loadKey) return;
-          this.pluginDecIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
+          const retryArgs = JSON.stringify(jsonArgs);
+          this.pluginDecIframeSrc = `<!DOCTYPE html><html>
+            <head>
+            <script>
+              function retry() {
+                let args = '${retryArgs}';
+                let req = new XMLHttpRequest();
+                let url = '${this.vuespaUrl}/redecide';
+                req.open('post', url, true);
+                req.setRequestHeader('Content-Type', 'application/json');
+                req.send(args);
+              }
+            ` + '<' + `/script>
+            </head>
+            <body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}
+            <br/><input type="button" value="Retry" onclick="retry()" />
+            </body></html>`;
         }
         finally {
           if (this.pluginDecIframeLoading === loadKey) {
