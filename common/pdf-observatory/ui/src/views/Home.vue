@@ -60,6 +60,9 @@
                 div(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
                   v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
+                details(v-show="pluginDecIframeSrc != null")
+                  summary Debugging stats
+                  json-tree(:data="pluginDecDebug" :level="2")
 
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
@@ -266,6 +269,15 @@
     align-content: flex-start;
     justify-content: center;
 
+    details {
+      cursor: pointer;
+      user-select: none;
+      padding: 0.25em 0.1em;
+
+      > summary {
+      }
+    }
+
     > div {
       display: inline-block;
       margin-left: auto;
@@ -451,6 +463,7 @@ export default Vue.extend({
       pluginIframeLoadingNext: 1,
       pluginIframeSrc: null as string|null,
       pluginIframeSrcMimeType: 'text/html',
+      pluginDecDebug: null as any,
       pluginDecIframeLast: '',
       pluginDecIframeLoading: 0,
       pluginDecIframeLoadingNext: 1,
@@ -945,6 +958,7 @@ export default Vue.extend({
       this.pluginDecIframeLast = pluginKey;
       this.pluginDecIframeLoading = loadKey;
       this.pluginDecIframeSrc = null;
+      this.pluginDecDebug = null;
       this.asyncTry(async () => {
         try {
           if (this.vuespaUrl === null) throw new Error('Websocket not connected?');
@@ -973,6 +987,7 @@ export default Vue.extend({
               this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
+          this.pluginDecDebug = r.debug;
 
           // Build a lookup table to overwrite our decision data based on what
           // the plugin returned.

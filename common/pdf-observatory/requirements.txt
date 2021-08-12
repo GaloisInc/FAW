@@ -2,7 +2,9 @@ dask[complete] >= 2021.07.0
 jupyter-server-proxy
 motor
 pyjson5
+pympler
 strictyaml
+ujson
 vuespa >= 0.4.0
 #git+https://github.com/wwoods/python-vuespa@master
 # v20

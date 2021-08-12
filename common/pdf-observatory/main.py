@@ -8,15 +8,18 @@ import aiohttp.web as web
 import asyncio
 import bson
 import click
+import collections
+import contextlib
 import functools
 import importlib.util
-import json
+import ujson as json
 import math
 import motor.motor_asyncio
 import os
 import pickle
 import psutil
 import pymongo
+import pympler.asizeof as asizeof
 import re
 import shlex
 import strictyaml
@@ -499,6 +502,8 @@ class Client(vuespa.Client):
             reference_decisions, subset_options):
         """Runs a decision plugin.
         """
+        timer = _Timer()
+
         output_html = None
         def get_output_html():
             nonlocal output_html
@@ -560,41 +565,67 @@ class Client(vuespa.Client):
                                 s.write(part.encode('utf-8'))
                                 await s.drain()
                             elif part == '<referenceDecisions>':
-                                for q in reference_decisions:
-                                    s.write((json.dumps(q) + '\n').encode('utf-8'))
+                                with timer.save('stream references'):
+                                    # Optimize...
+                                    bytes_written = 0
+                                    for q in reference_decisions:
+                                        if bytes_written > 500e6:
+                                            await s.drain()
+                                            bytes_written = 0
+                                        a = json.dumps(q).encode('utf-8')
+                                        s.write(a)
+                                        s.write(b'\n')
+                                        bytes_written += len(a) + 1
                                     await s.drain()
                             elif part == '<statsbyfile>':
-                                async for d in self._statsbyfile_cursor(
-                                        subset_options):
-                                    s.write((json.dumps(d) + '\n').encode('utf-8'))
+                                with timer.save('stream file stats'):
+                                    # optimization, saves ~16% on large
+                                    # collections
+                                    bytes_written = 0
+                                    async for dd in self._statsbyfile_cursor(
+                                            subset_options):
+                                        for d in dd:
+                                            if bytes_written > 500e6:
+                                                await s.drain()
+                                                bytes_written = 0
+                                            a = json.dumps(d).encode('utf-8')
+                                            s.write(a)
+                                            s.write(b'\n')
+                                            bytes_written += len(a) + 1
                                     await s.drain()
                             else:
                                 raise NotImplementedError(part)
                     finally:
                         s.close()
 
-                r = await asyncio.gather(
-                        read_out(proc.stdout),
-                        read_err(proc.stderr),
-                        write_in(proc.stdin),
-                        # Read all of stdout and stderr, even if stdin
-                        # crashes.
-                        return_exceptions=True,
-                )
-                exit_code = await proc.wait()
-                for exc in r:
-                    if isinstance(exc, Exception):
-                        traceback.print_exception(type(exc), exc,
-                                exc.__traceback__)
+                with timer.save('subprocess'):
+                    r = await asyncio.gather(
+                            read_out(proc.stdout),
+                            read_err(proc.stderr),
+                            write_in(proc.stdin),
+                            # Read all of stdout and stderr, even if stdin
+                            # crashes.
+                            return_exceptions=True,
+                    )
+                    exit_code = await proc.wait()
+                    for exc in r:
+                        if isinstance(exc, Exception):
+                            traceback.print_exception(type(exc), exc,
+                                    exc.__traceback__)
 
                 if exit_code != 0:
                     # Gets forwarded to user, hence desire for duplicating
                     # stderr
                     raise ValueError(f'non-zero exit: {plugin_key}:\n{"".join(stderr)}')
 
-                if output_html is not None:
-                    result['html'] = open(output_html.name, 'rb').read().decode(
-                            'latin1')
+                with timer.save('transcribe output'):
+                    if output_html is not None:
+                        result['html'] = open(output_html.name, 'rb').read().decode(
+                                'latin1')
+
+                result['debug'] = {
+                        'profile': timer.records,
+                }
                 return result
             else:
                 raise NotImplementedError(plugin_def['type'])
@@ -615,15 +646,16 @@ class Client(vuespa.Client):
         start = time.monotonic()
         print(f'Loading decisions for {options}')
         cursor = self._statsbyfile_cursor(options)
-        async for g in cursor:
-            gid = len(files)
-            files.append(g['_id'])
-            for k, v in g.items():
-                if k.startswith('_'): continue
-                grp = groups.get(k)
-                if grp is None:
-                    groups[k] = grp = []
-                grp.append([gid, v])
+        async for gg in cursor:
+            for g in gg:
+                gid = len(files)
+                files.append(g['_id'])
+                for k, v in g.items():
+                    if k.startswith('_'): continue
+                    grp = groups.get(k)
+                    if grp is None:
+                        groups[k] = grp = []
+                    grp.append([gid, v])
 
         print(f'...Decisions packaged in {time.monotonic() - start:.2f}s')
 
@@ -662,6 +694,9 @@ class Client(vuespa.Client):
         """Async generator which yields from `statsbyfile` according to the
         working subsetting options in `options`.
 
+        For efficiency, yields batches rather than individual documents! This
+        cuts overhead by as much as 50% due to the way async works in python.
+
         Args:
             options:
                 analysis_set_id: Analysis set to use for returning results
@@ -685,8 +720,19 @@ class Client(vuespa.Client):
             pipeline.insert(0, {'$match': {'_id': match_id}})
         cursor = cursor_db.aggregate(pipeline)
 
-        async for g in cursor:
-            yield g
+        doc_sz = 0
+        doc_sz_n = 0
+
+        while True:
+            n_fetch = 10 if doc_sz == 0 else 1 + int(128e6 / doc_sz)
+            docs = await cursor.to_list(n_fetch)
+            if not docs:
+                break
+            yield docs
+
+            if doc_sz == 0:
+                doc_sz = asizeof.asizeof(docs) / len(docs)
+
             # Manual conversion
             #g_new = {'_id': g['_id']}
             #for o in g['f']:
@@ -739,6 +785,7 @@ class Client(vuespa.Client):
         """
         query = None
         postproc = None  # In-place post processor
+        cursor_batched = False
         if collection == 'rawinvocations':
             query = {'file': os.path.join(app_pdf_dir, pdf)}
             cursor = app_mongodb_conn[collection].find(query)
@@ -749,6 +796,7 @@ class Client(vuespa.Client):
                 d['result'] = {dr['k']: dr['v'] for dr in d['result']}
         elif collection == 'statsbyfile':
             cursor = self._statsbyfile_cursor(options, match_id=pdf)
+            cursor_batched = True
             options = None
         else:
             raise NotImplementedError(collection)
@@ -756,6 +804,8 @@ class Client(vuespa.Client):
         assert options is None
 
         docs = [d async for d in cursor]
+        if cursor_batched:
+            docs = [d for dd in docs for d in dd]
         for d in docs:
             if isinstance(d['_id'], bson.objectid.ObjectId):
                 d['_id'] = str(d['_id'])
@@ -817,6 +867,27 @@ class Client(vuespa.Client):
             return result
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, run)
+
+
+
+class _Timer:
+    def __init__(self):
+        self._last = time.monotonic()
+        self._records = collections.defaultdict(float)
+
+
+    @property
+    def records(self):
+        return self._records
+
+
+    @contextlib.contextmanager
+    def save(self, name):
+        start = time.monotonic()
+        try:
+            yield
+        finally:
+            self._records[name] += time.monotonic() - start
 
 
 
