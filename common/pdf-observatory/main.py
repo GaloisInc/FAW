@@ -624,6 +624,7 @@ class Client(vuespa.Client):
                                 'latin1')
 
                 result['debug'] = {
+                        'html_size': len(result['html']),
                         'profile': timer.records,
                 }
                 return result
