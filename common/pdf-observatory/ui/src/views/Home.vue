@@ -860,6 +860,8 @@ export default Vue.extend({
       indent += 1;
       for (const k of dd.filters) {
         let header = k.name.slice();
+        if (k.caseInsensitive)
+          header += '/i';
         if (k.all)
           header += ' all';
         header += ':';
