@@ -18,6 +18,7 @@
               v-list-item
                 v-btn(@click="$emit('filter-file-list', {name: fileFilterListName(di, ri), files: examples[di][ri]})") Filter in FAW
                 v-btn(v-clipboard="() => JSON.stringify(examples[di][ri])") (Copy file list as JSON)
+                v-btn(@click="$emit('view', randomInList(examples[di][ri]))") (View random file)
                 span(style="margin-left: 0.25em") {{examples[di][ri].length}} files
               v-list-item(v-for="ex of examples[di][ri].slice(0, 10)" :key="ex" @click="$emit('view', ex)") {{ex}}
         td(v-else) 0
@@ -102,6 +103,10 @@ export default Vue.extend({
         ')',
       ];
       return r.join('');
+    },
+    randomInList(v: Array<any>) {
+      const i = Math.min(v.length - 1, Math.floor(Math.random() * v.length));
+      return v[i];
     },
     update() {
       const dVals: Array<string> = [];
