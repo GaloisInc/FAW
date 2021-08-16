@@ -98,6 +98,13 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
             port=int(mport))[db]
 
     loop = asyncio.get_event_loop()
+    # Important! Longer collection names requires 4.4+
+    # https://docs.mongodb.com/manual/reference/limits/
+    async def admin_cfg():
+        await app_mongodb_conn.client.admin.command({
+                'setFeatureCompatibilityVersion': '4.4'})
+    loop.run_until_complete(admin_cfg())
+
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
     loop.create_task(faw_analysis_set.main_loop(app_mongodb_conn,

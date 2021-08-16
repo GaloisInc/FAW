@@ -14,7 +14,6 @@ import click
 import collections
 import contextlib
 from dataclasses import dataclass
-import faw_analysis_set_util
 import faw_pipelines_util
 import functools
 import json
@@ -140,8 +139,9 @@ def _refresh_parser_info(coll_resolver, mongo_db):
 
     with _refresh_parser_lock:
         db = coll_resolver(mongo_db + '/observatory').database
-        app_parsers = faw_analysis_set_util.lookup_all_parsers(db, app_config,
-                exclude_unfinished=True)
+        app_parsers = app_config['parsers']
+        # Pipelines now handled in analysis sets; previously, they were merged
+        # into `app_parsers` here, but that is no longer needed.
         app_parsers_updated = time.monotonic()
 
 

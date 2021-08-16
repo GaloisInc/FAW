@@ -1,4 +1,7 @@
 {
+  // Superceded by tika parser
+  disabled: true,
+
   parsers: {
     'pdfbox-ExtractText': {
       exec: ['java', '-jar', '/opt/pdfbox/pdfbox-app-2.0.17.jar', 'ExtractText',

@@ -97,7 +97,6 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             if dec_args['dependent']:
                 u = 1 - u
             X = X_a * u + (1 - u) * X_b
-            X = 1 - X
         else:
             X = np.asmatrix([[]])
     elif False:
@@ -375,7 +374,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         <p>Related features
                             <ul v-if="searchActual >= 0" class="similar-results">
                                 <li v-for="v of results">
-                                    <span @click="featureChange(v)">{{(1 - searchDistance(v)).toFixed(3)}} [{{labelCounts[v]}}] {{labels[v]}}</span>
+                                    <span @click="featureChange(v)">{{searchDistance(v).toFixed(3)}} [{{labelCounts[v]}}] {{labels[v]}}</span>
                                 </li>
                                 <li>
                                     <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
@@ -422,7 +421,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
                         // Compute searchNext
                         this.searchNext = (this.distances[0]
-                                .map((x, idx) => [x, idx])
+                                .map((x, idx) => [-Math.abs(x), idx])
                                 .sort((a, b) => a[0] - b[0])
                                 .map(x => x[1]));
                         this.resultAddNext();
