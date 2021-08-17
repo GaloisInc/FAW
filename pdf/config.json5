@@ -51,30 +51,6 @@
         // Definitions should follow old `invokers.cfg`, BUT eventually we also
         // want to specify `pdf-etl-parse` toolchain here.
 
-        polyfile: {
-            // Prevent DB clutter
-            //exec: ['bash', '-c', "polyfile -m $0 2>&1 | grep 'Found a file of type'", '<inputFile>'],
-            disabled: false,
-            exec: ['polyfile', '-I', '<inputFile>'],
-            version: 'polyfile0.3.3+-v6',
-            parse: {
-              type: 'regex-counter',
-              version: '1',
-              stdout: {
-                // All stdout is a mime type
-                '^.*$': {
-                  nameGroup: 'mimetype: \\g<0>',
-                  nameReplace: {'[0-9]': ''},
-                },
-              },
-              stderr: {
-                '^.*$': {
-                  nameGroup: 'ignored stderr',
-                },
-              },
-            },
-        },
-
         'pdfid': {
             disabled: true,
             exec: ['python3', 'lib/pdfid_v0_2_7/pdfid.py',
@@ -293,16 +269,6 @@ with open(sys.argv[1], 'w') as html: \n\
     },
 
     file_detail_views: {
-        polyfile: {
-            label: 'Polyfile',
-            // 'type' denotes the way this detail view should be shown in the
-            // UI, and how the underlying program gets run.  'program_to_html'
-            // runs a program and opens '<outputHtml>' in something like an
-            // IFrame.
-            type: 'program_to_html',
-            exec: ['polyfile', '--html', '<outputHtml>', '<inputFile>'],
-        },
-
         viewer: {
             label: 'View PDF in browser',
             type: 'program_to_html',
@@ -407,10 +373,6 @@ with open(sys.argv[1], 'w') as html: \n\
                     // Interestingly, some packages (e.g. opencv-python) require
                     // an updated pip.
                     'RUN pip3 install --upgrade pip',
-
-                    'RUN pip3 install "polyfile>=0.3.3"',
-                    // Polyfile now requires 7zip as of 2021-05-04
-                    'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
 
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
