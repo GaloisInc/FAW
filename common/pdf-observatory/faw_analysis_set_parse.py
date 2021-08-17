@@ -277,6 +277,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                 except subprocess.TimeoutExpired:
                     if time.monotonic() - t_start > timeout:
                         timed_out = True
+                        finished = True
                         break
                 else:
                     finished = True
@@ -290,6 +291,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
             stdout, stderr = p.communicate()
 
         if not finished:
+            # Dask requested we cancel -- do not write to DB
             return
 
         doc['result']['timeElapsed'] = time.monotonic() - t_start
