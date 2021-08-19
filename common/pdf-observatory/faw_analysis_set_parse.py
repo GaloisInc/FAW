@@ -223,8 +223,16 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
 
     timeout = parser_cfg['timeout'] or timeout_default
 
+    if 'pipeline' in parser_cfg:
+        ok = parser_tool_version.startswith(parser_cfg['version'])
+    else:
+        ok = parser_tool_version == parser_cfg['version']
+
+    if not ok:
+        raise ValueError(f'Requested parse {parser_tool_version}; config version {parser_cfg["version"]}')
+
     doc = {
-            'invoker': {'version': parser_cfg['version'], 'invName': parser_inv_name},
+            'invoker': {'version': parser_tool_version, 'invName': parser_inv_name},
             'file': fpath_tool_name,
             'result': {
                 'exitcode': None,
