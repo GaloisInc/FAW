@@ -780,6 +780,10 @@ class Client(vuespa.Client):
                 **{'queueStop': {'$type': 10}}))
         pdfs_err = await col.count_documents(dict(**query,
                 **{'queueErr': {'$ne': None}}))
+
+        # Hack for pipeline debugging
+        pdfs_not_done = max(pdfs_not_done,
+                await app_mongodb_conn['as_parse'].estimated_document_count())
         return {
                 'config_mtime': app_config_loaded,
                 'files_done': pdfs_max - pdfs_not_done,
