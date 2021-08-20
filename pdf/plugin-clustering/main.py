@@ -1,5 +1,5 @@
 import base64
-import json
+import ujson as json
 import numpy as np
 import scipy.sparse
 from sklearn.cluster import AgglomerativeClustering
@@ -19,15 +19,15 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     dec_args.setdefault('feature', '')
     dec_args.setdefault('feature_search', '')
 
+    try:
+        min_samples = int(dec_args['min_samples'])
+    except ValueError:
+        min_samples = 2
+        dec_args['min_samples'] = min_samples
+
     # Compute sparse features
     file_to_idx = {}
-    ft_to_idx = {}
-    file_ft = []
-
-    # Filter out features which appear only one time, as these are not very
-    # informative and skew the statistics
-    ft_holding = {}  # {feature: file idx set}
-    min_samples = dec_args['min_samples']
+    ft_count = {}  # {ft: set(file idx)}
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -39,30 +39,25 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         file_to_idx[file_name] = file_idx
 
         for k, v in obj.items():
-            ft_idx = ft_to_idx.get(k)
-            if ft_idx is None:
-                fh_set = ft_holding.get(k)
-                if fh_set is None:
-                    # Hold for sure
-                    ft_holding[k] = set([file_idx])
-                else:
-                    if len(fh_set) < min_samples:
-                        # Stay holding?
-                        fh_set.add(file_idx)
-                    else:
-                        # Release this feature
-                        ft_idx = len(ft_to_idx)
-                        ft_to_idx[k] = ft_idx
+            ft_c = ft_count.get(k)
+            if ft_c is None:
+                ft_count[k] = set([file_idx])
+            else:
+                ft_c.add(file_idx)
 
-                        for f in fh_set:
-                            file_ft.append((f, ft_idx))
+    # Throw out featuers with fewer than min_samples or more than N - min_samples.
+    # This ensures that probabilities are calculated with sufficient granularity
+    # to reduce false correlates.
+    file_ft = []
+    ft_to_idx = {}
+    labels = []
 
-                        del ft_holding[k]
-
-                        # Fall through to add current file
-
-            if ft_idx is not None:
-                file_ft.append((file_idx, ft_idx))
+    max_samples = len(file_to_idx) - min_samples
+    for k, kset in ft_count.items():
+        if max_samples >= len(kset) >= min_samples:
+            labels.append(k)
+            idx = ft_to_idx[k] = len(ft_to_idx)
+            file_ft.extend([(f_idx, idx) for f_idx in kset])
 
     labels = [None for _ in range(len(ft_to_idx))]
     for k, v in ft_to_idx.items():
@@ -70,10 +65,11 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
     if True:
         # NEW CODE -- only one feature at a time.
-        X = scipy.sparse.dok_matrix((len(ft_to_idx), len(file_to_idx)),
+        X = scipy.sparse.lil_matrix((len(ft_to_idx), len(file_to_idx)),
                 dtype=int)
-        X_nonzero = np.asarray(file_ft, dtype=int)
+        X_nonzero = np.asarray(file_ft, dtype=int).reshape(-1, 2)
         X[X_nonzero[:, 1], X_nonzero[:, 0]] = 1
+        X = X.tocsr()
         label_counts = np.asarray(X.sum(1))[:, 0]
 
         if dec_args['feature']:
@@ -364,7 +360,12 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 // Direct version, not going through cluster
                 Vue.component('similarity-search-direct', {
                     template: `<div class="similarity-search">
-                        Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
+                        <div>
+                            Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
+                        </div>
+                        <div>
+                            Min samples for feature: <input v-model="minSamples" type="text" />
+                        </div>
                         <ul class="search-results">
                             <li v-for="v of searchList" @click="featureChange(v)">
                                 <span v-if="v !== -1">[{{labelCounts[v]}}] {{labels[v]}} </span>
@@ -389,9 +390,11 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         featureSearchInit: String,
                         labels: Object,
                         labelCounts: Object,
+                        minSamplesInit: String,
                     },
                     data() {
                         return {
+                            minSamples: this.minSamplesInit,
                             results: [],
                             search: this.featureSearchInit,
                             searchActual: -1,
@@ -429,7 +432,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                     methods: {
                         featureChange(v) {
                             callRedecide({feature: this.labels[v],
-                                    feature_search: this.search});
+                                    feature_search: this.search,
+                                    min_samples: this.minSamples});
                         },
                         searchDistance(i) {
                             return this.distances[0][i];
@@ -448,10 +452,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 }
                             }
                         },
-                        /** Adds the sibling of `node`, all of its descendents,
-                            and the parent. Returns parent. */
                         resultAddNext() {
-                            let i = Math.min(this.searchNext.length, 10);
+                            let i = Math.min(this.searchNext.length, 50);
                             this.results.push.apply(this.results, this.searchNext.splice(0, i));
                         },
                     },
@@ -468,6 +470,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                     <!-- <similarity-search :linkage="linkage" :labels="labels" :label-counts="label_counts" /> -->
                     <similarity-search-direct :feature="data.dec_args.feature"
                             :feature-search-init="data.dec_args.feature_search"
+                            :min-samples-init="data.dec_args.min_samples"
                             :distances="distance_matrix" :labels="labels" :label-counts="label_counts" />
                     <!-- <dendrogram :id="labels.length + linkage.length - 1" :linkage="linkage" :labels="labels" :label-counts="label_counts" :start-uncollapsed="true" /> -->
                 </div>`})</script>''')

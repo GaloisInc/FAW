@@ -7,6 +7,7 @@ import faw_pipelines_util
 import aiohttp.web as web
 import asyncio
 import bson
+import cachetools
 import click
 import collections
 import contextlib
@@ -591,11 +592,12 @@ class Client(vuespa.Client):
                                     bytes_written = 0
                                     async for dd in self._statsbyfile_cursor(
                                             subset_options):
+                                        if bytes_written > 500e6:
+                                            await s.drain()
+                                            bytes_written = 0
                                         for d in dd:
-                                            if bytes_written > 500e6:
-                                                await s.drain()
-                                                bytes_written = 0
-                                            a = json.dumps(d).encode('utf-8')
+                                            a = json.dumps(d, ensure_ascii=False
+                                                    ).encode('utf-8')
                                             s.write(a)
                                             s.write(b'\n')
                                             bytes_written += len(a) + 1
@@ -604,6 +606,7 @@ class Client(vuespa.Client):
                                 raise NotImplementedError(part)
                     finally:
                         s.close()
+                        await s.wait_closed()
 
                 with timer.save('subprocess'):
                     r = await asyncio.gather(
@@ -713,6 +716,38 @@ class Client(vuespa.Client):
         """
 
         assert 'analysis_set_id' in options
+
+        # Check the cache -- if analysis set has been updated, then we must bust
+        # the cache
+        adoc = await app_mongodb_conn['as_metadata'].find_one({
+                '_id': options['analysis_set_id']})
+
+        fresh_key = (adoc.get('last_queueStop'),
+                await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
+                *[(k, v) for k, v in adoc.get('parser_versions_done', {}).items()])
+        if not hasattr(self, '_statsbyfile_cursor_cache'):
+            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100,
+                    ttl=5 * 60)
+        cache = self._statsbyfile_cursor_cache
+        option_kv = [(k, v) for k, v in options.items()]
+        option_kv = [(k, v) if k != 'file_ids' else (k, tuple(sorted(v)))
+                for k, v in option_kv]
+        cache_key = (*option_kv, match_id)
+        try:
+            v = cache.get(cache_key)
+        except TypeError:
+            raise TypeError(cache_key)
+        if v is not None:
+            if v[0] == fresh_key:
+                # Cache data is up-to-date
+                print(f'Using cache for {adoc["_id"]} / {fresh_key}')
+                for row in v[1]:
+                    yield row
+                return
+
+        # Else, update cache
+        data_to_cache = []
+
         cursor_db = app_mongodb_conn['as_c_' + options['analysis_set_id']]
         # Faster to convert from new format to old inline.
         # Goes from 50s down to 28s at 100k documents.
@@ -737,6 +772,7 @@ class Client(vuespa.Client):
             if not docs:
                 break
             yield docs
+            data_to_cache.append(docs)
 
             if doc_sz == 0:
                 doc_sz = asizeof.asizeof(docs) / len(docs)
@@ -746,6 +782,9 @@ class Client(vuespa.Client):
             #for o in g['f']:
             #    g_new[o['k']] = o['v']
             #yield g_new
+
+        # OK, iteration finished, add to cache
+        cache[cache_key] = (fresh_key, data_to_cache)
 
 
     async def api_clear_db(self):
