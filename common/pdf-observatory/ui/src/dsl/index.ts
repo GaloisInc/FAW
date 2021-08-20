@@ -12,7 +12,6 @@ export interface DslResult {
 export interface DslFilter {
   name: string;
   all: boolean;
-  regex: {flags: string};
   caseInsensitive?: boolean;
   patterns: Array<DslFilterPattern>;
 }
