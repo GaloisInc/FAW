@@ -24,6 +24,22 @@ The first invocation will take a long time (up to an hour or two). After that,
 it will be quite fast. Once it's loaded, point your browser at
 http://localhost:8123
 
+## Development mode
+
+When integrating a new parser or developing a plugin, pass the `--development`
+flag to the `python3 workbench.py` command. This does a number of things:
+
+1. Mounts all folders in docker, rather than including them in the image. This
+   way, changing a plugin's source code immediately takes effect.
+2. Continuously scans for changes to any `config.json5` file, and reloads config
+   on change. Changing any `'version'` field in a `config.json5` is intended to
+   trigger reprocessing in the database, to enable rapid iteration.
+3. Watches for filesystem changes; if a file is created or modified _while the
+   FAW is running_, then all analysis sets will be reprocessed to include the
+   new or modified file. This can be useful for debugging specific file malforms.
+4. For internal development, enables live-reloading of all user interface
+   components.
+
 ## Creating a new distribution
 
 This README documents the Galois Format Analysis Workbench (GFAW) for developers

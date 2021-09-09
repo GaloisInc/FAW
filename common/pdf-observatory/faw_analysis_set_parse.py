@@ -13,6 +13,8 @@ import re
 import subprocess
 import tempfile
 import time
+import traceback
+from typing import Dict, Tuple, Union
 
 # Trickery to import pieces of pdf-etl decision pipeline
 import importlib
@@ -35,17 +37,22 @@ def as_parse_main(app_config, api_info):
     db = faw_internal_util.mongo_api_info_to_db_conn(mongo_info)
     col = db[COL_NAME]
 
+    col.create_index([('error_until', 1)])
+    col.create_index([('priority_order', 1)])
+
     with dask.distributed.worker_client() as client:
-        outstanding = dask.distributed.as_completed(with_results=True)
+        # We have to track everything here, rather than relying on `pure=True`.
+        # This is a result of
+        # So, track outstanding ids for e.g. transient errors.
+        outstanding_docs = []  # (doc, future)
+        outstanding = dask.distributed.as_completed(with_results=True,
+                raise_errors=False)
 
         [app_config_future] = client.scatter([app_config], broadcast=True)
 
         work_max = 0
         last_update = 0.
         def next_work():
-            # NOTE - this function will submit the same document multiple times
-            # if called multiple times! It's ok, as `pure=True` in dask will
-            # de-duplicate.
             nonlocal last_update, work_max
             t = time.monotonic()
             if t - last_update > 10:
@@ -59,19 +66,58 @@ def as_parse_main(app_config, api_info):
                 # Busy enough, no need to query DB
                 return
 
-            data = col.find({}, {}).limit(work_max - outstanding.count())
-            for d in data:
-                outstanding.add(client.submit(_dask_as_parse_file,
-                        app_config_future, api_info, d['_id'],
-                        pure=True))
+            bad_ids = [o[0]['_id'] for o in outstanding_docs]
+            data = (col.find({'_id': {'$nin': bad_ids},
+                        'error_until': {'$exists': False}})
+                    .sort([('priority_order', 1)])
+                    .limit(work_max - outstanding.count())
+                    )
+            for doc in data:
+                future = client.submit(_dask_as_parse_file,
+                        app_config_future, api_info, doc, pure=False)
+                outstanding_docs.append((doc, future))
+                outstanding.add(future)
 
         while True:
+            # Before starting a new round, clear out errors that are old
+            col.update_many({'error_until': {'$lt': time.time()}},
+                    {'$unset': {'error_until': True}})
+
             # Initial load
             next_work()
             # Iterator will keep us from maxing out CPU
             for f, f_result in outstanding:
                 if faw_internal_util.dask_check_if_cancelled():
                     return
+
+                # Clean up list
+                for i, (doc, fut) in enumerate(outstanding_docs):
+                    if f is fut:
+                        f_doc = doc
+                        outstanding_docs.pop(i)
+                        break
+                else:
+                    raise ValueError("Future expected, but not found?")
+
+                # Check for error -- blacklist for some time
+                error_min = 5.
+                error_scale = 2.
+                error_max = 3600 * 24
+                if f.exception() is not None:
+                    # Log exception, mark as error for some time
+                    traceback.print_exception(*f_result)
+                    error_delay = f_doc.get('error_delay', error_min)
+                    error_until = time.time() + error_delay
+                    error_delay *= error_scale
+                    error_delay = min(error_max, error_delay)
+                    col.update_one({'_id': f_doc['_id']},
+                            {'$set': {
+                                'error_until': error_until,
+                                'error_delay': error_delay}})
+                else:
+                    # Success -- clear `error_delay`
+                    col.update_one({'_id': f_doc['_id']},
+                            {'$unset': {'error_delay': True}})
 
                 # Purely for dask dashboard; prevent future from hanging around
                 del f
@@ -83,7 +129,7 @@ def as_parse_main(app_config, api_info):
             time.sleep(2)
 
 
-def _dask_as_parse_file(app_config, api_info, doc_id):
+def _dask_as_parse_file(app_config, api_info, doc):
     """Fetch the given file with API, and run required parser(s) on it.
 
     When done, remove specific versions from queue.
@@ -91,11 +137,7 @@ def _dask_as_parse_file(app_config, api_info, doc_id):
     db = faw_internal_util.mongo_api_info_to_db_conn(api_info['mongo'])
     col = db[COL_NAME]
 
-    doc = col.find_one(doc_id)
-    if doc is None:
-        # Nothing to do?
-        return
-
+    doc_id = doc['_id']
     doc_invname = f'/home/pdf-files/{doc_id}'
     parsers_done = {}  # {name: [tool, parser]}
     parsers_to_run_tool = {}
@@ -257,7 +299,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                     parser_api_info['pipeline'] = parser_cfg['pipeline']
                 args.append(json.dumps(parser_api_info))
             elif e.startswith('<tempFile'):
-                suffix = v[9:-1]
+                suffix = e[9:-1]
                 if suffix:
                     assert suffix[0] == ' ', suffix
                     assert ' ' not in suffix[1:], suffix

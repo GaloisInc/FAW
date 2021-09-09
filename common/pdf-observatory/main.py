@@ -1,6 +1,7 @@
 
 import app_util
 import faw_analysis_set
+import faw_analysis_set_parse
 import faw_analysis_set_util
 import faw_pipelines_util
 
@@ -120,18 +121,9 @@ def config_web(app, pdf_dir):
     """Add an endpoint for direct downloading of files.
     """
     app.router.add_routes([
-            web.post('/db_reparse', _config_web_db_reparse_handler),
             web.static('/file_download', pdf_dir),
             web.get('/file_list', _config_web_file_list_handler),
     ])
-
-
-async def _config_web_db_reparse_handler(req):
-    """Reparse, looking at submission packet for tools to reset.
-    """
-    req_json = await req.json()
-    await _db_reparse(req_json['tools_to_reset'])
-    return web.Response(text='{}')
 
 
 async def _config_web_file_list_handler(req):
@@ -147,7 +139,7 @@ async def _config_check_loop():
                 # Note -- various system/docker configs can result in
                 # development overwrites being in the past. So use not equal.
                 _config_reload()
-        except:
+        except Exception:
             traceback.print_exc()
 
         await asyncio.sleep(0.5)
@@ -286,17 +278,6 @@ def _walk_pdf_files():
             yield ff
 
 
-async def _db_reparse(tools_to_reset=[]):
-    """Special function to trigger a reset within an async handler.
-    """
-    _db_abort_process()
-    await app_mongodb_conn.drop_collection('observatory')
-    if tools_to_reset:
-        await app_mongodb_conn['rawinvocations'].delete_many(
-                {'invoker.invName': {'$in': tools_to_reset}})
-    _db_reprocess()
-
-
 def _db_reprocess(*args, **kwargs):
     global app_init
     loop = asyncio.get_event_loop()
@@ -304,18 +285,13 @@ def _db_reprocess(*args, **kwargs):
 
 
 class _DbLoaderProc:
+    """Used to actually control a process; now just controls abort behavior for
+    fs scan.
+    """
     def __init__(self):
-        self.proc = None
         self.aborted = False
     def abort(self):
         self.aborted = True
-        if self.proc is None:
-            return
-        try:
-            self.proc.kill()
-        except ProcessLookupError:
-            # Already finished, OK
-            pass
 _db_loader_proc = _DbLoaderProc()
 def _db_abort_process():
     """Returns new `_DbLoaderProc`"""
@@ -325,7 +301,14 @@ def _db_abort_process():
     _db_loader_proc.abort()
     _db_loader_proc = _DbLoaderProc()
     return _db_loader_proc
-async def init_check_pdfs(retry_errors=False):
+async def init_check_pdfs():
+    try:
+        await _init_check_pdfs()
+    except Exception:
+        # Doesn't trickle up, so just print it and raise an exit
+        traceback.print_exc()
+        sys.exit(1)
+async def _init_check_pdfs():
     """Check the database to see what's populated and what's not.
 
     Additionally, control the flow of the various pdf-etl tools for on-demand
@@ -350,12 +333,39 @@ async def init_check_pdfs(retry_errors=False):
     # Use a batch to support parallelism on mongodb's side
     batch = set()
     batch_max = 100
+    n_inserted = 0
     async def insert_or_ignore(fpath):
+        nonlocal n_inserted
         try:
             await col.insert_one({'_id': fpath, 'queueStart': None,
                     'queueStop': None, 'queueErr': None})
         except pymongo.errors.DuplicateKeyError:
             pass
+        else:
+            n_inserted += 1
+    async def kick_asets_if_inserted():
+        nonlocal n_inserted
+        if n_inserted == 0:
+            return
+
+        # Files were added; mark all analysis sets as not having executed their
+        # parsers AND needing a rebuild.
+        # This is terrible in one sense, but should only really happen with
+        # development-scale deployments. It also does not affect individual
+        # parsers -- most files+parser combinations will be an expensive NOOP,
+        # meaning the parsers won't be re-run.
+        await db['as_metadata'].update_many({}, {
+                '$set': {
+                    # None != {}, will trigger index rebuild
+                    'parser_versions': [None, None],
+                    'parser_versions_done': [{}, {}],
+                    # Ironically, setting UP_TO_DATE is needed so that
+                    # `parser_versions` gets set correctly.
+                    'status': faw_analysis_set.AsStatus.UP_TO_DATE.value,
+                },
+        })
+        # For subsequent runs in development mode
+        n_inserted = 0
     for ff in _walk_pdf_files():
         if loader_proc.aborted:
             # User re-triggered this step, so stop processing.
@@ -366,34 +376,35 @@ async def init_check_pdfs(retry_errors=False):
             _, batch = await asyncio.wait(batch,
                     return_when=asyncio.FIRST_COMPLETED)
     await asyncio.wait(batch)
+    await kick_asets_if_inserted()
 
-    # Now that all PDFs are guaranteed queued, run a queue helper which does
-    # depth-first processing of all files
-    oargs = []
-    if retry_errors:
-        oargs = ['--retry-errors']
+    # For development mode -- use watchgod to live-reload files. Don't do this
+    # in production because that would be weird.
     try:
-        proc = await asyncio.create_subprocess_exec(
-                'python3', '../pdf-observatory/queue_client.py',
-                '--mongo-db', app_mongodb, '--pdf-dir', app_pdf_dir,
-                '--config', os.path.abspath(app_config_path),
-                '--api-info', json.dumps(_get_api_info()),
-                *oargs,
-                cwd=os.path.join(etl_path, 'dist'),
-        )
-        loader_proc.proc = proc
-        await proc.communicate()
-        if await proc.wait() != 0:
-            raise ValueError("non-zero exit")
-    except:
-        if loader_proc.aborted:
-            # OK if aborted; we were expecting some failure.
-            return
+        import watchgod
+    except ImportError:
+        return
 
-        traceback.print_exc()
-        # No point in continuing, fatal error.  Use os._exit to avoid
-        # SystemExit exception, which won't be caught by UI.
-        os._exit(1)
+    async for changes in watchgod.awatch(app_pdf_dir):
+        for ctype, cpath in changes:
+            cpath = os.path.relpath(cpath, app_pdf_dir)
+            if ctype == watchgod.Change.added:
+                print(f'File created: {cpath}; reprocessing if new')
+                await insert_or_ignore(cpath)
+            elif ctype == watchgod.Change.modified:
+                n_inserted += 1
+                # Clearing tool execution is enough to re-trigger all other
+                # aspects, when coupled with kick_asets
+                print(f'File modified: {cpath}; reprocessing')
+                await db['rawinvocations'].delete_many({
+                        'file': os.path.join(app_pdf_dir, cpath)})
+            elif ctype == watchgod.Change.deleted:
+                # FIXME We don't acknowledge file deletions at present -- here
+                # or on init.
+                print(f'File deleted: {cpath}; doing nothing')
+            else:
+                raise NotImplementedError(ctype)
+        await kick_asets_if_inserted()
 
 
 class Client(vuespa.Client):
@@ -722,9 +733,10 @@ class Client(vuespa.Client):
         adoc = await app_mongodb_conn['as_metadata'].find_one({
                 '_id': options['analysis_set_id']})
 
-        fresh_key = (adoc.get('last_queueStop'),
+        fresh_key = (
+                # Hashable elements describing this analysis set's state
                 await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
-                *[(k, v) for k, v in adoc.get('parser_versions_done', {}).items()])
+                *[(k, v) for k, v in adoc.get('parser_versions_done', [{}, {}])[1].items()])
         if not hasattr(self, '_statsbyfile_cursor_cache'):
             self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100,
                     ttl=5 * 60)
@@ -793,21 +805,12 @@ class Client(vuespa.Client):
         _db_reprocess()
 
 
-    async def api_reparse_db(self):
-        await _db_reparse()
-
-
-    async def api_reset_db_errors(self):
-        _db_reprocess(retry_errors=True)
-
-
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
 
         options: {}
         """
         col = app_mongodb_conn['observatory']
-        query = {}
 
         if options:
             raise ValueError(options)
@@ -815,14 +818,12 @@ class Client(vuespa.Client):
         # MongoDB efficiency note -- `count_documents` is rather expensive when
         # it returns a large number.
         pdfs_max = await col.estimated_document_count()
-        pdfs_not_done = await col.count_documents(dict(**query,
-                **{'queueStop': {'$type': 10}}))
-        pdfs_err = await col.count_documents(dict(**query,
-                **{'queueErr': {'$ne': None}}))
+        pdfs_not_done = (
+                await app_mongodb_conn['as_parse'].estimated_document_count())
+        pdfs_err = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
+                .count_documents({'error_until': {'$exists': True}}))
 
         # Hack for pipeline debugging
-        pdfs_not_done = max(pdfs_not_done,
-                await app_mongodb_conn['as_parse'].estimated_document_count())
         return {
                 'config_mtime': app_config_loaded,
                 'files_done': pdfs_max - pdfs_not_done,

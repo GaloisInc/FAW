@@ -38,8 +38,6 @@
                 v-card-title Reset entire DB, re-running all tools and parsers?
                 v-card-actions(:style={'flex-wrap': 'wrap'})
                   v-btn(@click="resetDbDialog=false") Cancel
-                  v-btn(@click="resetDbErrors(); resetDbDialog=false") Reprocess DB errors
-                  v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
           AnalysisSetConfig(:currentId.sync="analysisSetId"
@@ -1086,12 +1084,6 @@ export default Vue.extend({
     regexEscape(v: string): string {
       return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
     },
-    resetDbErrors() {
-      this.asyncTry(async () => {
-        await this.$vuespa.call('reset_db_errors');
-        this.pdfGroupsDirty = true;
-      });
-    },
     async reprocess() {
       /** Re-calculate decisions based on DSL */
       if (this.reprocessInnerInit) {
@@ -1389,15 +1381,6 @@ export default Vue.extend({
       this.pdfsReference = [];
       this.asyncTry(async () => {
         await this.$vuespa.call('clear_db');
-        this.pdfGroupsDirty = true;
-      });
-    },
-    async resetParsers() {
-      this.pdfs = [];
-      this.pdfsDslLast = [];
-      this.pdfsReference = [];
-      this.asyncTry(async () => {
-        await this.$vuespa.call('reparse_db');
         this.pdfGroupsDirty = true;
       });
     },

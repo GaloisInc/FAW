@@ -134,7 +134,9 @@ export default Vue.extend({
       let options = this.asData.asets.map(x => {
         let label = [x.id, ' (', x.size_docs.toString(), ' documents, ',
             (x.size_disk / 1024 / 1024).toFixed(1), ' MB'];
-        if (x.status.length) label.push(`; ${x.status}`);
+        if (x.status.length) {
+          label.push(`; ${x.status}`);
+        }
         label.push(')');
         if (Object.keys((x.pipelines || {})).length !== 0) {
           label.push(' -- pipelines ');

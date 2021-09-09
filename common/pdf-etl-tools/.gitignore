@@ -1,7 +1,0 @@
-.stack-work/
-stack.yaml.lock
-pdf-etl-tools.cabal
-*temp_pdf-etl-tools.pdf
-c-src/die
-*~
-dist-newstyle/

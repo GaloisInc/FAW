@@ -6,7 +6,6 @@ of the task as needed.
 """
 
 import faw_analysis_set
-from faw_analysis_set_util import lookup_pipeline_parser_name
 from faw_internal_util import dask_check_if_cancelled, mongo_api_info_to_db_conn
 import faw_pipelines_util
 
@@ -20,7 +19,7 @@ import subprocess
 import time
 import traceback
 
-def pipeline_admin(app_config_pipelines, api_info, aset_id):
+def pipeline_admin(app_config, api_info, aset_id):
     """Manages the pipelines for a given aset. Loops forever at low yield, so
     removes itself from dask queue.
 
@@ -30,6 +29,7 @@ def pipeline_admin(app_config_pipelines, api_info, aset_id):
     dask.distributed.secede()
 
     db = mongo_api_info_to_db_conn(api_info['mongo'])
+    app_config_pipelines = app_config['pipelines']
     tasks_running = {}
 
     while not dask_check_if_cancelled():
@@ -61,6 +61,7 @@ def pipeline_admin(app_config_pipelines, api_info, aset_id):
                     col_name = api._file_col_name()
                     if col_name not in db.list_collection_names():
                         faw_analysis_set.as_create_id_collection(db=db,
+                                app_config=app_config,
                                 aset_id=pipe_info['aset'],
                                 col_name=col_name,
                                 disable_sampling=True)
