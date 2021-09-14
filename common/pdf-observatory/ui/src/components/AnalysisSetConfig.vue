@@ -219,6 +219,7 @@ export default Vue.extend({
         // Flag more complicated things
         if (rule.src.trim().length || rule.dst.trim().length) rr.rulesComplex = true;
       }
+      r.sort((a, b) => a.id.localeCompare(b.id));
       return r;
     },
   },
