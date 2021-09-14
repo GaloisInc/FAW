@@ -10,7 +10,7 @@
       v-card(color="grey darken-1" dark)
         v-card-text(style="padding-top: 0.5em") {{loadingStatus.message}}
           v-progress-linear(:height="8"
-              :indeterminate="loadingStatus.files_parsing"
+              :indeterminate="loadingStatus.files_parsing !== 0"
               rounded
               :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
               :value="loadingStatus.files_parsing ? 100 : 0")
@@ -106,7 +106,10 @@
               v-expansion-panel(:key="0")
                 v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
                 v-expansion-panel-content
-                  .decision-reasons(style="padding-bottom: 1em;") {{(failReasons.get(decisionAspectSelected) || []).length}} error messages: number of files rejected / uniquely rejected
+                  .decision-reasons(style="padding-bottom: 1em;")
+                    v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
+                      v-radio(value="total" label="number of files rejected")
+                      v-radio(value="unique" label="uniquely rejected")
                     v-virtual-scroll(
                         :bench="10"
                         :items="failReasons.get(decisionAspectSelected) || []"
@@ -437,6 +440,7 @@ export default Vue.extend({
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
       failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
+      failReasonsSort: 'total',
       fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
       holdReferences: true,
@@ -573,6 +577,9 @@ export default Vue.extend({
       }
       this.decisionReference = decRef!;
       this.decisionSelectedDsl = dslRef!;
+    },
+    failReasonsSort() {
+      this.updateFailReasonsSort();
     },
     fileFilters() {
       this.asyncTry(async () => {
@@ -1466,8 +1473,25 @@ export default Vue.extend({
       const frMap = new Map<string, Array<[string, [Set<string>, Set<string>]]>>();
       for (const [filt, data] of failReasons.entries()) {
         const filtData = Array.from(data.entries());
-        filtData.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
         frMap.set(`filter-${filt}`, filtData);
+      }
+      this.failReasons = Object.freeze(frMap);
+      this.updateFailReasonsSort();
+    },
+    updateFailReasonsSort() {
+      const frMap = new Map<string, Array<[string, [Set<string>, Set<string>]]>>();
+      for (const [filt, data] of this.failReasons.entries()) {
+        const filtData = data.slice();
+        if (this.failReasonsSort === 'total') {
+          filtData.sort((a, b) => b[1][0].size - a[1][0].size);
+        }
+        else if (this.failReasonsSort === 'unique') {
+          filtData.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
+        }
+        else {
+          throw new Error(`Bad fail reason sort: ${this.failReasonsSort}`);
+        }
+        frMap.set(filt, filtData);
       }
       this.failReasons = Object.freeze(frMap);
     },
