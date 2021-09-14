@@ -36,9 +36,11 @@ def as_parse_main(app_config, api_info):
     mongo_info = api_info['mongo']
     db = faw_internal_util.mongo_api_info_to_db_conn(mongo_info)
     col = db[COL_NAME]
+    col_obs = db['observatory']
 
     col.create_index([('error_until', 1)])
     col.create_index([('priority_order', 1)])
+    col_obs.create_index([('idle_complete', 1)])
 
     with dask.distributed.worker_client() as client:
         # We have to track everything here, rather than relying on `pure=True`.
@@ -52,7 +54,7 @@ def as_parse_main(app_config, api_info):
 
         work_max = 0
         last_update = 0.
-        def next_work():
+        def next_work(from_idle=False):
             nonlocal last_update, work_max
             t = time.monotonic()
             if t - last_update > 10:
@@ -72,11 +74,58 @@ def as_parse_main(app_config, api_info):
                     .sort([('priority_order', 1)])
                     .limit(work_max - outstanding.count())
                     )
+            num_added = 0
             for doc in data:
+                num_added += 1
                 future = client.submit(_dask_as_parse_file,
                         app_config_future, api_info, doc, pure=False)
                 outstanding_docs.append((doc, future))
                 outstanding.add(future)
+
+            if not from_idle and num_added == 0:
+                # Not enough new work that is a subset of parsers. Therefore,
+                # add all parsers as idle, busy work
+                idle_work()
+
+        def idle_work():
+            # First, see if we have new versions of the idle parsers
+            versions_id, versions_data = faw_analysis_set_util.aset_parser_versions_calculate_idle(app_config)
+            versions = [versions_id, versions_data]
+            doc = db['misc'].find_one({'_id': 'as_idle'})
+            if doc is None or doc['parser_versions'] != versions:
+                # Reset all idle_complete
+                col_obs.update_many({}, {'$unset': {'idle_complete': True}})
+                # Flag as the version we'll be running
+                db['misc'].update_one({'_id': 'as_idle'},
+                        {'$set': {'parser_versions': versions}},
+                        upsert=True)
+
+            data = col_obs.aggregate([
+                    {'$match': {'idle_complete': {'$exists': False}}},
+                    {'$lookup': {
+                        'from': col.name,
+                        'let': {'id': '$_id'},
+                        'pipeline': [
+                            {'$match': {'$expr': {'$eq': ['$_id', '$$id']}}},
+                        ],
+                        'as': 'col_parse',
+                    }},
+                    {'$match': {'col_parse': []}},
+                    {'$project': {'col_parse': 0}},
+                    {'$limit': work_max - outstanding.count()},
+            ])
+            for doc_obs in data:
+                # Cast from 'observatory' to 'as_parse'-typed document
+                r = col.update_one({'_id': doc_obs['_id']},
+                        {
+                            '$set': {'parsers.idle_compute': True},
+                            '$min': {'priority_order': 1e30},
+                        },
+                        upsert=True)
+
+            # Now that documents are in col_parse (maybe), initiate a standard
+            # load
+            next_work(from_idle=True)
 
         while True:
             # Before starting a new round, clear out errors that are old
@@ -85,6 +134,7 @@ def as_parse_main(app_config, api_info):
 
             # Initial load
             next_work()
+
             # Iterator will keep us from maxing out CPU
             for f, f_result in outstanding:
                 if faw_internal_util.dask_check_if_cancelled():
@@ -115,7 +165,7 @@ def as_parse_main(app_config, api_info):
                                 'error_until': error_until,
                                 'error_delay': error_delay}})
                 else:
-                    # Success -- clear `error_delay`
+                    # Success -- clear `error_delay` if the document still exists
                     col.update_one({'_id': f_doc['_id']},
                             {'$unset': {'error_delay': True}})
 
@@ -136,12 +186,26 @@ def _dask_as_parse_file(app_config, api_info, doc):
     """
     db = faw_internal_util.mongo_api_info_to_db_conn(api_info['mongo'])
     col = db[COL_NAME]
+    col_obs = db['observatory']
 
     doc_id = doc['_id']
     doc_invname = f'/home/pdf-files/{doc_id}'
     parsers_done = {}  # {name: [tool, parser]}
     parsers_to_run_tool = {}
     parsers_to_run_parser = {}
+
+    idle_compute = False
+    if doc['parsers'].pop('idle_compute', None) is not None:
+        idle_compute = True
+        # On complete, delete this parser trace
+        parsers_done['idle_compute'] = True
+
+        # Modify doc['parsers'] s.t. all parsers are represented and will be ran
+        # on this file.
+        for pk, pv in app_config['parsers'].items():
+            if pv.get('disabled'):
+                continue
+            doc['parsers'][pk] = (pv['version'], pv['parse']['version'])
 
     parser_set = list(doc.get('parsers', {}).keys())
     if parser_set:
@@ -256,6 +320,8 @@ def _dask_as_parse_file(app_config, api_info, doc):
             {'$unset': {'parsers.' + k: True}}))
     updates.append(pymongo.DeleteOne({'_id': doc_id, 'parsers': {}}))
     col.bulk_write(updates, ordered=True)
+    if idle_compute:
+        col_obs.update_one({'_id': doc_id}, {'$set': {'idle_complete': True}})
 
 
 def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,

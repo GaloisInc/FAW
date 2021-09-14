@@ -3,17 +3,17 @@
     div(
         v-if=" \
           loadingStatus.files_max === 0 \
-          || loadingStatus.files_done !== loadingStatus.files_max \
+          || loadingStatus.files_parsing \
           || loadingStatus.files_err"
         class="loadingStatusDialog"
         )
       v-card(color="grey darken-1" dark)
         v-card-text(style="padding-top: 0.5em") {{loadingStatus.message}}
           v-progress-linear(:height="8"
-              :indeterminate="loadingStatus.files_done !== loadingStatus.files_max"
+              :indeterminate="loadingStatus.files_parsing"
               rounded
               :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
-              :value="loadingStatus.files_done === loadingStatus.files_max ? 100 : 0")
+              :value="loadingStatus.files_parsing ? 100 : 0")
     .error(v-if="error" style="font-size: 4em; white-space: pre-wrap") ERROR - SEE CONSOLE
 
     v-expansion-panels(:multiple="true" :popout="true" :value="expansionPanels" :class="{colored: true}")
@@ -394,7 +394,7 @@ export type PdfGroups = {groups: {[message: string]: Array<[number, number]>},
 
 export class LoadingStatus {
   config_mtime: number = 0;
-  files_done: number = 0;
+  files_parsing: number = 0;
   files_max: number = 0;
   files_err: number = 0;
   message: string = '<Loading>';
@@ -663,7 +663,6 @@ export default Vue.extend({
 
     const checkLoad = async () => {
       const oldConfig = this.loadingStatus.config_mtime;
-      const oldDone = this.loadingStatus.files_done;
       await this.$vuespa.update('loadingStatus', 'loading_get', {});
       if (oldConfig < this.loadingStatus.config_mtime) {
         await this.$vuespa.update('config', 'config_get');

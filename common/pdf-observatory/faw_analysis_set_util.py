@@ -33,6 +33,18 @@ def aset_parser_versions_calculate(app_config, db, aset):
     return versions_id, versions_data
 
 
+def aset_parser_versions_calculate_idle(app_config):
+    """Computes the parser versions for the idle parser.
+
+    Always runs immediately, never hits DB.
+    """
+    id_parsers = set([k for k, v in app_config['parsers'].items()
+            if not v.get('disabled')])
+    versions_id = {}
+    versions_data = _aset_parser_versions_calculate_list(None, app_config, id_parsers)
+    return versions_id, versions_data
+
+
 def _aset_parser_versions_calculate_list(db, app_config, parser_list):
     """Given some list of parsers `parser_list`, use `db` and `app_config` to
     determine precise versions of each.

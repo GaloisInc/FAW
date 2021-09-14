@@ -398,6 +398,8 @@ async def _init_check_pdfs():
                 print(f'File modified: {cpath}; reprocessing')
                 await db['rawinvocations'].delete_many({
                         'file': os.path.join(app_pdf_dir, cpath)})
+                await db['observatory'].update_one(
+                        {'_id': cpath}, {'$unset': {'idle_complete': True}})
             elif ctype == watchgod.Change.deleted:
                 # FIXME We don't acknowledge file deletions at present -- here
                 # or on init.
@@ -822,14 +824,18 @@ class Client(vuespa.Client):
                 await app_mongodb_conn['as_parse'].estimated_document_count())
         pdfs_err = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
                 .count_documents({'error_until': {'$exists': True}}))
+        # Faster than one would think, because number of idle parses is capped
+        pdfs_idle = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
+                .count_documents({'parsers.idle_compute': True}))
 
         # Hack for pipeline debugging
+        idle_text = '' if not pdfs_idle else f' ({pdfs_idle} from idle)'
         return {
                 'config_mtime': app_config_loaded,
-                'files_done': pdfs_max - pdfs_not_done,
+                'files_parsing': pdfs_not_done,
                 'files_max': pdfs_max,
                 'files_err': pdfs_err,
-                'message': f'{pdfs_max - pdfs_not_done} / {pdfs_max}; {pdfs_err} errors',
+                'message': f'{pdfs_not_done} / {pdfs_max} files parsing{idle_text}; {pdfs_err} errors',
         }
 
 
