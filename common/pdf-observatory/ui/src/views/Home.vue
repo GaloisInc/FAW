@@ -40,6 +40,9 @@
                   v-btn(@click="resetDbDialog=false") Cancel
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
+          div
+            span(v-if="pdfGroupsDirty") Data is stale; press 'Reprocess' to download fresh data
+            span(v-else) Data is up-to-date
           AnalysisSetConfig(:currentId.sync="analysisSetId"
               :pipeCfg="config && config.pipelines"
               @update="pdfGroupsDirty = true")

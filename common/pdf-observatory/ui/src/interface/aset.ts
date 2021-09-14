@@ -40,6 +40,7 @@ export interface AsStatus {
   size_docs: number;
   size_disk: number;
   status: string;
+  status_done_time: number;
   pipelines: {[key: string]: AsPipeline},
   definition: AsDefinition,
 }
@@ -50,6 +51,7 @@ export namespace AsStatus {
       size_docs: 0,
       size_disk: 0,
       status: '',
+      status_done_time: 0,
       pipelines: {},
       definition: {
         files: '',

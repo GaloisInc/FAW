@@ -126,7 +126,8 @@ async def as_list():
         stats = await _app_mongodb_conn.command('collstats', colname)
 
         adoc = dict(id=a['_id'], size_docs=await col.estimated_document_count(),
-                size_disk=stats['storageSize'], status=a['status'],
+                size_disk=stats['storageSize'],
+                status=a['status'], status_done_time=a.get('status_done_time'),
                 definition=a['definition'], pipelines=a.get('pipelines', {}))
 
         r.append(adoc)
@@ -324,13 +325,18 @@ def _as_populate(as_name, mongo_info, app_config):
         if faw_internal_util.dask_check_if_cancelled():
             return False
 
+        update = {'status': status}
+        if status == AsStatus.UP_TO_DATE.value:
+            update['status_done_time'] = time.time()
+
         ostatus = as_doc['status']
-        as_doc['status'] = status
         r = col_as_metadata.update_one({'_id': as_name, 'status': ostatus},
-                {'$set': {'status': status}})
+                {'$set': update})
         if r.modified_count == 0:
             # No document modified; status changed?
             return False
+
+        as_doc.update(update)
         return True
 
     # On start, delete old result documents to avoid confusing the user

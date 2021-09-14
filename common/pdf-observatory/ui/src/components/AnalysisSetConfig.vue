@@ -159,6 +159,13 @@ export default Vue.extend({
       });
       return options;
     },
+    currentAs(): AsStatus {
+      const id = this.currentId;
+      for (const a of this.asData.asets) {
+        if (a.id === id) return a;
+      }
+      return AsStatus.makeEmpty('<not found>');
+    },
     currentAsPipelines(): {[key: string]: AsPipeline} {
       const id = this.currentId;
       for (const a of this.asData.asets) {
@@ -342,7 +349,12 @@ export default Vue.extend({
       return true;
     },
     async update() {
+      const oldUpdateTime = this.currentAs.status_done_time;
       this.asData = await this.$vuespa.call('analysis_set_data');
+      if (oldUpdateTime !== this.currentAs.status_done_time) {
+        // Server-side update to analysis set; flag as needing update locally
+        this.$emit('update');
+      }
       bus.$emit('analysisSetData', this.asData);
       if (!this.currentId) {
         if (this.asData.asets.length > 0) {
