@@ -6,12 +6,15 @@ import faw_internal_util
 import faw_pipelines_util
 
 import dask.distributed
+import io
 import json
 import os
+import psutil
 import pymongo
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import traceback
 from typing import Dict, Tuple, Union
@@ -382,14 +385,54 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 cwd=f"/home/dist/{parser_cfg['cwd']}")
 
+        psutil_mem = 0
+        psutil_cpu = {}  # {pid: last known stats, summed at end}
+        psutil_proc = psutil.Process(p.pid)
+        def psutil_check():
+            nonlocal psutil_mem
+            try:
+                s = psutil_proc.children(recursive=True)
+            except psutil.NoSuchProcess:
+                # Can no longer gather information
+                return
+
+            s.append(psutil_proc)
+            mem = 0
+            for p in s:
+                try:
+                    p_cpu = p.cpu_times()
+                    p_mem = p.memory_info()
+                except psutil.NoSuchProcess:
+                    continue
+
+                mem += p_mem.rss
+                if p.pid == psutil_proc.pid:
+                    mem += p_mem.shared
+
+                psutil_cpu[p.pid] = p_cpu
+
+            psutil_mem = max(psutil_mem, mem)
+
         finished = False
         timed_out = False
         try:
             # Subprocess may want to spawn dask workers; ensure it may
             dask.distributed.secede()
+
+            def reader(stream, buf):
+                for line in stream:
+                    buf.write(line)
+            buf_out = io.BytesIO()
+            buf_err = io.BytesIO()
+            reader_out = threading.Thread(target=reader, args=(p.stdout, buf_out))
+            reader_err = threading.Thread(target=reader, args=(p.stderr, buf_err))
+            reader_out.start()
+            reader_err.start()
             while not faw_internal_util.dask_check_if_cancelled():
+                psutil_check()
                 try:
-                    stdout, stderr = p.communicate(timeout=2)
+                    # Timeout affects psutil measurements!
+                    p.wait(timeout=0.1)
                 except subprocess.TimeoutExpired:
                     if time.monotonic() - t_start > timeout:
                         timed_out = True
@@ -401,20 +444,30 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         finally:
             dask.distributed.rejoin()
 
+        # One final measurement if possible
+        psutil_check()
+
         if not finished or timed_out:
             # Early stop -- kill, abort
             p.kill()
-            stdout, stderr = p.communicate()
+            p.wait()
+
+        while reader_out.is_alive() or reader_err.is_alive():
+            time.sleep(0.1)
 
         if not finished:
             # Dask requested we cancel -- do not write to DB
             return
 
         doc['result']['timeElapsed'] = time.monotonic() - t_start
+        doc['result']['memMax'] = psutil_mem
+        doc['result']['cpuUser'] = sum(p.user for p in psutil_cpu.values())
+        doc['result']['cpuSystem'] = sum(p.system for p in psutil_cpu.values())
+        doc['result']['cpuIowait'] = sum(p.iowait for p in psutil_cpu.values())
         doc['result']['exitcode'] = p.wait()
         paths = [(t.name, '<tempFile>') for t in temps] + [(fpath, '<inputFile>')]
-        doc['result']['stdoutRes'] = _trim_program_output(stdout, paths)
-        doc['result']['stderrRes'] = _trim_program_output(stderr, paths)
+        doc['result']['stdoutRes'] = _trim_program_output(buf_out.getvalue(), paths)
+        doc['result']['stderrRes'] = _trim_program_output(buf_err.getvalue(), paths)
         doc['result']['_cons'] = 'Timeout' if timed_out else 'GoodResult'
     finally:
         for t in temps:
@@ -436,8 +489,10 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
 def _trim_program_output(s, paths):
     """s: bytes -> str"""
     s = s.decode('utf-8', errors='replace')
-    if len(s) >= 8 * 1024 ** 2:
-        s = s[:8 * 1024 ** 2 - 128]
+    max_bytes = 8 * 1024 ** 2
+    assert max_bytes > 128, max_bytes
+    if len(s) >= max_bytes:
+        s = s[:max_bytes - 128]
         s = s.rsplit('\n', 1)[0] + '\npdf-etl-tool: ERROR: DATA-TRUNCATED'
 
     # Additionally, replace any instances of paths which might vary with

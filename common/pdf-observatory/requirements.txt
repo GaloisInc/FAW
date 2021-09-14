@@ -1,6 +1,7 @@
 dask[complete] >= 2021.09.0
 jupyter-server-proxy
 motor
+psutil
 pyjson5
 pympler
 strictyaml
