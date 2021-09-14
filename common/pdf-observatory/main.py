@@ -1,22 +1,27 @@
 
 import app_util
 import faw_analysis_set
+import faw_analysis_set_parse
 import faw_analysis_set_util
 import faw_pipelines_util
 
 import aiohttp.web as web
 import asyncio
 import bson
+import cachetools
 import click
+import collections
+import contextlib
 import functools
 import importlib.util
-import json
+import ujson as json
 import math
 import motor.motor_asyncio
 import os
 import pickle
 import psutil
 import pymongo
+import pympler.asizeof as asizeof
 import re
 import shlex
 import strictyaml
@@ -95,6 +100,13 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
             port=int(mport))[db]
 
     loop = asyncio.get_event_loop()
+    # Important! Longer collection names requires 4.4+
+    # https://docs.mongodb.com/manual/reference/limits/
+    async def admin_cfg():
+        await app_mongodb_conn.client.admin.command({
+                'setFeatureCompatibilityVersion': '4.4'})
+    loop.run_until_complete(admin_cfg())
+
     app_config_refresh = loop.create_task(_config_check_loop())
     app_init = loop.create_task(init_check_pdfs())
     loop.create_task(faw_analysis_set.main_loop(app_mongodb_conn,
@@ -109,18 +121,9 @@ def config_web(app, pdf_dir):
     """Add an endpoint for direct downloading of files.
     """
     app.router.add_routes([
-            web.post('/db_reparse', _config_web_db_reparse_handler),
             web.static('/file_download', pdf_dir),
             web.get('/file_list', _config_web_file_list_handler),
     ])
-
-
-async def _config_web_db_reparse_handler(req):
-    """Reparse, looking at submission packet for tools to reset.
-    """
-    req_json = await req.json()
-    await _db_reparse(req_json['tools_to_reset'])
-    return web.Response(text='{}')
 
 
 async def _config_web_file_list_handler(req):
@@ -136,7 +139,7 @@ async def _config_check_loop():
                 # Note -- various system/docker configs can result in
                 # development overwrites being in the past. So use not equal.
                 _config_reload()
-        except:
+        except Exception:
             traceback.print_exc()
 
         await asyncio.sleep(0.5)
@@ -275,17 +278,6 @@ def _walk_pdf_files():
             yield ff
 
 
-async def _db_reparse(tools_to_reset=[]):
-    """Special function to trigger a reset within an async handler.
-    """
-    _db_abort_process()
-    await app_mongodb_conn.drop_collection('observatory')
-    if tools_to_reset:
-        await app_mongodb_conn['rawinvocations'].delete_many(
-                {'invoker.invName': {'$in': tools_to_reset}})
-    _db_reprocess()
-
-
 def _db_reprocess(*args, **kwargs):
     global app_init
     loop = asyncio.get_event_loop()
@@ -293,18 +285,13 @@ def _db_reprocess(*args, **kwargs):
 
 
 class _DbLoaderProc:
+    """Used to actually control a process; now just controls abort behavior for
+    fs scan.
+    """
     def __init__(self):
-        self.proc = None
         self.aborted = False
     def abort(self):
         self.aborted = True
-        if self.proc is None:
-            return
-        try:
-            self.proc.kill()
-        except ProcessLookupError:
-            # Already finished, OK
-            pass
 _db_loader_proc = _DbLoaderProc()
 def _db_abort_process():
     """Returns new `_DbLoaderProc`"""
@@ -314,7 +301,14 @@ def _db_abort_process():
     _db_loader_proc.abort()
     _db_loader_proc = _DbLoaderProc()
     return _db_loader_proc
-async def init_check_pdfs(retry_errors=False):
+async def init_check_pdfs():
+    try:
+        await _init_check_pdfs()
+    except Exception:
+        # Doesn't trickle up, so just print it and raise an exit
+        traceback.print_exc()
+        sys.exit(1)
+async def _init_check_pdfs():
     """Check the database to see what's populated and what's not.
 
     Additionally, control the flow of the various pdf-etl tools for on-demand
@@ -339,12 +333,39 @@ async def init_check_pdfs(retry_errors=False):
     # Use a batch to support parallelism on mongodb's side
     batch = set()
     batch_max = 100
+    n_inserted = 0
     async def insert_or_ignore(fpath):
+        nonlocal n_inserted
         try:
             await col.insert_one({'_id': fpath, 'queueStart': None,
                     'queueStop': None, 'queueErr': None})
         except pymongo.errors.DuplicateKeyError:
             pass
+        else:
+            n_inserted += 1
+    async def kick_asets_if_inserted():
+        nonlocal n_inserted
+        if n_inserted == 0:
+            return
+
+        # Files were added; mark all analysis sets as not having executed their
+        # parsers AND needing a rebuild.
+        # This is terrible in one sense, but should only really happen with
+        # development-scale deployments. It also does not affect individual
+        # parsers -- most files+parser combinations will be an expensive NOOP,
+        # meaning the parsers won't be re-run.
+        await db['as_metadata'].update_many({}, {
+                '$set': {
+                    # None != {}, will trigger index rebuild
+                    'parser_versions': [None, None],
+                    'parser_versions_done': [{}, {}],
+                    # Ironically, setting UP_TO_DATE is needed so that
+                    # `parser_versions` gets set correctly.
+                    'status': faw_analysis_set.AsStatus.UP_TO_DATE.value,
+                },
+        })
+        # For subsequent runs in development mode
+        n_inserted = 0
     for ff in _walk_pdf_files():
         if loader_proc.aborted:
             # User re-triggered this step, so stop processing.
@@ -355,34 +376,37 @@ async def init_check_pdfs(retry_errors=False):
             _, batch = await asyncio.wait(batch,
                     return_when=asyncio.FIRST_COMPLETED)
     await asyncio.wait(batch)
+    await kick_asets_if_inserted()
 
-    # Now that all PDFs are guaranteed queued, run a queue helper which does
-    # depth-first processing of all files
-    oargs = []
-    if retry_errors:
-        oargs = ['--retry-errors']
+    # For development mode -- use watchgod to live-reload files. Don't do this
+    # in production because that would be weird.
     try:
-        proc = await asyncio.create_subprocess_exec(
-                'python3', '../pdf-observatory/queue_client.py',
-                '--mongo-db', app_mongodb, '--pdf-dir', app_pdf_dir,
-                '--config', os.path.abspath(app_config_path),
-                '--api-info', json.dumps(_get_api_info()),
-                *oargs,
-                cwd=os.path.join(etl_path, 'dist'),
-        )
-        loader_proc.proc = proc
-        await proc.communicate()
-        if await proc.wait() != 0:
-            raise ValueError("non-zero exit")
-    except:
-        if loader_proc.aborted:
-            # OK if aborted; we were expecting some failure.
-            return
+        import watchgod
+    except ImportError:
+        return
 
-        traceback.print_exc()
-        # No point in continuing, fatal error.  Use os._exit to avoid
-        # SystemExit exception, which won't be caught by UI.
-        os._exit(1)
+    async for changes in watchgod.awatch(app_pdf_dir):
+        for ctype, cpath in changes:
+            cpath = os.path.relpath(cpath, app_pdf_dir)
+            if ctype == watchgod.Change.added:
+                print(f'File created: {cpath}; reprocessing if new')
+                await insert_or_ignore(cpath)
+            elif ctype == watchgod.Change.modified:
+                n_inserted += 1
+                # Clearing tool execution is enough to re-trigger all other
+                # aspects, when coupled with kick_asets
+                print(f'File modified: {cpath}; reprocessing')
+                await db['rawinvocations'].delete_many({
+                        'file': os.path.join(app_pdf_dir, cpath)})
+                await db['observatory'].update_one(
+                        {'_id': cpath}, {'$unset': {'idle_complete': True}})
+            elif ctype == watchgod.Change.deleted:
+                # FIXME We don't acknowledge file deletions at present -- here
+                # or on init.
+                print(f'File deleted: {cpath}; doing nothing')
+            else:
+                raise NotImplementedError(ctype)
+        await kick_asets_if_inserted()
 
 
 class Client(vuespa.Client):
@@ -459,7 +483,8 @@ class Client(vuespa.Client):
             def get_output_html():
                 nonlocal file_out
                 assert file_out is None, 'Cannot use <outputHtml> twice'
-                file_out = tempfile.NamedTemporaryFile(delete=False)
+                file_out = tempfile.NamedTemporaryFile(delete=False,
+                        suffix='.html')
                 file_out.close()
                 return file_out.name
             cmd = self._cmd_plugin_template_replace(cmd, vuespa_url, {
@@ -498,11 +523,14 @@ class Client(vuespa.Client):
             reference_decisions, subset_options):
         """Runs a decision plugin.
         """
+        timer = _Timer()
+
         output_html = None
         def get_output_html():
             nonlocal output_html
             assert output_html is None, 'Cannot use <outputHtml> twice'
-            output_html = tempfile.NamedTemporaryFile(delete=False)
+            output_html = tempfile.NamedTemporaryFile(delete=False,
+                    suffix='.html')
             output_html.close()
             return output_html.name
 
@@ -558,41 +586,70 @@ class Client(vuespa.Client):
                                 s.write(part.encode('utf-8'))
                                 await s.drain()
                             elif part == '<referenceDecisions>':
-                                for q in reference_decisions:
-                                    s.write((json.dumps(q) + '\n').encode('utf-8'))
+                                with timer.save('stream references'):
+                                    # Optimize...
+                                    bytes_written = 0
+                                    for q in reference_decisions:
+                                        if bytes_written > 500e6:
+                                            await s.drain()
+                                            bytes_written = 0
+                                        a = json.dumps(q).encode('utf-8')
+                                        s.write(a)
+                                        s.write(b'\n')
+                                        bytes_written += len(a) + 1
                                     await s.drain()
                             elif part == '<statsbyfile>':
-                                async for d in self._statsbyfile_cursor(
-                                        subset_options):
-                                    s.write((json.dumps(d) + '\n').encode('utf-8'))
+                                with timer.save('stream file stats'):
+                                    # optimization, saves ~16% on large
+                                    # collections
+                                    bytes_written = 0
+                                    async for dd in self._statsbyfile_cursor(
+                                            subset_options):
+                                        if bytes_written > 500e6:
+                                            await s.drain()
+                                            bytes_written = 0
+                                        for d in dd:
+                                            a = json.dumps(d, ensure_ascii=False
+                                                    ).encode('utf-8')
+                                            s.write(a)
+                                            s.write(b'\n')
+                                            bytes_written += len(a) + 1
                                     await s.drain()
                             else:
                                 raise NotImplementedError(part)
                     finally:
                         s.close()
+                        await s.wait_closed()
 
-                r = await asyncio.gather(
-                        read_out(proc.stdout),
-                        read_err(proc.stderr),
-                        write_in(proc.stdin),
-                        # Read all of stdout and stderr, even if stdin
-                        # crashes.
-                        return_exceptions=True,
-                )
-                exit_code = await proc.wait()
-                for exc in r:
-                    if isinstance(exc, Exception):
-                        traceback.print_exception(type(exc), exc,
-                                exc.__traceback__)
+                with timer.save('subprocess'):
+                    r = await asyncio.gather(
+                            read_out(proc.stdout),
+                            read_err(proc.stderr),
+                            write_in(proc.stdin),
+                            # Read all of stdout and stderr, even if stdin
+                            # crashes.
+                            return_exceptions=True,
+                    )
+                    exit_code = await proc.wait()
+                    for exc in r:
+                        if isinstance(exc, Exception):
+                            traceback.print_exception(type(exc), exc,
+                                    exc.__traceback__)
 
                 if exit_code != 0:
                     # Gets forwarded to user, hence desire for duplicating
                     # stderr
                     raise ValueError(f'non-zero exit: {plugin_key}:\n{"".join(stderr)}')
 
-                if output_html is not None:
-                    result['html'] = open(output_html.name, 'rb').read().decode(
-                            'latin1')
+                with timer.save('transcribe output'):
+                    if output_html is not None:
+                        result['html'] = open(output_html.name, 'rb').read().decode(
+                                'latin1')
+
+                result['debug'] = {
+                        'html_size': len(result['html']),
+                        'profile': timer.records,
+                }
                 return result
             else:
                 raise NotImplementedError(plugin_def['type'])
@@ -613,15 +670,16 @@ class Client(vuespa.Client):
         start = time.monotonic()
         print(f'Loading decisions for {options}')
         cursor = self._statsbyfile_cursor(options)
-        async for g in cursor:
-            gid = len(files)
-            files.append(g['_id'])
-            for k, v in g.items():
-                if k.startswith('_'): continue
-                grp = groups.get(k)
-                if grp is None:
-                    groups[k] = grp = []
-                grp.append([gid, v])
+        async for gg in cursor:
+            for g in gg:
+                gid = len(files)
+                files.append(g['_id'])
+                for k, v in g.items():
+                    if k.startswith('_'): continue
+                    grp = groups.get(k)
+                    if grp is None:
+                        groups[k] = grp = []
+                    grp.append([gid, v])
 
         print(f'...Decisions packaged in {time.monotonic() - start:.2f}s')
 
@@ -660,6 +718,9 @@ class Client(vuespa.Client):
         """Async generator which yields from `statsbyfile` according to the
         working subsetting options in `options`.
 
+        For efficiency, yields batches rather than individual documents! This
+        cuts overhead by as much as 50% due to the way async works in python.
+
         Args:
             options:
                 analysis_set_id: Analysis set to use for returning results
@@ -668,6 +729,39 @@ class Client(vuespa.Client):
         """
 
         assert 'analysis_set_id' in options
+
+        # Check the cache -- if analysis set has been updated, then we must bust
+        # the cache
+        adoc = await app_mongodb_conn['as_metadata'].find_one({
+                '_id': options['analysis_set_id']})
+
+        fresh_key = (
+                # Hashable elements describing this analysis set's state
+                await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
+                *[(k, v) for k, v in adoc.get('parser_versions_done', [{}, {}])[1].items()])
+        if not hasattr(self, '_statsbyfile_cursor_cache'):
+            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100,
+                    ttl=5 * 60)
+        cache = self._statsbyfile_cursor_cache
+        option_kv = [(k, v) for k, v in options.items()]
+        option_kv = [(k, v) if k != 'file_ids' else (k, tuple(sorted(v)))
+                for k, v in option_kv]
+        cache_key = (*option_kv, match_id)
+        try:
+            v = cache.get(cache_key)
+        except TypeError:
+            raise TypeError(cache_key)
+        if v is not None:
+            if v[0] == fresh_key:
+                # Cache data is up-to-date
+                print(f'Using cache for {adoc["_id"]} / {fresh_key}')
+                for row in v[1]:
+                    yield row
+                return
+
+        # Else, update cache
+        data_to_cache = []
+
         cursor_db = app_mongodb_conn['as_c_' + options['analysis_set_id']]
         # Faster to convert from new format to old inline.
         # Goes from 50s down to 28s at 100k documents.
@@ -683,13 +777,28 @@ class Client(vuespa.Client):
             pipeline.insert(0, {'$match': {'_id': match_id}})
         cursor = cursor_db.aggregate(pipeline)
 
-        async for g in cursor:
-            yield g
+        doc_sz = 0
+        doc_sz_n = 0
+
+        while True:
+            n_fetch = 10 if doc_sz == 0 else 1 + int(128e6 / doc_sz)
+            docs = await cursor.to_list(n_fetch)
+            if not docs:
+                break
+            yield docs
+            data_to_cache.append(docs)
+
+            if doc_sz == 0:
+                doc_sz = asizeof.asizeof(docs) / len(docs)
+
             # Manual conversion
             #g_new = {'_id': g['_id']}
             #for o in g['f']:
             #    g_new[o['k']] = o['v']
             #yield g_new
+
+        # OK, iteration finished, add to cache
+        cache[cache_key] = (fresh_key, data_to_cache)
 
 
     async def api_clear_db(self):
@@ -698,36 +807,35 @@ class Client(vuespa.Client):
         _db_reprocess()
 
 
-    async def api_reparse_db(self):
-        await _db_reparse()
-
-
-    async def api_reset_db_errors(self):
-        _db_reprocess(retry_errors=True)
-
-
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
 
         options: {}
         """
         col = app_mongodb_conn['observatory']
-        query = {}
 
         if options:
             raise ValueError(options)
 
-        pdfs_max = await col.count_documents(query)
-        pdfs_not_done = await col.count_documents(dict(**query,
-                **{'queueStop': {'$type': 10}}))
-        pdfs_not_err = await col.count_documents(dict(**query,
-                **{'queueErr': {'$type': 10}}))
+        # MongoDB efficiency note -- `count_documents` is rather expensive when
+        # it returns a large number.
+        pdfs_max = await col.estimated_document_count()
+        pdfs_not_done = (
+                await app_mongodb_conn['as_parse'].estimated_document_count())
+        pdfs_err = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
+                .count_documents({'error_until': {'$exists': True}}))
+        # Faster than one would think, because number of idle parses is capped
+        pdfs_idle = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
+                .count_documents({'parsers.idle_compute': True}))
+
+        # Hack for pipeline debugging
+        idle_text = '' if not pdfs_idle else f' ({pdfs_idle} from idle)'
         return {
                 'config_mtime': app_config_loaded,
-                'files_done': pdfs_max - pdfs_not_done,
+                'files_parsing': pdfs_not_done,
                 'files_max': pdfs_max,
-                'files_err': pdfs_max - pdfs_not_err,
-                'message': f'{pdfs_max - pdfs_not_done} / {pdfs_max}; {pdfs_max - pdfs_not_err} errors',
+                'files_err': pdfs_err,
+                'message': f'{pdfs_not_done} / {pdfs_max} files parsing{idle_text}; {pdfs_err} errors',
         }
 
 
@@ -737,6 +845,7 @@ class Client(vuespa.Client):
         """
         query = None
         postproc = None  # In-place post processor
+        cursor_batched = False
         if collection == 'rawinvocations':
             query = {'file': os.path.join(app_pdf_dir, pdf)}
             cursor = app_mongodb_conn[collection].find(query)
@@ -747,6 +856,7 @@ class Client(vuespa.Client):
                 d['result'] = {dr['k']: dr['v'] for dr in d['result']}
         elif collection == 'statsbyfile':
             cursor = self._statsbyfile_cursor(options, match_id=pdf)
+            cursor_batched = True
             options = None
         else:
             raise NotImplementedError(collection)
@@ -754,6 +864,8 @@ class Client(vuespa.Client):
         assert options is None
 
         docs = [d async for d in cursor]
+        if cursor_batched:
+            docs = [d for dd in docs for d in dd]
         for d in docs:
             if isinstance(d['_id'], bson.objectid.ObjectId):
                 d['_id'] = str(d['_id'])
@@ -815,6 +927,27 @@ class Client(vuespa.Client):
             return result
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, run)
+
+
+
+class _Timer:
+    def __init__(self):
+        self._last = time.monotonic()
+        self._records = collections.defaultdict(float)
+
+
+    @property
+    def records(self):
+        return self._records
+
+
+    @contextlib.contextmanager
+    def save(self, name):
+        start = time.monotonic()
+        try:
+            yield
+        finally:
+            self._records[name] += time.monotonic() - start
 
 
 

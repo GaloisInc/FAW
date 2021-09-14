@@ -86,7 +86,10 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
 
     try:
         inv_version = doc['invoker']['version']
-        if cfg['version'] != inv_version:
+        version_ok = cfg['version'] == inv_version
+        if 'pipeline' in cfg:
+            version_ok = inv_version.startswith(cfg['version'])
+        if not version_ok:
             raise ValueError(f'Expected version {cfg["version"]}; tool ran as '
                     f'version {inv_version}')
 

@@ -179,7 +179,7 @@ def test_pdftocairo():
                             "-pdf"
                     ],
                     "postArgs" : [
-                            ".temp_pdf-etl-tools.pdf"
+                            ".temp.pdf"
                     ],
                     "timeoutScale" : 18,
                     "version" : "poppler-0.84.0",

@@ -6,7 +6,6 @@ of the task as needed.
 """
 
 import faw_analysis_set
-from faw_analysis_set_util import lookup_pipeline_parser_name
 from faw_internal_util import dask_check_if_cancelled, mongo_api_info_to_db_conn
 import faw_pipelines_util
 
@@ -20,7 +19,7 @@ import subprocess
 import time
 import traceback
 
-def pipeline_admin(app_config_pipelines, api_info, aset_id):
+def pipeline_admin(app_config, api_info, aset_id):
     """Manages the pipelines for a given aset. Loops forever at low yield, so
     removes itself from dask queue.
 
@@ -30,6 +29,7 @@ def pipeline_admin(app_config_pipelines, api_info, aset_id):
     dask.distributed.secede()
 
     db = mongo_api_info_to_db_conn(api_info['mongo'])
+    app_config_pipelines = app_config['pipelines']
     tasks_running = {}
 
     while not dask_check_if_cancelled():
@@ -61,6 +61,7 @@ def pipeline_admin(app_config_pipelines, api_info, aset_id):
                     col_name = api._file_col_name()
                     if col_name not in db.list_collection_names():
                         faw_analysis_set.as_create_id_collection(db=db,
+                                app_config=app_config,
                                 aset_id=pipe_info['aset'],
                                 col_name=col_name,
                                 disable_sampling=True)
@@ -147,8 +148,8 @@ def _pipeline_check_tasks(db, client, api_info, pipe_name, pipe_cfg,
             if needs_run and task_name == 'internal--faw-final-reprocess-db':
                 # Mark as incomplete for UI
                 db['as_metadata'].update_one(
-                        {'_id': api_info['aset'], 'pipelines.' + pipe_name + '.done': True},
-                        {'$set': {'pipelines.' + pipe_name + '.done': False}})
+                        {'_id': api_info['aset'], 'pipelines.' + pipe_name + '.done': {'$ne': None}},
+                        {'$set': {'pipelines.' + pipe_name + '.done': None}})
             # Don't let this task run
             continue
         elif run_version != last_task_status.version:
@@ -177,21 +178,10 @@ def _pipeline_check_tasks(db, client, api_info, pipe_name, pipe_cfg,
 
         # If we reach here, we want to launch a new task runner
         if task_api_info['task'] == 'internal--faw-final-reprocess-db':
-            # Special case -- signal UI to reprocess DB, deleting our parsers
-            # so they reprocess
-            tools_to_reset = []
-            for k, v in pipe_cfg['parsers'].items():
-                # This parser needs to be recomputed when we finish
-                if v.get('disabled'):
-                    continue
-                tools_to_reset.append(lookup_pipeline_parser_name(
-                        api_info['aset'], pipe_name, k))
-            if tools_to_reset:
-                api._internal_db_reparse(tools_to_reset)
             # Mark the pipeline as done in the UI
             db['as_metadata'].update_one(
-                    {'_id': api_info['aset'], 'pipelines.' + pipe_name + '.done': False},
-                    {'$set': {'pipelines.' + pipe_name + '.done': True}})
+                    {'_id': api_info['aset'], 'pipelines.' + pipe_name + '.done': None},
+                    {'$set': {'pipelines.' + pipe_name + '.done': time.time()}})
             # Set done so the pipeline completes
             api._internal_task_status_set_completed()
             continue

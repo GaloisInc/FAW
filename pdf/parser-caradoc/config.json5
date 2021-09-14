@@ -1,0 +1,166 @@
+{
+  disabled: true,
+  parsers: {
+      'caradoc-stats': {
+          exec: ['caradoc', 'stats', '<inputFile>'],
+          version: 'caradoc-0.3',
+          parse: {
+              type: 'regex-counter',
+              stdout: {
+                  '^(([a-zA-Z ]|\\(s\\))+)$': {
+                  },
+
+                  '^\\s*(?P<key>.*) -> (?P<value>\\d+) times$': {
+                      nameGroup: '\\g<key>',
+                      countGroup: '\\g<value>',
+                  },
+
+                  '^\\s*(?P<key>[a-zA-Z/]+( [a-zA-Z]+)*)\\s*:\\s*(?P<value>.*)$': {
+                      nameGroup: '\\g<key>',
+                      countGroup: '\\g<value>',
+                  },
+              },
+              stderr: {
+                  '^\\s*(PDF error : Lexing error).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(PDF error : The same name appears several times in dict).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(PDF error : Unexpected command).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(PDF error : Xref table contains object).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(Type error : Inconsistent type inference).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(Type error : Invalid variant type).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(Type error : Unexpected entry).*$': {
+                      nameGroup: 1
+                  },
+
+                  '.*': {
+                      nameReplace: {
+                          '0x[0-9a-f]+b?|[0-9]': '',
+                      },
+                  },
+              },
+          },
+      },
+
+      'caradoc-strict': {
+          exec: ['caradoc', 'stats', '--strict', '<inputFile>'],
+          version: 'caradoc-0.3',
+          parse: {
+              type: 'regex-counter',
+              stdout: {
+                  '^(([a-zA-Z ]|\\(s\\))+)$': {
+                  },
+
+                  '^\\s*(?P<key>.*) -> (?P<value>\\d+) times$': {
+                      nameGroup: '\\g<key>',
+                      countGroup: '\\g<value>',
+                  },
+
+                  '^\\s*(?P<key>[a-zA-Z/]+( [a-zA-Z]+)*)\\s*:\\s*(?P<value>.*)$': {
+                      nameGroup: '\\g<key>',
+                      countGroup: '\\g<value>',
+                  },
+              },
+              stderr: {
+                  '^\\s*(PDF error : Lexing error).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(PDF error : The same name appears several times in dict).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(PDF error : Unexpected command).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(PDF error : Xref table contains object).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(Type error : Inconsistent type inference).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(Type error : Invalid variant type).*$': {
+                      nameGroup: 1
+                  },
+
+                  '^\\s*(Type error : Unexpected entry).*$': {
+                      nameGroup: 1
+                  },
+
+                  '.*': {
+                      nameReplace: {
+                          '0x[0-9a-f]+b?|[0-9]': '',
+                      },
+                  },
+              },
+          },
+      },
+  },
+  build: {
+    stages: {
+      caradoc: {
+          from: 'base',
+          copy_output: {
+              '/usr/local/bin/caradoc': true,
+          },
+          commands: [
+              'RUN opam init --auto-setup --disable-sandboxing --compiler=4.05.0 \
+                  && opam install -y ocamlbuild ocamlfind cryptokit ounit menhir \
+                  ',
+              'RUN \
+                  wget -q https://github.com/ANSSI-FR/caradoc/raw/master/releases/caradoc-0.3.tar.gz \
+                  && tar xf caradoc-0.3.tar.gz \
+                  && rm caradoc-0.3.tar.gz \
+                  ',
+              // Original options:
+              // OCAML_OPTS=-w,+a-3-4-32..39,-warn-error,+a,-strict-sequence,-noautolink
+              //    && echo \"patch for caradoc-0.3 w/ new ocamlbuild\" \
+              //    && sed -i -e \"s/OCAML_OPTS=\\(.*\\),-warn-error/OCAML_OPTS=\\1-44,-warn-error/\" Makefile \
+              //    && head Makefile \
+              //    && echo \"resume normal install\" \
+              "RUN bash -c '\
+                  cd caradoc-0.3 \
+                  && eval `opam config env` \
+                  && make \
+                  && install caradoc /usr/local/bin \
+                  '",
+          ],
+      },
+      final: {
+        commands: [
+          // Documented caradoc dependencies
+          'RUN apt-get update && apt-get install -y \
+              ocaml \
+              opam \
+              zlib1g-dev \
+              ',
+          // Undocumented caradoc dependencies
+          'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              m4 \
+              pkg-config \
+              libgmp3-dev \
+              ',
+        ],
+      },
+    },
+  },
+}

@@ -1,6 +1,7 @@
 import base64
-import json
+import ujson as json
 import numpy as np
+import scipy.sparse
 from sklearn.cluster import AgglomerativeClustering
 import sys
 import typer
@@ -12,17 +13,21 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
     # Set defaults
     debug_str = ''
-    dec_args.setdefault('dependent', False)
+    dec_args.setdefault('dependent', True)
     dec_args.setdefault('linkage', 'complete')
+    dec_args.setdefault('min_samples', 2)
+    dec_args.setdefault('feature', '')
+    dec_args.setdefault('feature_search', '')
+
+    try:
+        min_samples = int(dec_args['min_samples'])
+    except ValueError:
+        min_samples = 2
+        dec_args['min_samples'] = min_samples
 
     # Compute sparse features
     file_to_idx = {}
-    ft_to_idx = {}
-    file_ft = []
-
-    # Filter out features which appear only one time, as these are not very
-    # informative and skew the statistics
-    ft_holding = {}  # {feature: file idx set}
+    ft_count = {}  # {ft: set(file idx)}
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -34,153 +39,169 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         file_to_idx[file_name] = file_idx
 
         for k, v in obj.items():
-            if k.startswith('ml-test') or k.startswith('plugin-rl-grit'):
-                # Filter out these for now... need to change to user-specified
-                # filter.
-                continue
+            ft_c = ft_count.get(k)
+            if ft_c is None:
+                ft_count[k] = set([file_idx])
+            else:
+                ft_c.add(file_idx)
 
-            ft_idx = ft_to_idx.get(k)
-            if ft_idx is None:
-                fh_set = ft_holding.get(k)
-                if fh_set is None:
-                    # Hold for sure
-                    ft_holding[k] = set([file_idx])
-                else:
-                    if len(fh_set) < 1:
-                        # Stay holding?
-                        fh_set.add(file_idx)
-                    else:
-                        # Release this feature
-                        ft_idx = len(ft_to_idx)
-                        ft_to_idx[k] = ft_idx
+    # Throw out featuers with fewer than min_samples or more than N - min_samples.
+    # This ensures that probabilities are calculated with sufficient granularity
+    # to reduce false correlates.
+    file_ft = []
+    ft_to_idx = {}
+    labels = []
 
-                        for f in fh_set:
-                            file_ft.append((f, ft_idx))
-
-                        del ft_holding[k]
-
-                        # Fall through to add current file
-
-            if ft_idx is not None:
-                file_ft.append((file_idx, ft_idx))
-
-    X = np.zeros((len(file_to_idx), len(ft_to_idx)))
-    X_nonzero = np.asarray(file_ft, dtype=int)
-    X[X_nonzero[:, 0], X_nonzero[:, 1]] = 1.
-
-    # X is (file, ft) at the moment. We actually want to find features which
-    # are the same.
-    X = X.T
-    label_counts = X.sum(1).astype(int)
-
-    X_debug = False
-    if X_debug:
-        # Lots of debug info -- suitable only for very small sets
-        X_raw = X.copy()
-
-    if False:
-        # Compute cosine similarity using zero-mean vectors
-        X -= X.mean(1, keepdims=True)
-        X /= (X ** 2).sum(1, keepdims=True) ** 0.5 + 1e-30
-        X = 1. - (X @ X.T)
-    elif True:
-        # Predictive power.... 0 means no correlation, 1 means synchronized...
-        # Want 1 - P(knowing B tells you something about A)
-        # P(A|B) vs P(A|~B)... there's no way it's that simple?
-
-        # https://en.wikipedia.org/wiki/Relative_risk_reduction
-        # Risk reduction methodology. Specifically, "attributable risk"
-
-        # X is (ft, file)
-        N = X.shape[1]
-        X_sum = X.sum(1, keepdims=True)
-        eps = 1e-20
-        X_b = (
-                # P(A|B)
-                (X @ X.T) / (X_sum.T + eps)
-                # P(A|~B)
-                - (X @ (1 - X.T)) / (N - X_sum.T + eps)
-        )
-        X_a = (
-                (X @ X.T) / (X_sum + eps)
-                - ((1 - X) @ X.T) / (N - X_sum + eps))
-
-        # Default is independence, which lets us peruse highly related features.
-        # Auxiliary is dependence, which lets us peruse "implies" relationships
-        u = (abs(X_a) < abs(X_b))
-        if dec_args['dependent']:
-            # Max dependence
-            u = 1 - u
-        X = X_a * u + (1 - u) * X_b
-
-        X = 1 - X
-    else:
-        # Compute 1 - min(P(A|B))
-        X_sum = X.sum(1, keepdims=True)
-        X = (X @ X.T) / np.maximum(X_sum, X_sum.T)
-        X = 1. - X
+    max_samples = len(file_to_idx) - min_samples
+    for k, kset in ft_count.items():
+        if max_samples >= len(kset) >= min_samples:
+            labels.append(k)
+            idx = ft_to_idx[k] = len(ft_to_idx)
+            file_ft.extend([(f_idx, idx) for f_idx in kset])
 
     labels = [None for _ in range(len(ft_to_idx))]
     for k, v in ft_to_idx.items():
         labels[v] = k
-        if X_debug:
-            # Table lines up if prefix
-            labels[v] = f'{X_raw[v].astype(int)} - {k}'
 
-    if False:
-        # Debug code to inspect distances
-        fts = ['CalledProcessError', "'<' not supported"]
-        idx = [-1 for _ in fts]
-        for k, v in ft_to_idx.items():
-            for fti, ft in enumerate(fts):
-                if ft in k:
-                    assert idx[fti] < 0, 'Duplicate for ' + ft
-                    idx[fti] = v
+    if True:
+        # NEW CODE -- only one feature at a time.
+        X = scipy.sparse.lil_matrix((len(ft_to_idx), len(file_to_idx)),
+                dtype=int)
+        X_nonzero = np.asarray(file_ft, dtype=int).reshape(-1, 2)
+        X[X_nonzero[:, 1], X_nonzero[:, 0]] = 1
+        X = X.tocsr()
+        label_counts = np.asarray(X.sum(1))[:, 0]
 
-        debug_str = str(X[np.asarray(idx)][:, np.asarray(idx)])
+        if dec_args['feature']:
+            # Attributable risk, but only for ft of interest
+            i = ft_to_idx[dec_args['feature']]
 
-    if False:
-        # Summarize
-        X = X[:50, :50]
-        labels = labels[:50]
-        label_counts = label_counts[:50]
+            N = X.shape[1]
+            X_sum = X.sum(1)
+            eps = 1e-20
+            X_joint = X[i] @ X.T
+            X_b = (
+                    X_joint / (X_sum.T + eps)
+                    - (X_sum[i] - X_joint) / (N - X_sum.T + eps))
+            X_a = (
+                    X_joint / (X_sum[i] + eps)
+                    - (X_sum.T - X_joint) / (N - X_sum[i] + eps))
 
-    # NOTE -- tried HDBSCAN, ran in about 2x the time as scikit-learn's
-    # AgglomerativeClustering. Also, had worse results (on this linkage tree
-    # problem).
-    # Linkage = 'single' means min between cluster and new candidate point;
-    # 'complete' means max.
-    print(f'About to hierarchically cluster on {X.shape}', file=sys.stderr)
-    import time
-    cluster_start = time.time()
+            X_a = np.asarray(X_a)
+            X_b = np.asarray(X_b)
+            u = (abs(X_a) < abs(X_b))
+            if dec_args['dependent']:
+                u = 1 - u
+            X = X_a * u + (1 - u) * X_b
+        else:
+            X = np.asmatrix([[]])
+    elif False:
+        # OLD CODE
+        X = np.zeros((len(file_to_idx), len(ft_to_idx)))
+        X_nonzero = np.asarray(file_ft, dtype=int)
+        X[X_nonzero[:, 0], X_nonzero[:, 1]] = 1.
 
-    model = AgglomerativeClustering(
-            affinity='precomputed', linkage=dec_args['linkage'],
-            distance_threshold=0.,
-            n_clusters=None,
-            ).fit(X)
+        # X is (file, ft) at the moment. We actually want to find features which
+        # are the same.
+        X = X.T
+        label_counts = X.sum(1).astype(int)
 
-    def plot_dendrogram(model):
-        import io
-        from scipy.cluster.hierarchy import dendrogram
+        if False:
+            # Compute cosine similarity using zero-mean vectors
+            X -= X.mean(1, keepdims=True)
+            X /= (X ** 2).sum(1, keepdims=True) ** 0.5 + 1e-30
+            X = 1. - (X @ X.T)
+        elif True:
+            # Predictive power.... 0 means no correlation, 1 means synchronized...
+            # Want 1 - P(knowing B tells you something about A)
+            # P(A|B) vs P(A|~B)... there's no way it's that simple?
 
-        counts = np.zeros(model.children_.shape[0])
-        n_samples = len(model.labels_)
-        for i, merge in enumerate(model.children_):
-            current_count = 0
-            for child_idx in merge:
-                if child_idx < n_samples:
-                    current_count += 1
-                else:
-                    current_count += counts[child_idx - n_samples]
-            counts[i] = current_count
+            # https://en.wikipedia.org/wiki/Relative_risk_reduction
+            # Risk reduction methodology. Specifically, "attributable risk"
 
-        linkage_matrix = np.column_stack([model.children_, model.distances_,
-                counts]).astype(float)
-        return linkage_matrix
+            # X is (ft, file)
+            N = X.shape[1]
+            X_sum = X.sum(1, keepdims=True)
+            eps = 1e-20
+            X_b = (
+                    # P(A|B)
+                    (X @ X.T) / (X_sum.T + eps)
+                    # P(A|~B)
+                    - (X @ (1 - X.T)) / (N - X_sum.T + eps)
+            )
+            X_a = (
+                    (X @ X.T) / (X_sum + eps)
+                    - ((1 - X) @ X.T) / (N - X_sum + eps))
 
-    linkage_matrix = plot_dendrogram(model)
-    print(f'...done! After {time.time() - cluster_start:.1f}s', file=sys.stderr)
+            # Default is independence, which lets us peruse highly related features.
+            # Auxiliary is dependence, which lets us peruse "implies" relationships
+            u = (abs(X_a) < abs(X_b))
+            if dec_args['dependent']:
+                # Max dependence
+                u = 1 - u
+            X = X_a * u + (1 - u) * X_b
+
+            X = 1 - X
+        else:
+            # Compute 1 - min(P(A|B))
+            X_sum = X.sum(1, keepdims=True)
+            X = (X @ X.T) / np.maximum(X_sum, X_sum.T)
+            X = 1. - X
+
+        if False:
+            # Debug code to inspect distances
+            fts = ['CalledProcessError', "'<' not supported"]
+            idx = [-1 for _ in fts]
+            for k, v in ft_to_idx.items():
+                for fti, ft in enumerate(fts):
+                    if ft in k:
+                        assert idx[fti] < 0, 'Duplicate for ' + ft
+                        idx[fti] = v
+
+            debug_str = str(X[np.asarray(idx)][:, np.asarray(idx)])
+
+        if False:
+            # Summarize
+            X = X[:50, :50]
+            labels = labels[:50]
+            label_counts = label_counts[:50]
+
+        # NOTE -- tried HDBSCAN, ran in about 2x the time as scikit-learn's
+        # AgglomerativeClustering. Also, had worse results (on this linkage tree
+        # problem).
+        # Linkage = 'single' means min between cluster and new candidate point;
+        # 'complete' means max.
+        print(f'About to hierarchically cluster on {X.shape}', file=sys.stderr)
+        import time
+        cluster_start = time.time()
+
+        model = AgglomerativeClustering(
+                affinity='precomputed', linkage=dec_args['linkage'],
+                distance_threshold=0.,
+                n_clusters=None,
+                ).fit(X)
+
+        def plot_dendrogram(model):
+            import io
+            from scipy.cluster.hierarchy import dendrogram
+
+            counts = np.zeros(model.children_.shape[0])
+            n_samples = len(model.labels_)
+            for i, merge in enumerate(model.children_):
+                current_count = 0
+                for child_idx in merge:
+                    if child_idx < n_samples:
+                        current_count += 1
+                    else:
+                        current_count += counts[child_idx - n_samples]
+                counts[i] = current_count
+
+            linkage_matrix = np.column_stack([model.children_, model.distances_,
+                    counts]).astype(float)
+            return linkage_matrix
+
+        linkage_matrix = plot_dendrogram(model)
+        print(f'...done! After {time.time() - cluster_start:.1f}s', file=sys.stderr)
 
     with open(output_html, 'w') as f:
         f.write('<!DOCTYPE html>\n<html>')
@@ -207,7 +228,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         data = {
                 'debug_str': debug_str,
                 'distance_matrix': X.tolist(),
-                'linkage': linkage_matrix.tolist(),
+                #'linkage': linkage_matrix.tolist(),
                 'labels': labels,
                 'label_counts': label_counts.tolist(),
                 'api_url': workbench_api_url,
@@ -336,170 +357,46 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                     },
                 });
 
-                Vue.component('similarity-search', {
-                    template: `<div class="similarity-search">
-                        Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
-                        <ul class="search-results">
-                            <li v-for="v of searchList" @click="searchActual = v">
-                                <span v-if="v !== -1">[{{labelCounts[v]}}] {{labels[v]}} </span>
-                                <span v-else>(truncated)</span>
-                            </li>
-                        </ul>
-                        <ul v-if="searchActual >= 0" class="similar-results">
-                            <li v-for="v of results">
-                                <span v-if="typeof v === 'number'" @click="searchActual = v">[{{labelCounts[v]}}] {{labels[v]}}</span>
-                                <span v-else style="font-weight: bold">
-                                    <span v-if="false">Distance: {{v.distance}}</span>
-                                    <span v-else>Similarity: {{1 - v.distance}}</span>
-                                </span>
-                            </li>
-                            <li>
-                                <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
-                            </li>
-                            <li>
-                                <input type="button" value="Clear" @click="searchActual = -1" />
-                            </li>
-                        </ul>
-                    </div>
-                    `,
-                    props: {
-                        labels: Object,
-                        labelCounts: Object,
-                        linkage: Object,
-                    },
-                    data() {
-                        const linkageReverse = {};
-                        let n = this.labels.length;
-                        for (let i = 0, m = this.linkage.length; i < m; i++) {
-                            linkageReverse[this.linkage[i][0]] = n + i;
-                            linkageReverse[this.linkage[i][1]] = n + i;
-                        }
-                        return {
-                            linkageReverse: linkageReverse,
-                            results: [],
-                            search: '',
-                            searchActual: -1,
-                            searchCaseSensitive: false,
-                            searchList: [],
-                            searchListMax: 10,
-                            searchNext: null,
-                            searchNextDistance: 0,
-                            searchTimeout: null,
-                        };
-                    },
-                    watch: {
-                        search() {
-                            this.searchTimeout !== null && clearTimeout(this.searchTimeout);
-                            this.searchTimeout = setTimeout(() => this.searchUpdate(), 300);
-                        },
-                        searchCaseSensitive() {
-                            this.searchTimeout !== null && clearTimeout(this.searchTimeout);
-                            this.searchTimeout = setTimeout(() => this.searchUpdate(), 300);
-                        },
-                        searchActual() {
-                            this.results = [];
-                            if (this.searchActual === -1) {
-                                this.searchNext = null;
-                                return;
-                            }
-
-                            this.results.push(this.searchActual);
-
-                            this.searchNextDistance = 0;
-                            this.searchNext = this.searchActual;
-                            while (this.searchNextDistance < dEpsilon) {
-                                this.resultAddNext();
-                            }
-                        },
-                    },
-                    methods: {
-                        searchUpdate() {
-                            this.searchList = [];
-                            const flags = (this.searchCaseSensitive ? '' : 'i');
-                            const re = new RegExp(this.search, flags);
-                            for (let i = 0, m = this.labels.length; i < m; i++) {
-                                if (!re.test(this.labels[i])) continue;
-
-                                this.searchList.push(i);
-                                if (this.searchList.length >= this.searchListMax) {
-                                    this.searchList.push(-1);
-                                    break;
-                                }
-                            }
-                        },
-                        /** Adds the sibling of `node`, all of its descendents,
-                            and the parent. Returns parent. */
-                        resultAddNext() {
-                            const node = this.searchNext;
-                            const p = this.linkageReverse[node];
-                            if (p === undefined) {
-                                // Done traversing
-                                return;
-                            }
-                            const pInd = p - this.labels.length;
-
-                            if (this.linkage[pInd][2] > this.searchNextDistance) {
-                                this.searchNextDistance = this.linkage[pInd][2];
-                                this.results.push({distance: this.searchNextDistance});
-                            }
-
-                            const stack = [];
-                            if (this.linkage[pInd][0] === node) {
-                                stack.push(this.linkage[pInd][1]);
-                            }
-                            else {
-                                stack.push(this.linkage[pInd][0]);
-                            }
-
-                            while (stack.length > 0) {
-                                let pp = stack.pop();
-                                if (pp < this.labels.length) {
-                                    this.results.push(pp);
-                                    continue;
-                                }
-
-                                pp -= this.labels.length;
-                                stack.push(this.linkage[pp][0]);
-                                stack.push(this.linkage[pp][1]);
-                            }
-
-                            this.searchNext = p;
-                        },
-                    },
-                });
-
                 // Direct version, not going through cluster
                 Vue.component('similarity-search-direct', {
                     template: `<div class="similarity-search">
-                        Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
+                        <div>
+                            Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
+                        </div>
+                        <div>
+                            Min samples for feature: <input v-model="minSamples" type="text" />
+                        </div>
                         <ul class="search-results">
-                            <li v-for="v of searchList" @click="searchActual = v">
+                            <li v-for="v of searchList" @click="featureChange(v)">
                                 <span v-if="v !== -1">[{{labelCounts[v]}}] {{labels[v]}} </span>
                                 <span v-else>(truncated)</span>
                             </li>
                         </ul>
-                        <ul v-if="searchActual >= 0" class="similar-results">
-                            <li v-for="v of results">
-                                <span @click="searchActual = v">{{(1 - searchDistance(v)).toFixed(3)}} [{{labelCounts[v]}}] {{labels[v]}}</span>
-                            </li>
-                            <li>
-                                <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
-                            </li>
-                            <li>
-                                <input type="button" value="Clear" @click="searchActual = -1" />
-                            </li>
-                        </ul>
+                        <p>Related features
+                            <ul v-if="searchActual >= 0" class="similar-results">
+                                <li v-for="v of results">
+                                    <span @click="featureChange(v)">{{searchDistance(v).toFixed(3)}} [{{labelCounts[v]}}] {{labels[v]}}</span>
+                                </li>
+                                <li>
+                                    <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
+                                </li>
+                            </ul>
+                        </p>
                     </div>
                     `,
                     props: {
                         distances: Object,
+                        feature: String,
+                        featureSearchInit: String,
                         labels: Object,
                         labelCounts: Object,
+                        minSamplesInit: String,
                     },
                     data() {
                         return {
+                            minSamples: this.minSamplesInit,
                             results: [],
-                            search: '',
+                            search: this.featureSearchInit,
                             searchActual: -1,
                             searchCaseSensitive: false,
                             searchList: [],
@@ -517,27 +414,29 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             this.searchTimeout !== null && clearTimeout(this.searchTimeout);
                             this.searchTimeout = setTimeout(() => this.searchUpdate(), 300);
                         },
-                        searchActual() {
-                            this.results = [];
-                            if (this.searchActual === -1) {
-                                this.searchNext = null;
-                                return;
-                            }
+                    },
+                    mounted() {
+                        this.searchUpdate();
 
-                            this.results.push(this.searchActual);
+                        if (this.feature.length === 0) return;
 
-                            // Compute searchNext
-                            this.searchNext = (this.distances[this.searchActual]
-                                    .map((x, idx) => [x, idx])
-                                    .sort((a, b) => a[0] - b[0])
-                                    .map(x => x[1]));
+                        this.searchActual = this.labels.indexOf(this.feature);
 
-                            this.resultAddNext();
-                        },
+                        // Compute searchNext
+                        this.searchNext = (this.distances[0]
+                                .map((x, idx) => [-Math.abs(x), idx])
+                                .sort((a, b) => a[0] - b[0])
+                                .map(x => x[1]));
+                        this.resultAddNext();
                     },
                     methods: {
+                        featureChange(v) {
+                            callRedecide({feature: this.labels[v],
+                                    feature_search: this.search,
+                                    min_samples: this.minSamples});
+                        },
                         searchDistance(i) {
-                            return this.distances[this.searchActual][i];
+                            return this.distances[0][i];
                         },
                         searchUpdate() {
                             this.searchList = [];
@@ -553,10 +452,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 }
                             }
                         },
-                        /** Adds the sibling of `node`, all of its descendents,
-                            and the parent. Returns parent. */
                         resultAddNext() {
-                            let i = Math.min(this.searchNext.length, 10);
+                            let i = Math.min(this.searchNext.length, 50);
                             this.results.push.apply(this.results, this.searchNext.splice(0, i));
                         },
                     },
@@ -567,12 +464,15 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         f.write('<body>')
         #f.write(f'<img src="data:image/png;base64,{base64.b64encode(img).decode()}" />')
         f.write('<div id="app">If you see this, Vue is loading or broken</div>')
-        f.write(r'''<script>let app = new Vue({el: '#app', data: window.data,
+        f.write(r'''<script>let app = new Vue({el: '#app', data: Object.freeze(window.data),
                 template: `<div>
-                    <vue-header :dec-args="window.data.dec_args" :debug-str="debug_str" />
+                    <vue-header :dec-args="data.dec_args" :debug-str="debug_str" />
                     <!-- <similarity-search :linkage="linkage" :labels="labels" :label-counts="label_counts" /> -->
-                    <similarity-search-direct :distances="distance_matrix" :labels="labels" :label-counts="label_counts" />
-                    <dendrogram :id="labels.length + linkage.length - 1" :linkage="linkage" :labels="labels" :label-counts="label_counts" :start-uncollapsed="true" />
+                    <similarity-search-direct :feature="data.dec_args.feature"
+                            :feature-search-init="data.dec_args.feature_search"
+                            :min-samples-init="data.dec_args.min_samples"
+                            :distances="distance_matrix" :labels="labels" :label-counts="label_counts" />
+                    <!-- <dendrogram :id="labels.length + linkage.length - 1" :linkage="linkage" :labels="labels" :label-counts="label_counts" :start-uncollapsed="true" /> -->
                 </div>`})</script>''')
         f.write('</body>')
         f.write('</html>')

@@ -72,13 +72,23 @@ function generateDslParser() {
         = "filters:" WS_LINES &{ return indentPush(); } inner:(INDENT filters_defs+)? &{ indentPop(); return inner; }
             { return inner[1]; }
 
+      regex_flags
+        = flags:("/" regex_flag*)? {
+          return flags && flags[1].length ? Object.assign.apply(null, flags[1]) : {}; }
+
+      regex_flag
+        = "i" {
+          return {caseInsensitive: true}; }
+
       filters_defs
-        = INDENT_CHECK name:filter_name all:(WS "all")? ":"
+        = INDENT_CHECK name:filter_name re:regex_flags all:(WS "all")? ":"
             WS_LINES
             &{ return indentPush(); }
             inner:(INDENT filters_pattern+)?
             &{ indentPop(); return inner; } {
-              return { name: name, all: !!all, patterns: inner[1] }; }
+              let r = { name: name, all: !!all, patterns: inner[1] };
+              if (re.caseInsensitive) r.caseInsensitive = true;
+              return r; }
 
       filter_name
         = leader:[A-Z] trailer:ID_CHARS { return leader + trailer; }

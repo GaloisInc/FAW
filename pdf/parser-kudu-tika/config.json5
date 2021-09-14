@@ -73,6 +73,9 @@
           'SHELL ["/bin/bash", "-c"]',
           'RUN \
             mkdir -p /etc/services.d/kudu-tika \
+            && apt-get update \
+            && DEBIAN_FRONTEND=noninteractive apt-get install -y default-jre-headless \
+            && apt-get clean \
             && echo -e \'#! /bin/sh\\njava -cp "/tika_bin/*" org.apache.tika.server.TikaServerCli -spawnChild -s -enableUnsecureFeatures -enableFileUrl -h 0.0.0.0 2>&1\' >> /etc/services.d/kudu-tika/run \
             && chmod a+x /etc/services.d/kudu-tika/run \
             && mkdir -p /etc/services.d/kudu-tika/log \

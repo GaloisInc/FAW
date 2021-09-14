@@ -326,7 +326,10 @@ def _check_config_file(config):
     config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             'config.json5')))
 
-    # Before applying schema, merge in child configs
+    # Before applying schema, merge in child configs. Do this in order of
+    # increasing modification time. This is important so that developers
+    # don't have to keep rebuilding unnecessary stages.
+    child_configs = []
     for child_name in os.listdir(CONFIG_FOLDER):
         child_path = os.path.join(CONFIG_FOLDER, child_name)
         if not os.path.isdir(child_path):
@@ -336,7 +339,16 @@ def _check_config_file(config):
             continue
 
         child_config = pyjson5.load(open(child_config_path))
+        if child_config.get('disabled'):
+            # Do not integrate this child config
+            continue
 
+        modtime = os.path.getmtime(child_config_path)
+        child_configs.append((modtime, child_name, child_config))
+
+    # Stable sort; mod time first, then child name
+    child_configs.sort(key=lambda m: (m[0], m[1]))
+    for _, child_name, child_config in child_configs:
         # First traversal -- patch keys and values
         nodes = [([], child_config)]
         while nodes:
@@ -570,42 +582,6 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 '/etc/mongod.conf.orig': True,
             },
         },
-
-        'obs__pdf-etl-tools': {
-            'from': 'ubuntu:18.04',
-            'copy_output': {
-                '/root/.local/bin/pdf-etl-tool': '/usr/local/bin/pdf-etl-tool',
-            },
-            'commands': [
-                # Setup environment
-                'RUN apt-get update && apt-get install -y wget && wget -qO- https://get.haskellstack.org/ | sh',
-                # First, tell stack to download the compiler
-                'RUN stack setup 8.6.5',
-                # NOTE:
-                #   8.6.5 is the ghc version number that is implicit in the the "resolver: "
-                #   line in pdf-etl-tools/stack.yaml
-                # ANALYSIS:
-                #   - we could remove coupling at a big efficiency hit by removing this RUN command
-                #     - not technically 'coupling' as this only affects efficiency
-                #   - if the resolver requires a different version of ghc, nothing is broken, but
-                #     we've downloaded 8.6.5 for nought.
-                #   - no known solution to get the behavior we want from stack.
-                #     - if we try to get stack to determine ghc version from stack.yaml, we have
-                #       now lost our efficiency, because the ghc install would now be dependent
-                #       upon the haskell package versions in stack.yaml
-                #     - FIXME: discover a way to get cake and eat it too.
-
-                # Next, download and build all packages (takes a long time)
-                f'COPY {build_faw_dir}/common/stack-staging /home/stack-staging',
-                f'COPY {build_faw_dir}/common/pdf-etl-tools/stack.yaml /home/stack-staging/stack.yaml',
-                'WORKDIR /home/stack-staging',
-                'RUN stack build',
-
-                # Now, build our pdf-etl-tool
-                f'COPY {build_faw_dir}/common/pdf-etl-tools /home/pdf-etl-tools',
-                'RUN cd /home/pdf-etl-tools && stack --allow-different-user install pdf-etl-tools:pdf-etl-tool',
-            ],
-        },
     }
 
     # Important! User changes should trigger as little rebuild as possible.
@@ -616,6 +592,9 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+            # Install watchgod, which allows for live-reloading analysis sets
+            # on file changes.
+            RUN pip3 install watchgod
             ''')
     else:
         # Production extensions...

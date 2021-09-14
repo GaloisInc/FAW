@@ -2,11 +2,16 @@
 leaving it unclear when global variables are valid.
 """
 
+import faw_analysis_set_parse
+import faw_analysis_set_util
 import faw_internal_util
+import faw_pipelines_util
 
 import asyncio
+import collections
 import dask.distributed
 import enum
+import pymongo
 import random
 import re
 import sys
@@ -16,11 +21,13 @@ import traceback
 _app_config = None
 _app_config_version = 0
 
-class AsState(enum.Enum):
+class AsStatus(enum.Enum):
     UP_TO_DATE = ''
-    STALE = 'stale'  # Like up-to-date, but parsers ran after this. UI only
-    REBUILD = 'rebuild'
-    REBUILDING = 'rebuilding'
+    REBUILD_IDS = 'rebuild_ids'  # Re-samples indices to include in aset
+    REBUILD_DATA = 'rebuild_data'  # Sets up metadata for distributed parsing/assembling
+    REBUILDING = 'rebuilding'  # Triggers re-parsing of files with different
+                               # versions, and assembling of data into the
+                               # analysis set's document collection.
     DELETE = 'delete'
 
 def config_update(app_config):
@@ -36,24 +43,59 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
     global _app_mongodb_conn
     _app_mongodb_conn = app_mongodb_conn
     config_update(app_config)
+    # Ensure we don't erroneously use the non-underscore version
+    del app_config
 
     # Launch other management tasks both as asynchronous threads and via dask
     api_info = get_api_info()
 
-    client = await dask.distributed.Client('localhost:8786', asynchronous=True)
+    client = None
     client_tasks = {}
+    client_version = _app_config_version
     while True:
         try:
-            last_queueStop = await _as_last_queueStop()
+            if client is None:
+                # This can fail sometimes; let it raise an error and try again
+                client = await dask.distributed.Client('localhost:8786',
+                        asynchronous=True)
 
+            # Let dask forget about defunct tasks; they'll cancel themselves
+            new_tasks = {}
+
+            # When config goes out of date, kill everything and restart to
+            # prevent version contamination.
+            if client_version != _app_config_version:
+                client_version = _app_config_version
+                client_tasks = new_tasks
+                await asyncio.sleep(1.)
+                continue
+
+            # Ensure we have a task that's kicking off parses
+            parse_task = client_tasks.get('as_parse')
+            if parse_task is not None:
+                try:
+                    await parse_task.result(timeout=0.5)
+                except dask.distributed.TimeoutError:
+                    pass
+                except:
+                    traceback.print_exc()
+                    parse_task = None
+            if parse_task is None:
+                # Spin up
+                new_tasks['as_parse'] = client.submit(
+                            faw_analysis_set_parse.as_parse_main,
+                            _app_config, api_info,
+                            pure=False)
+            else:
+                new_tasks['as_parse'] = parse_task
+
+            # For each analysis set, spin up a management task and wait for
+            # completion.
             promises = []
             async for aset in _app_mongodb_conn['as_metadata'].find():
-                promises.append(_as_manage(aset, api_info, last_queueStop,
-                        client, client_tasks))
+                promises.append(_as_manage(aset, api_info, client, client_tasks))
                 promises.append(_as_manage_pipelines(aset, api_info, client,
                         client_tasks))
-            # Either way, let dask forget about defunct tasks
-            new_tasks = {}
             if promises:
                 task_objs = await asyncio.gather(*promises)
                 for t in task_objs:
@@ -69,29 +111,24 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
 
 async def as_delete(id):
     await _app_mongodb_conn['as_metadata'].update_one({'_id': id}, {'$set': {
-            'status': AsState.DELETE.value}})
+            'status': AsStatus.DELETE.value}})
 
 
 async def as_list():
     """List non-deleted fields.
     """
-    last_queueStop = await _as_last_queueStop()
-
     r = []
     async for a in _app_mongodb_conn['as_metadata'].find(
-            {'status': {'$ne': AsState.DELETE.value}}).sort('_id'):
+            {'status': {'$ne': AsStatus.DELETE.value}}).sort('_id'):
         name = a['_id']
         colname = f'as_c_{name}'
         col = _app_mongodb_conn[colname]
         stats = await _app_mongodb_conn.command('collstats', colname)
 
         adoc = dict(id=a['_id'], size_docs=await col.estimated_document_count(),
-                size_disk=stats['storageSize'], status=a['status'],
+                size_disk=stats['storageSize'],
+                status=a['status'], status_done_time=a.get('status_done_time'),
                 definition=a['definition'], pipelines=a.get('pipelines', {}))
-
-        if adoc['status'] == AsState.UP_TO_DATE.value:
-            if a['last_queueStop'] != last_queueStop:
-                adoc['status'] = AsState.STALE.value
 
         r.append(adoc)
     return r
@@ -99,7 +136,7 @@ async def as_list():
 
 async def as_pipeline_start(id, pipeline):
     await _app_mongodb_conn['as_metadata'].update_one({'_id': id}, {'$set': {
-            'pipelines.' + pipeline: {'done': False, 'timestamp': time.time()},
+            'pipelines.' + pipeline: {'done': None, 'timestamp': time.time()},
     }})
 
 
@@ -113,7 +150,7 @@ async def as_update(id, definition):
     await _app_mongodb_conn['as_metadata'].update_one({'_id': id}, {'$set': {
             '_id': id,
             'definition': definition,
-            'status': AsState.REBUILD.value
+            'status': AsStatus.REBUILD_IDS.value
     }}, upsert=True)
 
 
@@ -124,35 +161,23 @@ async def as_update(id, definition):
 Internally, analysis sets are two collections plus a metadata document.
 
 Metadata document: _id, definition, status. Maybe other fields:
-    last_queueStop: Last queueStop. Used when index is finished building to
-            set status to either UP_TO_DATE or STALE
 
 Index collection: _id of files included in set.
 
 Stats collection: old statsbyfile, but new schema.
 '''
 
-async def _as_last_queueStop():
-    last_queueStop_doc = (await _app_mongodb_conn['observatory'].find(
-            {'queueStop': {'$ne': None}}).sort('queueStop', -1)
-            .limit(1).to_list(1))
-    if last_queueStop_doc:
-        last_queueStop = last_queueStop_doc[0]['queueStop']
-    else:
-        last_queueStop = None
-    return last_queueStop
-
-
-async def _as_manage(aset, api_info, last_queueStop, client, client_tasks):
+async def _as_manage(aset, api_info, client, client_tasks):
     name = aset['_id']
     mongo_info = api_info['mongo']
 
+    # Check old task status -- see if it finished
     old_task_info = client_tasks.get(name)
     missing = {}
     old_task_result = missing
     if old_task_info is not None:
         try:
-            old_task_result = await old_task_info[1].result(timeout=0.5)
+            old_task_result = await old_task_info.result(timeout=0.5)
         except dask.distributed.TimeoutError:
             pass
         except:
@@ -160,23 +185,48 @@ async def _as_manage(aset, api_info, last_queueStop, client, client_tasks):
             traceback.print_exc()
             old_task_info = None
 
-    if aset['status'] == AsState.UP_TO_DATE.value:
-        # See if stale
-        if aset['last_queueStop'] != last_queueStop:
-            # Rebuild, but only if processing has halted
-            d = await _app_mongodb_conn['observatory'].find_one({
-                    'queueStop': None})
-            if d is None:
-                # Everything is done. Set to rebuild
-                print(f'analysis_set: Rebuilding {name} due to staleness')
-                await _app_mongodb_conn['as_metadata'].update_one({'_id': name},
-                        {'$set': {'status': AsState.REBUILD.value}})
+    # See if stale -- standard parsing queues. An analysis set is stale if
+    # its parser versions are out of date. In that case, we want to
+    # re-trigger tool runs to ensure we get the right versions. This can happen
+    # mid-run, to prevent finishing a batch that will be stale when it
+    # completes.
+    loop = asyncio.get_running_loop()
+    versions_id, versions_data = await loop.run_in_executor(None,
+            faw_analysis_set_util.aset_parser_versions_calculate, _app_config,
+                _app_mongodb_conn.delegate, aset)
+
+    # Check for old format of data
+    if not isinstance(aset.get('parser_versions', []), list):
+        await _app_mongodb_conn['as_metadata'].update_one({'_id': aset['_id']},
+                {'$unset': {'parser_versions': True, 'parser_versions_done': True}})
         return
 
-    if aset['status'] == AsState.DELETE.value:
+    # Check for staleness -- old versions
+    stale = False
+    if versions_id != aset.get('parser_versions', [None, None])[0]:
+        print(f'Rebuilding {name} for IDs due to staleness')
+        stale = True
+        await _app_mongodb_conn['as_metadata'].update_one({'_id': name},
+                {'$set': {'status': AsStatus.REBUILD_IDS.value,
+                    'parser_versions': [versions_id, versions_data]}})
+    elif versions_data != aset.get('parser_versions', [None, None])[1] and (
+            # Don't push past ID rebuilding on accident
+            aset['status'] not in (AsStatus.REBUILD_IDS.value,)):
+        print(f'Rebuilding {name} for data due to staleness')
+        stale = True
+        await _app_mongodb_conn['as_metadata'].update_one({'_id': name},
+                {'$set': {'status': AsStatus.REBUILD_DATA.value,
+                    'parser_versions': [versions_id, versions_data]}})
+
+    if stale:
+        # Ensure prior tasks get forgotten, so that new versions propagate
+        return
+
+    # Otherwise, check if existing task is completed / needs to be (re)started
+    if aset['status'] == AsStatus.DELETE.value:
         # Internal delete -- drop all associated collections
         if old_task_info is not None:
-            # Wait for task to exit
+            # Loosely wait for task to exit
             return
 
         # Give task time to exit
@@ -185,6 +235,7 @@ async def _as_manage(aset, api_info, last_queueStop, client, client_tasks):
         await _app_mongodb_conn['as_c_' + name].drop()
         await _app_mongodb_conn['as_i_' + name].drop()
         await _app_mongodb_conn['as_itmp_as_i_' + name].drop()
+        await _app_mongodb_conn['as_itmpids_as_i_' + name].drop()
         # Purge pipelines
         aset_api_info = api_info.copy()
         aset_api_info['aset'] = aset['_id']
@@ -197,46 +248,30 @@ async def _as_manage(aset, api_info, last_queueStop, client, client_tasks):
         await _app_mongodb_conn['as_metadata'].delete_one({'_id': name})
         return
 
-    if aset['status'] == AsState.REBUILD.value:
-        # Ensure the user doesn't see documents available -- that would be
-        # confusing.
-        await _app_mongodb_conn['as_c_' + name].drop()
+    if aset['status'] == AsStatus.UP_TO_DATE.value:
+        # Nothing to do; no management process required
+        return
 
-        if old_task_info is not None and old_task_info[0] == AsState.REBUILD:
-            if old_task_result is not missing:
-                await _app_mongodb_conn['as_metadata'].update_one(
-                        {'_id': name, 'status': AsState.REBUILD.value},
-                        {'$set': {'status': AsState.REBUILDING.value,
-                            # Note the time of last included change.
-                            'last_queueStop': old_task_info[2]}})
-                # Let this fall through
-                aset['status'] = AsState.REBUILDING.value
-            else:
-                # Keep old task alive
-                return {name: old_task_info}
-        else:
-            # Need to rebuild indices
-            future = client.submit(_as_populate_ids, name, mongo_info,
-                    pure=False)
-            return {name: (AsState.REBUILD, future, last_queueStop)}
+    # Otherwise, trigger the management process
+    if old_task_info is not None:
+        if old_task_result is not missing:
+            # Finished successfully; status should be updated, so this shouldn't
+            # happen, but next loop will fix it.
+            return
 
-    if aset['status'] == AsState.REBUILDING.value:
-        if old_task_info is not None and old_task_info[0] == AsState.REBUILDING:
-            if old_task_result is not missing:
-                # Finished with this step
-                await _app_mongodb_conn['as_metadata'].update_one({'_id': name},
-                        {'$set': {'status': AsState.UP_TO_DATE.value}})
-                return
-            else:
-                # Keep old task alive
-                return {name: old_task_info}
-        future = client.submit(_as_populate, name, mongo_info,
-                pure=False)
-        return {name: (AsState.REBUILDING, future)}
+        # Keep old task alive
+        return {name: old_task_info}
+
+    # Launch a new task
+    future = client.submit(_as_populate, name, mongo_info, _app_config,
+            pure=False)
+    return {name: future}
 
 
 async def _as_manage_pipelines(aset, api_info, client, client_tasks):
-    """Spawn / ensure pipeline manager for this analysis set.
+    """Spawn / ensure pipeline manager for this analysis set. This only ensures
+    that pipelines running under this analysis set get ran; it has nothing to
+    do with the parsers.
     """
     name = aset['_id'] + '!__pipelines'
     old_task_info = client_tasks.get(name)
@@ -244,37 +279,211 @@ async def _as_manage_pipelines(aset, api_info, client, client_tasks):
     old_task_result = missing
     if old_task_info is not None:
         try:
-            old_task_result = await old_task_info[0].result(timeout=0.5)
+            old_task_result = await old_task_info.result(timeout=0.5)
         except dask.distributed.TimeoutError:
             pass
         except:
             traceback.print_exc()
             old_task_info = None
 
-    if old_task_info is not None and old_task_info[1] != _app_config_version:
-        # Version change -- invalidate old task and start a new one
-        # Do this over a "return" instead of passing through s.t. there's a
-        # small delay which reduces (but does NOT eliminate) race conditions
-        return
-
     if old_task_info is not None and old_task_result is missing:
+        # Still running
         return {name: old_task_info}
 
     # New management needed
     # Import here to break cyclical dependency
     import faw_pipelines
-    future = client.submit(faw_pipelines.pipeline_admin, _app_config['pipelines'],
+    future = client.submit(faw_pipelines.pipeline_admin, _app_config,
             api_info, aset['_id'], pure=False)
-    return {name: [future, _app_config_version]}
+    return {name: future}
 
 
-def _as_populate(as_name, mongo_info):
+def _as_populate(as_name, mongo_info, app_config):
+    """Does all steps of rebuilding process, using 'status' to track where we're
+    at.
+
+    Generally:
+        REBUILD_IDS -> REBUILD_DATA -> REBUILDING -> UP_TO_DATE.
+
+    Must be re-entrant.
+    """
     # Convergent
     db = faw_internal_util.mongo_api_info_to_db_conn(mongo_info)
-    as_doc = db['as_metadata'].find_one({'_id': as_name})
+    col_as_metadata = db['as_metadata']
+    as_doc = col_as_metadata.find_one({'_id': as_name})
 
     col_ids = db['as_i_' + as_name]
+    col_parse = db[faw_analysis_set_parse.COL_NAME]
     col_dst = db['as_c_' + as_name]
+
+    def update_status(status):
+        """Call to move from current state in as_doc to next state.
+
+        Returns False when computation should abort.
+        """
+        assert isinstance(status, str), status
+        if faw_internal_util.dask_check_if_cancelled():
+            return False
+
+        update = {'status': status}
+        if status == AsStatus.UP_TO_DATE.value:
+            update['status_done_time'] = time.time()
+
+        ostatus = as_doc['status']
+        r = col_as_metadata.update_one({'_id': as_name, 'status': ostatus},
+                {'$set': update})
+        if r.modified_count == 0:
+            # No document modified; status changed?
+            return False
+
+        as_doc.update(update)
+        return True
+
+    # On start, delete old result documents to avoid confusing the user
+    if as_doc['status'] in [AsStatus.REBUILD_IDS.value, AsStatus.REBUILD_DATA.value]:
+        col_dst.drop()
+
+    if as_doc['status'] == AsStatus.REBUILD_IDS.value:
+        with dask.distributed.worker_client():  # Secede from dask for long op
+            as_create_id_collection(db, app_config, as_name, col_ids.name)
+        if not update_status(AsStatus.REBUILD_DATA.value):
+            return
+
+    if as_doc['status'] == AsStatus.REBUILD_DATA.value:
+        _as_populate_ids_setup_col(col_ids)
+        if not update_status(AsStatus.REBUILDING.value):
+            return
+
+    ## Below this is AsStatus.REBUILDING
+
+    # Stage 1 -- run pipeline parsers on files as needed
+    _, pv_data = as_doc['parser_versions']
+    _, pv_data_done = as_doc.get('parser_versions_done', [{}, {}])
+    with dask.distributed.worker_client():
+        if _as_populate_parsers(app_config, pv_data, pv_data_done, col_ids,
+                col_parse):
+            # On completion, assign `parser_versions_done` so we don't re-run
+            # this set of parsers if any other parsers change down the line.
+            col_as_metadata.update_one({'_id': as_doc['_id']},
+                    {'$set': {'parser_versions_done': as_doc['parser_versions']}})
+
+        if faw_internal_util.dask_check_if_cancelled():
+            return
+
+        # Stage 2 -- collect parser information
+        _as_populate_gather(as_doc, col_ids, col_dst)
+
+    # Declare done
+    if not update_status(AsStatus.UP_TO_DATE.value):
+        return
+
+
+def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
+        col_ids, col_parse):
+    """Scan through documents which require additional parsing. Use the version
+    that was specified when the ids were populated so that we have a nice,
+    uniform parse across all files.
+
+    Must be re-entrant.
+
+    Must happen outside of dask context.
+
+    Returns `True` on completion; any other result is bad.
+
+    Note that this is used multiple places.
+    """
+    batch_size = 128
+
+    # Stage 1
+    # Some versions may not match. Loop through all documents, setting
+    # `done_parse = 'maybe'` to indicate this. Only do this with documents
+    # where `done_parse == False` for re-entrant optimization.
+
+    # To minimize file transfers, add parsers required to each
+    # document, and let another process run all parsers on a file in a single
+    # batch.
+
+    new_parsers = {}
+    for k, v in parser_versions.items():
+        if parser_versions_done.get(k) != v and v is not None:
+            new_parsers[k] = v
+
+    if not new_parsers:
+        # Nothing to do
+        return True
+
+    # Priority of this parser is number of files times number of parsers
+    # required.
+    priority_order = (col_ids.estimated_document_count()
+            * len(new_parsers))
+
+    while True:
+        if faw_internal_util.dask_check_if_cancelled():
+            # Abort
+            return
+        ids = [d['_id'] for d in col_ids.find({'done_parse': False}, {})
+                .limit(batch_size)]
+        if not ids:
+            break
+
+        updates = [
+                pymongo.UpdateOne({'_id': i},
+                    {
+                        '$set': {
+                            'parsers.' + k: v for k, v in new_parsers.items()},
+                        '$min': {
+                            'priority_order': priority_order, },
+                        # Whenever we get a new parser, it might fix an existing
+                        # error. So, unset that error.
+                        '$unset': {
+                            'error_until': True,
+                            'error_delay': True, },
+                    },
+                    upsert=True)
+                for i in ids]
+        col_parse.bulk_write(updates)
+
+        # Success - onward!
+        col_ids.update_many({'_id': {'$in': ids}}, {'$set': {
+                'done_parse': 'maybe'}})
+
+    # Stage 2 -- wait for all documents to complete all needed parsers
+    while True:
+        if faw_internal_util.dask_check_if_cancelled():
+            # Abort
+            return
+        ids = [d['_id'] for d in col_ids.find({'done_parse': 'maybe'}, {})
+                .limit(batch_size)]
+        if not ids:
+            break
+
+        # These are done when a `col_parse` entry either doesn't exist or is
+        # missing all of our parser_versions entries.
+        matching = list(col_parse.find({'_id': {'$in': ids}}))
+
+        finished = set(ids)
+        for m in matching:
+            for k, v in m['parsers'].items():
+                if parser_versions.get(k, None) == v:
+                    # Still pending our version
+                    finished.remove(m['_id'])
+                    break
+
+        if finished:
+            col_ids.update_many({'_id': {'$in': list(finished)}},
+                    {'$set': {'done_parse': True}})
+
+        # Give CPU a break if we're not making significant progress
+        if len(finished) <= len(ids) // 2:
+            # Remember -- we're seceded. Sleep is ok
+            time.sleep(2)
+    return True
+
+
+def _as_populate_gather(as_doc, col_ids, col_dst):
+    """Gather all parser information specified in as_doc into `col_dst` from
+    `col_ids`. Must be re-entrant.
+    """
     while True:
         if faw_internal_util.dask_check_if_cancelled():
             break
@@ -285,7 +494,7 @@ def _as_populate(as_name, mongo_info):
                 .limit(batch_size)]
         if not ids:
             # Done!
-            return True
+            return
 
         # Again, $out sometimes broken. Anyway, idea is to have aggregation
         # pipeline do all the work, and then spool the documents out. We do this
@@ -355,24 +564,27 @@ def _as_populate(as_name, mongo_info):
         col_ids.update_many({'_id': {'$in': ids}}, {'$set': {'done': True}})
 
 
-def _as_populate_ids(as_name, mongo_info):
-    # Convergent
-    db = faw_internal_util.mongo_api_info_to_db_conn(mongo_info)
-
-    col_name = f'as_i_{as_name}'
-    as_create_id_collection(db, as_name, col_name)
-
+def _as_populate_ids_setup_col(col_ids):
+    """Given a collection containing IDs, analogous to that required for an
+    analysis set, set markers required for `_as_populate_parsers`.
+    """
     # Reset 'done' markers, add indices
-    col_ids = db[col_name]
     col_ids.create_index([('done', 1)])
-    col_ids.update_many({}, {'$set': {'done': False}})
+    col_ids.create_index([('done_parse', 1)])
+    col_ids.update_many({}, {'$set': {'done': False, 'done_parse': False}})
 
 
-
-def as_create_id_collection(db, aset_id, col_name, disable_sampling=False):
+def as_create_id_collection(db, app_config, aset_id, col_name, *,
+        disable_sampling=False):
     """Create a brand new ID table named `col_name`. If it exists, delete it and
     re-populate. This table will contains documents with only an ``_id`` field
     corresponding to matches with the specified analysis set.
+
+    IMPORTANT: this may take an extraordinarily long time! If the analysis set
+    has feature dependencies, then those parsers must be run on 100% of files in
+    the database before this set can proceed.
+
+    THEREFORE: SHOULD BE CALLED OUTSIDE OF DASK CONTEXT!
 
     Args:
 
@@ -390,8 +602,41 @@ def as_create_id_collection(db, aset_id, col_name, disable_sampling=False):
 
     aset = db['as_metadata'].find_one({'_id': aset_id})
     features = aset['definition'].get('features', [])
-    cursor = None  # Iterator for documents with only '_id' field
 
+    # See if we have parser requirements for ID pool
+    parsers_id, _ = aset['parser_versions']
+    parsers_id_done, parsers_data_done = aset.get('parser_versions_done', [{}, {}])
+    if parsers_id != parsers_id_done:
+        # OK, we have to make sure that the requisite parsers are run on ALL
+        # files in the database. So, simulate a transient analysis set.
+        tmp_id_col = db['as_itmpids_' + col_name]
+        tmp_id_col.drop()
+
+        batch = []
+        def batch_apply():
+            if not batch:
+                return
+            tmp_id_col.insert_many(batch)
+            batch.clear()
+        for doc in db['observatory'].find({}, {}):
+            batch.append(doc)
+            if len(batch) >= 1024:
+                batch_apply()
+        batch_apply()
+        _as_populate_ids_setup_col(tmp_id_col)
+
+        # At this point, it's a pseudo-analysis set.
+        col_parse = db[faw_analysis_set_parse.COL_NAME]
+        if not _as_populate_parsers(app_config, parsers_id, parsers_id_done,
+                tmp_id_col, col_parse):
+            raise ValueError('_as_populate_parsers failed; reference lost?')
+
+        # Finally, delete temporary, then set done
+        tmp_id_col.drop()
+        db['as_metadata'].update_one({'_id': aset['_id']},
+                {'$set': {'parser_versions_done': [parsers_id, parsers_data_done]}})
+
+    cursor = None  # Iterator for documents with only '_id' field
     count_map = []
     if features:
         # MongoDB is terrible at joins. It has no query optimizer. We have to
@@ -412,7 +657,7 @@ def as_create_id_collection(db, aset_id, col_name, disable_sampling=False):
         # Start with most constrained (AND assumption)
         count_map = sorted(count_map, key=lambda m: m['count'])
 
-    idx_query = {'queueStop': {'$ne': None}, 'queueErr': None}
+    idx_query = {'queueErr': None}
     if aset['definition']['files']:
         idx_query['_id'] = {'$regex': '^' + aset['definition']['files'],
                 '$options': '' if aset['definition']['files_case'] else 'i'}
@@ -462,7 +707,6 @@ def as_create_id_collection(db, aset_id, col_name, disable_sampling=False):
                 'pipeline': [
                     {'$match': {'$expr': {'$and': [
                         {'$eq': ['$_id', '$$file']},
-                        {'$ne': ['$queueStop', None]},
                         {'$eq': ['$queueErr', None]},
                     ]}}},
                 ],

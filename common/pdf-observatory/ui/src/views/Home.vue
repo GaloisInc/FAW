@@ -3,17 +3,17 @@
     div(
         v-if=" \
           loadingStatus.files_max === 0 \
-          || loadingStatus.files_done !== loadingStatus.files_max \
+          || loadingStatus.files_parsing \
           || loadingStatus.files_err"
         class="loadingStatusDialog"
         )
       v-card(color="grey darken-1" dark)
         v-card-text(style="padding-top: 0.5em") {{loadingStatus.message}}
           v-progress-linear(:height="8"
-              :indeterminate="loadingStatus.files_done !== loadingStatus.files_max"
+              :indeterminate="loadingStatus.files_parsing !== 0"
               rounded
               :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
-              :value="loadingStatus.files_done === loadingStatus.files_max ? 100 : 0")
+              :value="loadingStatus.files_parsing ? 100 : 0")
     .error(v-if="error" style="font-size: 4em; white-space: pre-wrap") ERROR - SEE CONSOLE
 
     v-expansion-panels(:multiple="true" :popout="true" :value="expansionPanels" :class="{colored: true}")
@@ -38,10 +38,11 @@
                 v-card-title Reset entire DB, re-running all tools and parsers?
                 v-card-actions(:style={'flex-wrap': 'wrap'})
                   v-btn(@click="resetDbDialog=false") Cancel
-                  v-btn(@click="resetDbErrors(); resetDbDialog=false") Reprocess DB errors
-                  v-btn(@click="resetParsers(); resetDbDialog=false") Reset Most of DB, but not same-version tool invocations
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
+          div
+            span(v-if="pdfGroupsDirty") Data is stale; press 'Reprocess' to download fresh data
+            span(v-else) Data is up-to-date
           AnalysisSetConfig(:currentId.sync="analysisSetId"
               :pipeCfg="config && config.pipelines"
               @update="pdfGroupsDirty = true")
@@ -60,6 +61,9 @@
                 div(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
                   v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
+                details(v-show="pluginDecIframeSrc != null")
+                  summary Debugging stats
+                  json-tree(:data="pluginDecDebug" :level="2")
 
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
@@ -102,7 +106,10 @@
               v-expansion-panel(:key="0")
                 v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
                 v-expansion-panel-content
-                  .decision-reasons(style="padding-bottom: 1em;") {{(failReasons.get(decisionAspectSelected) || []).length}} error messages: number of files rejected / uniquely rejected
+                  .decision-reasons(style="padding-bottom: 1em;")
+                    v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
+                      v-radio(value="total" label="number of files rejected")
+                      v-radio(value="unique" label="uniquely rejected")
                     v-virtual-scroll(
                         :bench="10"
                         :items="failReasons.get(decisionAspectSelected) || []"
@@ -266,6 +273,15 @@
     align-content: flex-start;
     justify-content: center;
 
+    details {
+      cursor: pointer;
+      user-select: none;
+      padding: 0.25em 0.1em;
+
+      > summary {
+      }
+    }
+
     > div {
       display: inline-block;
       margin-left: auto;
@@ -384,7 +400,7 @@ export type PdfGroups = {groups: {[message: string]: Array<[number, number]>},
 
 export class LoadingStatus {
   config_mtime: number = 0;
-  files_done: number = 0;
+  files_parsing: number = 0;
   files_max: number = 0;
   files_err: number = 0;
   message: string = '<Loading>';
@@ -424,6 +440,7 @@ export default Vue.extend({
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
       failReasons: Object.freeze(new Map<string, Array<[string, [Set<string>, Set<string>]]>>()),
+      failReasonsSort: 'total',
       fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
       holdReferences: true,
@@ -451,6 +468,7 @@ export default Vue.extend({
       pluginIframeLoadingNext: 1,
       pluginIframeSrc: null as string|null,
       pluginIframeSrcMimeType: 'text/html',
+      pluginDecDebug: null as any,
       pluginDecIframeLast: '',
       pluginDecIframeLoading: 0,
       pluginDecIframeLoadingNext: 1,
@@ -560,6 +578,9 @@ export default Vue.extend({
       this.decisionReference = decRef!;
       this.decisionSelectedDsl = dslRef!;
     },
+    failReasonsSort() {
+      this.updateFailReasonsSort();
+    },
     fileFilters() {
       this.asyncTry(async () => {
         await this.reprocess();
@@ -652,7 +673,6 @@ export default Vue.extend({
 
     const checkLoad = async () => {
       const oldConfig = this.loadingStatus.config_mtime;
-      const oldDone = this.loadingStatus.files_done;
       await this.$vuespa.update('loadingStatus', 'loading_get', {});
       if (oldConfig < this.loadingStatus.config_mtime) {
         await this.$vuespa.update('config', 'config_get');
@@ -847,6 +867,8 @@ export default Vue.extend({
       indent += 1;
       for (const k of dd.filters) {
         let header = k.name.slice();
+        if (k.caseInsensitive)
+          header += '/i';
         if (k.all)
           header += ' all';
         header += ':';
@@ -945,6 +967,7 @@ export default Vue.extend({
       this.pluginDecIframeLast = pluginKey;
       this.pluginDecIframeLoading = loadKey;
       this.pluginDecIframeSrc = null;
+      this.pluginDecDebug = null;
       this.asyncTry(async () => {
         try {
           if (this.vuespaUrl === null) throw new Error('Websocket not connected?');
@@ -969,10 +992,11 @@ export default Vue.extend({
             refDecs = this.pdfsReference;
           }
           // Run plugin
-          const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey, 
+          const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey,
               this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
+          this.pluginDecDebug = r.debug;
 
           // Build a lookup table to overwrite our decision data based on what
           // the plugin returned.
@@ -989,7 +1013,23 @@ export default Vue.extend({
         }
         catch (e) {
           if (this.pluginDecIframeLoading !== loadKey) return;
-          this.pluginDecIframeSrc = `<!DOCTYPE html><html><body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</body></html>`;
+          const retryArgs = JSON.stringify(jsonArgs);
+          this.pluginDecIframeSrc = `<!DOCTYPE html><html>
+            <head>
+            <script>
+              function retry() {
+                let args = '${retryArgs}';
+                let req = new XMLHttpRequest();
+                let url = '${this.vuespaUrl}/redecide';
+                req.open('post', url, true);
+                req.setRequestHeader('Content-Type', 'application/json');
+                req.send(args);
+              }
+            ` + '<' + `/script>
+            </head>
+            <body style="white-space: pre-wrap">Error: ${e.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}
+            <br/><input type="button" value="Retry" onclick="retry()" />
+            </body></html>`;
         }
         finally {
           if (this.pluginDecIframeLoading === loadKey) {
@@ -1052,12 +1092,6 @@ export default Vue.extend({
     },
     regexEscape(v: string): string {
       return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
-    },
-    resetDbErrors() {
-      this.asyncTry(async () => {
-        await this.$vuespa.call('reset_db_errors');
-        this.pdfGroupsDirty = true;
-      });
     },
     async reprocess() {
       /** Re-calculate decisions based on DSL */
@@ -1359,15 +1393,6 @@ export default Vue.extend({
         this.pdfGroupsDirty = true;
       });
     },
-    async resetParsers() {
-      this.pdfs = [];
-      this.pdfsDslLast = [];
-      this.pdfsReference = [];
-      this.asyncTry(async () => {
-        await this.$vuespa.call('reparse_db');
-        this.pdfGroupsDirty = true;
-      });
-    },
     scrollToFileDetails() {
       // Show the user that a new file has been searched
       (this.$refs.detailView as Vue).$el.scrollIntoView();
@@ -1448,8 +1473,25 @@ export default Vue.extend({
       const frMap = new Map<string, Array<[string, [Set<string>, Set<string>]]>>();
       for (const [filt, data] of failReasons.entries()) {
         const filtData = Array.from(data.entries());
-        filtData.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
         frMap.set(`filter-${filt}`, filtData);
+      }
+      this.failReasons = Object.freeze(frMap);
+      this.updateFailReasonsSort();
+    },
+    updateFailReasonsSort() {
+      const frMap = new Map<string, Array<[string, [Set<string>, Set<string>]]>>();
+      for (const [filt, data] of this.failReasons.entries()) {
+        const filtData = data.slice();
+        if (this.failReasonsSort === 'total') {
+          filtData.sort((a, b) => b[1][0].size - a[1][0].size);
+        }
+        else if (this.failReasonsSort === 'unique') {
+          filtData.sort((a, b) => 1000000 * (b[1][1].size - a[1][1].size) + b[1][0].size - a[1][0].size);
+        }
+        else {
+          throw new Error(`Bad fail reason sort: ${this.failReasonsSort}`);
+        }
+        frMap.set(filt, filtData);
       }
       this.failReasons = Object.freeze(frMap);
     },

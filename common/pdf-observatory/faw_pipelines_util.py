@@ -459,18 +459,6 @@ class ApiSync(ApiBase):
                 'status_msg': '',
             },
             upsert=True)
-    def _internal_db_reparse(self, tools_to_reset):
-        api_info = self._api_info
-        host = api_info['hostname']
-        port = api_info['hostport']
-        req = urllib.request.Request(f'http://{host}:{port}/db_reparse',
-                data=json.dumps({'tools_to_reset': tools_to_reset}).encode(),
-                method='POST')
-        with urllib.request.urlopen(req) as f:
-            resp = f.read().decode()
-        if f.status != 200:
-            raise ValueError(f'{f.status} - {resp}')
-        return resp
     def _internal_task_status_get_last_run_info(self, taskname=None):
         metadata = self._task_metadata_col(taskname=taskname)
         doc = metadata.find_one({'_id': 'computation-inspect'})

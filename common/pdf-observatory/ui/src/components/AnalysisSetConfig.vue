@@ -77,7 +77,7 @@
       div
         span
           v-icon mdi-help-rhombus
-        span(style="font-size:0.85em") Pipelines attached to analysis sets are a two-stage process: 1) The pipeline is initiated. All files *currently* matching the analysis set definition, ignoring max documents, will be available to the pipeline. Thus, best to wait until all non-pipeline parsers have finished. 2) When the pipeline finishes all of its tasks, all documents (including those outside of the analysis set) will be processed with attached parsers learned from this analysis set.
+        span(style="font-size:0.85em") Pipelines attached to analysis sets are a two-stage process: 1) The pipeline is initiated. All files *currently* matching the analysis set definition, ignoring max documents, will be available to the pipeline. Thus, best to wait until all non-pipeline parsers have finished. 2) When the pipeline finishes all of its tasks, and if the pipeline specifies any parsers, all analysis sets which have specified that they will use this pipeline's parsers will have their files processed with the parsers learned from this analysis set.
       v-expansion-panels
         AnalysisSetPipelineInfo(v-for="[k, v] of Object.entries(pipeCfg)"
             v-if="!v.disabled"
@@ -134,7 +134,9 @@ export default Vue.extend({
       let options = this.asData.asets.map(x => {
         let label = [x.id, ' (', x.size_docs.toString(), ' documents, ',
             (x.size_disk / 1024 / 1024).toFixed(1), ' MB'];
-        if (x.status.length) label.push(`; ${x.status}`);
+        if (x.status.length) {
+          label.push(`; ${x.status}`);
+        }
         label.push(')');
         if (Object.keys((x.pipelines || {})).length !== 0) {
           label.push(' -- pipelines ');
@@ -156,6 +158,13 @@ export default Vue.extend({
           value: '<new>',
       });
       return options;
+    },
+    currentAs(): AsStatus {
+      const id = this.currentId;
+      for (const a of this.asData.asets) {
+        if (a.id === id) return a;
+      }
+      return AsStatus.makeEmpty('<not found>');
     },
     currentAsPipelines(): {[key: string]: AsPipeline} {
       const id = this.currentId;
@@ -340,7 +349,12 @@ export default Vue.extend({
       return true;
     },
     async update() {
+      const oldUpdateTime = this.currentAs.status_done_time;
       this.asData = await this.$vuespa.call('analysis_set_data');
+      if (oldUpdateTime !== this.currentAs.status_done_time) {
+        // Server-side update to analysis set; flag as needing update locally
+        this.$emit('update');
+      }
       bus.$emit('analysisSetData', this.asData);
       if (!this.currentId) {
         if (this.asData.asets.length > 0) {
