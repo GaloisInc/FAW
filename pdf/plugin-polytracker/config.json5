@@ -1,0 +1,36 @@
+{
+  file_detail_views: {
+    polytracker: {
+      label: 'PolyTracker',
+      type: 'program_to_html',
+      exec: ['bash', '-c', 'POLYPATH=<inputFile> mutool_track info <inputFile>'],
+      outputMimeType: 'text/plain',
+    },
+  },
+  build: {
+    stages: {
+      mupdf: {
+        from: 'trailofbits/polytracker:latest',
+        copy_output: {
+          '/tmp/mupdf/build/debug/mutool_track': '/usr/bin/',
+        },
+        commands: [
+          'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
+          cd /tmp && git clone --recursive git://git.ghostscript.com/mupdf.git && cd mupdf && \
+          git submodule update --init && git checkout d00de0e96a4a5ec90ffc30837d40cd624a6a89e0',
+          'WORKDIR /tmp/mupdf',
+          'RUN make -j$((`nproc`+1)) HAVE_X11=no HAVE_GLUT=no prefix=/usr/local build=debug install',
+          'WORKDIR /tmp/mupdf/build/debug',
+          'RUN get-bc -b mutool && /polytracker/build/bin/polybuild_script \
+               --lower-bitcode -i mutool.bc -o mutool_track --libs libmupdf.a m pthread \
+          ',
+        ],
+      },
+      final: {
+        commands: [
+          'RUN pip3 install "polytracker >= 3.0.1"',
+        ],
+      }
+    },
+  },
+}
