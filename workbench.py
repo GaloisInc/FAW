@@ -80,16 +80,16 @@ def main():
     parser.add_argument('--copy-mongo-from', default=None, type=str,
             help="Replace the pdf-etl database used by the observatory with a "
             "copy of an existing database. Format: localhost:27019/120pdfs")
-    parser.add_argument('--development', action='store_true',
-            help="Developer option: mount source code over docker image, for "
-            "Vue.js hot reloading. Also adds `sys_ptrace` capability to docker "
+    parser.add_argument('--production', action='store_true',
+            help="Developer option on by default: mount source code over docker image, for "
+            "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.")
     args = parser.parse_args()
     pdf_dir = args.file_dir
     port = args.port
     port_mongo = args.port_mongo
     copy_mongo_from = args.copy_mongo_from
-    development = args.development
+    development = not args.production
 
     config_data = None
     if IMAGE_TAG is None:

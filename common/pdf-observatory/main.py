@@ -42,6 +42,7 @@ app_init = None
 app_mongodb = None
 app_mongodb_conn = None
 app_pdf_dir = None
+app_production = False
 
 etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 
@@ -72,7 +73,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     """
 
     global app_config, app_config_path, app_docker, app_hostname, app_hostport, \
-            app_init, app_mongodb, app_mongodb_conn, app_pdf_dir
+            app_init, app_mongodb, app_mongodb_conn, app_pdf_dir, app_production
 
     assert in_docker, 'Config specifying parsers must be in docker'
 
@@ -93,6 +94,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
         return
 
     app_docker = in_docker
+    app_production = production
 
     mhost_port, db = app_mongodb.split('/')
     mhost, mport = mhost_port.split(':')
@@ -802,10 +804,12 @@ class Client(vuespa.Client):
 
 
     async def api_clear_db(self):
-        _db_abort_process()
-        await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
-        _db_reprocess()
-
+        if not app_production:
+            _db_abort_process()
+            await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
+            _db_reprocess()
+        else:
+            Exception('Reset DB not allowed for Production runs.')
 
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
