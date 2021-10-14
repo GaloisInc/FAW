@@ -3,7 +3,7 @@
     polytracker: {
       label: 'PolyTracker',
       type: 'program_to_html',
-      exec: ['bash', '-c', 'POLYPATH=<inputFile> mutool_track info <inputFile>'],
+      exec: ['python3', 'main.py', '<inputFile>'],
       outputMimeType: 'text/plain',
     },
   },
@@ -13,6 +13,7 @@
         from: 'trailofbits/polytracker:latest',
         copy_output: {
           '/tmp/mupdf/build/debug/mutool_track': '/usr/bin/',
+          '/lib/x86_64-linux-gnu/libtinfo.so.5': '/lib/x86_64-linux-gnu/libtinfo.so.5'
         },
         commands: [
           'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
