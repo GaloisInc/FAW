@@ -35,7 +35,7 @@
               template(v-slot:activator="{on}")
                 v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
               v-card
-                v-card-title Reset entire DB, re-running all tools and parsers?
+                v-card-title Reset entire DB, re-running all tools and parsers? (Disabled in production.)
                 v-card-actions(:style={'flex-wrap': 'wrap'})
                   v-btn(@click="resetDbDialog=false") Cancel
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
