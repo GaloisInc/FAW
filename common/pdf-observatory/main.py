@@ -375,7 +375,8 @@ async def _init_check_pdfs():
         if len(batch) > batch_max:
             _, batch = await asyncio.wait(batch,
                     return_when=asyncio.FIRST_COMPLETED)
-    await asyncio.wait(batch)
+    if batch:
+        await asyncio.wait(batch)
     await kick_asets_if_inserted()
 
     # For development mode -- use watchgod to live-reload files. Don't do this
