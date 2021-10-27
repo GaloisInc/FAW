@@ -809,7 +809,7 @@ class Client(vuespa.Client):
             await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
             _db_reprocess()
         else:
-            Exception('Reset DB not allowed for Production runs.')
+            raise Exception('Reset DB not allowed for Production runs.')
 
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
