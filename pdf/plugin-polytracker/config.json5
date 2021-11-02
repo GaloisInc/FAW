@@ -13,7 +13,7 @@
         from: 'trailofbits/polytracker:latest',
         copy_output: {
           '/tmp/mupdf/build/debug/mutool_track': '/usr/bin/',
-          '/lib/x86_64-linux-gnu/libtinfo.so.5': '/lib/x86_64-linux-gnu/libtinfo.so.5'
+          '/lib/x86_64-linux-gnu/libtinfo.so.6': '/lib/x86_64-linux-gnu/libtinfo.so.6'
         },
         commands: [
           'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
