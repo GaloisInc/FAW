@@ -6,6 +6,6 @@ pyjson5
 pympler
 strictyaml
 ujson
-vuespa >= 0.4.0
+vuespa >= 0.5.2
 #git+https://github.com/wwoods/python-vuespa@master
 # v20
