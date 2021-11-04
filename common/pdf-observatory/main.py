@@ -827,6 +827,11 @@ class Client(vuespa.Client):
         pdfs_max = await col.estimated_document_count()
         pdfs_not_done = (
                 await app_mongodb_conn['as_parse'].estimated_document_count())
+        if pdfs_not_done != 0:
+            # Mongodb estimates are terrible and this makes a UI element pop
+            # up, so...
+            if (await app_mongodb_conn['as_parse'].find_one({}, {})) is None:
+                pdfs_not_done = 0
         pdfs_err = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
                 .count_documents({'error_until': {'$exists': True}}))
         # Faster than one would think, because number of idle parses is capped
