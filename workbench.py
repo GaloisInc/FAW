@@ -91,6 +91,11 @@ def main():
     copy_mongo_from = args.copy_mongo_from
     development = not args.production
 
+    build_mode = (os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build')
+    if build_mode:
+        # Exit before building image, which can be expensive
+        assert not development, "Build cannot use --development"
+
     config_data = None
     if IMAGE_TAG is None:
         # Not a deployment -- need to load spec so we can build the image.
@@ -125,9 +130,7 @@ def main():
     # Check that observatory image is loaded / built
     _check_image(development=development, config_data=config_data,
             build_dir=build_dir, build_faw_dir=build_faw_dir)
-    if os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build':
-        assert not development, "Build cannot use --development"
-
+    if build_mode:
         # Populate the given directory with a built version of the workbench.
         try:
             shutil.rmtree(pdf_dir)
