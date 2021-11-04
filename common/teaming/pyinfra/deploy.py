@@ -136,18 +136,18 @@ docker_flags.append(docker_image_name)
 docker_flags.extend(docker_flags_cmd)
 server.shell(name="Kill old docker container, launch new",
         commands=[
-            # Stop / remove old
-            rf'''bash -c '\
-                    (docker stop {docker_container} || echo missing) \
-                    && (docker rm {docker_container} || echo missing) \
-                    ' ''',
-            # Load new image, if needed
+            # Load new image, if needed (may take awhile; do before removing old)
             rf'''bash -c '\
                     if [[ "{userhome}/docker-last-update" -ot "{userhome}/remote/{docker_image_file}" ]]; then \
                         docker load -i "{userhome}/remote/{docker_image_file}" \
                         && touch -r "{userhome}/remote/{docker_image_file}" "{userhome}/docker-last-update"; \
                     else echo up to date; \
                     fi \
+                    ' ''',
+            # Stop / remove old
+            rf'''bash -c '\
+                    (docker stop {docker_container} || echo missing) \
+                    && (docker rm {docker_container} || echo missing) \
                     ' ''',
             # Run new docker container as a service
             docker_flags[0] + ' ' + ' '.join([shlex.quote(q) for q in docker_flags[1:]]),
