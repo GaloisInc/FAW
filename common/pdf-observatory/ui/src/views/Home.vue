@@ -47,6 +47,7 @@
 
           div
             span(v-if="pdfGroupsDirty") Data is stale; press 'Reprocess' to download fresh data
+            span(v-else-if="pdfGroupsLoading") Data is loading...
             span(v-else) Data is up-to-date
           AnalysisSetConfig(:currentId.sync="analysisSetId"
               :pipeCfg="config && config.pipelines"
@@ -467,6 +468,7 @@ export default Vue.extend({
       // entry.
       pdfGroups: {groups: {}, files: []} as PdfGroups,
       pdfGroupsDirty: false,
+      pdfGroupsLoading: false,
       plotShow: true,
       pluginIframeLast: '',
       pluginIframeLoading: 0,
@@ -1152,7 +1154,6 @@ export default Vue.extend({
       }
 
       if (!this.reprocessInnerPdfGroups && this.pdfGroupsDirty) {
-        this.pdfGroupsDirty = false;
         // Limit to one repeat of cleaning pdfGroups
         this.reprocessInnerPdfGroups = true;
         await this._pdfGroupsUpdate();
@@ -1631,16 +1632,23 @@ export default Vue.extend({
     async _pdfGroupsUpdate() {
       if (this.analysisSetId === null) return;
       // Clear old data ; makes it apparent to user that data is being loaded.
+      this.pdfGroupsDirty = false;
       this.pdfGroups = {groups: {}, files: []};
       this.fileFilters = [];
 
-      const opts = this._pdfGroupsSubsetOptions();
-      const start = window.performance.now();
-      // Avoid reactivity pause by freezing large object before assigning
-      this.pdfGroups = Object.freeze(
-          await this.$vuespa.call('decisions_get', opts));
-      const tdelta = (window.performance.now() - start) / 1000;
-      console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
+      this.pdfGroupsLoading = true;
+      try {
+        const opts = this._pdfGroupsSubsetOptions();
+        const start = window.performance.now();
+        // Avoid reactivity pause by freezing large object before assigning
+        this.pdfGroups = Object.freeze(
+            await this.$vuespa.call('decisions_get', opts));
+        const tdelta = (window.performance.now() - start) / 1000;
+        console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
+      }
+      finally {
+        this.pdfGroupsLoading = false;
+      }
     },
     _pdfGroupsSubsetOptions(filter: boolean=false) {
       const r: any = {analysis_set_id: this.analysisSetId};
