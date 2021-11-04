@@ -30,7 +30,12 @@
                     @click="reprocess" :disabled="!decisionDefinition"
                     ) Reprocess decisions
               span(v-if="!decisionDefinition") Fix filter definition first.
-            v-btn.download(@click="download") Download decisions
+            v-btn.download(@click="downloadDecisions") Download decisions
+            v-tooltip(bottom)
+              template(v-slot:activator="{on}")
+                div(v-on="on")
+                  v-btn.download(@click="downloadFeatures") Download features
+              span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
             v-dialog(v-model="resetDbDialog" persistent max-width="800")
               template(v-slot:activator="{on}")
                 v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
@@ -767,13 +772,59 @@ export default Vue.extend({
         }]);
       }
     },
-    download() {
+    downloadDecisions() {
       const json = JSON.stringify(this.pdfs);
-      let blob = new Blob([json], { type: 'text/plain;charset=utf-8;' });
+      this._downloadFile(json, 'decisions.json');
+    },
+    downloadFeatures() {
+      const csvLines = [];
+      csvLines.push(['feature'].concat(this.pdfGroups.files));
+      for (const [ft, files] of Object.entries(this.pdfGroups.groups)) {
+        const csvLine = [ft];
+        const okSet = new Map(files);
+        for (let i = 0, j = this.pdfGroups.files.length; i < j; i++) {
+          const v = okSet.get(i);
+          if (v === undefined) csvLine.push('');
+          else csvLine.push(v.toString());
+        }
+        csvLines.push(csvLine);
+      }
+      // CSV Writer
+      const csv = [];
+      let first = true;
+      let cellCount;
+      for (const line of csvLines) {
+        if (first) {
+          cellCount = line.length;
+          first = false;
+        }
+        else csv.push('\n');
+
+        if (cellCount !== line.length) {
+          throw new Error(`Invalid CSV lengths? ${cellCount} != ${line.length}`);
+        }
+
+        let firstCell = true;
+        for (const cell of line) {
+          if (firstCell) firstCell = false;
+          else csv.push(',');
+
+          let sCell = cell.toString();
+          if (/['"\n,;\t]/.test(sCell)) {
+            sCell = sCell.replace(/"/g, '""');
+            sCell = `"${sCell}"`;
+          }
+          csv.push(sCell);
+        }
+      }
+      this._downloadFile(csv.join(''), 'features.csv');
+    },
+    _downloadFile(content: string, name: string) {
+      let blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
       let link = document.createElement('a');
       let url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', "decisions.json");
+      link.setAttribute('download', name);
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
