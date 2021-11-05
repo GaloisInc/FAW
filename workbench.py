@@ -75,7 +75,7 @@ def main():
             "files to investigate.")
     parser.add_argument('--port', default=8123, type=int,
             help="Port on which Galois Workbench is accessed.")
-    parser.add_argument('--port-dask', default=8787, type=int,
+    parser.add_argument('--port-dask', default=None, type=int,
             help="If specified, port on which to expose the dask dashboard.")
     parser.add_argument('--port-mongo', default=None, type=int,
             help="If specified, port on which to expose the mongo instance.")
