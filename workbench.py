@@ -681,6 +681,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         if stage == 'base':
             # Ensure that e.g. curl, python3, python3-pip, and wget all get installed
             stage_commands = [
+                    'ENV DEBIAN_FRONTEND=noninteractive',
                     'RUN apt-get update && apt-get install -y curl python3 python3-pip wget',
                     ] + stage_commands
         dockerfile.extend(stage_commands)

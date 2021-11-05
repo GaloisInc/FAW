@@ -24,6 +24,7 @@
           version: 'test',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '.*': {
                 nameReplace: {'[0-9]': ''},
@@ -36,6 +37,7 @@
           version: 'test-limit-output2',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '^\\[?<?[a-f0-9]+>?': {
                 nameGroup: '',
@@ -51,6 +53,7 @@
           version: 'test',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '.*': {
                 nameReplace: {'[0-9]': ''},
@@ -65,6 +68,7 @@
           version: 'test6',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '.*': {
                 nameReplace: {'[0-9]': ''},
@@ -130,7 +134,7 @@ outputs:  \n\
             // to specify their own 'from' keys.
 
             base: {
-                'from': 'ubuntu:18.04',
+                'from': 'ubuntu:21.04',
                 commands: [
                     // Base packages
                     'RUN apt-get update && apt-get install -y \
@@ -190,7 +194,8 @@ outputs:  \n\
                 '/opt/reficcmax/lib': '/usr/lib',
               },
               commands: [
-                'RUN git clone https://github.com/InternationalColorConsortium/RefIccMAX \
+                'RUN echo "at least 2021-11-05" \
+                  && git clone https://github.com/InternationalColorConsortium/RefIccMAX \
                   && cd RefIccMAX && mkdir build && cd build \
                   && cmake -DCMAKE_INSTALL_PREFIX=/opt/reficcmax ../Build/Cmake \
                   && make \

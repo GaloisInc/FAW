@@ -14,7 +14,6 @@ import collections
 import dask.distributed
 import functools
 import json
-import requests
 import subprocess
 import time
 import traceback
