@@ -386,7 +386,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         t_start = time.monotonic()
         p = subprocess.Popen(args,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=f"/home/dist/{parser_cfg['cwd']}")
+                cwd=parser_cfg['cwd'])
 
         psutil_mem = 0
         psutil_cpu = {}  # {pid: last known stats, summed at end}

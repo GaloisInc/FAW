@@ -220,7 +220,7 @@ async def _app_parser_stats():
 
                 _app_parser_sizetable[k] = r
                 parser['size_doc'] = r[0]
-            promises.append(stat_pop(k, parser))
+            promises.append(asyncio.create_task(stat_pop(k, parser)))
     if promises:
         await asyncio.wait(promises)
     return parsers
@@ -373,7 +373,7 @@ async def _init_check_pdfs():
             # User re-triggered this step, so stop processing.
             return
 
-        batch.add(insert_or_ignore(ff))
+        batch.add(asyncio.create_task(insert_or_ignore(ff)))
         if len(batch) > batch_max:
             _, batch = await asyncio.wait(batch,
                     return_when=asyncio.FIRST_COMPLETED)
@@ -499,7 +499,7 @@ class Client(vuespa.Client):
             try:
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
+                        cwd=plugin_def['cwd'],
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                 )
@@ -550,7 +550,7 @@ class Client(vuespa.Client):
                 }, extra_api_info=extra_api_info)
                 proc = await asyncio.create_subprocess_exec(
                         *cmd,
-                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
+                        cwd=plugin_def['cwd'],
                         stdin=asyncio.subprocess.PIPE,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,

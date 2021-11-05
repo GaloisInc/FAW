@@ -1,0 +1,5 @@
+matplotlib
+networkx
+pypugjs
+plotly
+scipy
