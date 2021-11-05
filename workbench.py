@@ -149,7 +149,7 @@ def main():
 
         # Export readme
         with \
-                open(os.path.join('common', 'README-dist.md')) as fin, \
+                open(os.path.join('faw', 'README-dist.md')) as fin, \
                 open(os.path.join(pdf_dir, 'README.md'), 'w') as fout:
             fout.write(
                     re.sub(r'{distribution}', dist_name,
@@ -205,15 +205,15 @@ def main():
         extra_flags.append(IMAGE_TAG)
     else:
         # Mount various internal components
-        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-etl-parse:/home/pdf-etl-parse'])
-        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-observatory:/home/pdf-observatory'])
+        extra_flags.extend(['-v', f'{faw_dir}/faw/pdf-etl-parse:/home/pdf-etl-parse'])
+        extra_flags.extend(['-v', f'{faw_dir}/faw/pdf-observatory:/home/pdf-observatory'])
 
         # Mount distribution code
         extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
 
         # Mount utilities for restarting the FAW.. can be handy.
-        for f in os.listdir(os.path.join(faw_dir, 'common', 'docker-bin')):
-            ff = os.path.join(faw_dir, 'common', 'docker-bin', f)
+        for f in os.listdir(os.path.join(faw_dir, 'faw', 'docker-bin')):
+            ff = os.path.join(faw_dir, 'faw', 'docker-bin', f)
             extra_flags.extend(['-v', f'{ff}:/usr/bin/{f}:ro'])
 
         # Allow profiling via e.g. py-spy
@@ -227,7 +227,7 @@ def main():
         # locally. Notably, we do this from docker s.t. the node version used
         # to install packages is the same one used to run the FAW.
         #subprocess.check_call(['npm', 'install'],
-        #        cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+        #        cwd=os.path.join(faw_dir, 'faw', 'pdf-observatory', 'ui'))
         subprocess.check_call(['docker', 'run', '-it', '--rm', '--entrypoint',
                 '/bin/bash']
                 + extra_flags
@@ -431,7 +431,7 @@ def _check_config_file(config):
     # Pull in parser-specific schema
     import importlib.util
     spec = importlib.util.spec_from_file_location('etl_parse',
-            os.path.join(faw_dir, 'common', 'pdf-etl-parse', 'parse_schema.py'))
+            os.path.join(faw_dir, 'faw', 'pdf-etl-parse', 'parse_schema.py'))
     etl_parse = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(etl_parse)
 
@@ -533,7 +533,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             of the FAW code.
     """
     build_local = development or os.path.lexists(os.path.join(faw_dir,
-            'common', 'pdf-observatory'))
+            'faw', 'pdf-observatory'))
     if not build_local:
         # For e.g. version updates, load the image first.
         image_file = os.path.join(faw_dir, IMAGE_TAG + '.image')
@@ -606,7 +606,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Install npm locally, only for the build.
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
 
-            COPY {build_faw_dir}/common/pdf-observatory/ui /home/pdf-observatory/ui
+            COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
 
             RUN cd /home/pdf-observatory/ui \
                 && npm install \
@@ -616,10 +616,10 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # Always install observatory component dependencies as first part of final
     # stage (to minimize rebuilds on user code changes)
     dockerfile_final.append(rf'''
-            COPY {build_faw_dir}/common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
+            COPY {build_faw_dir}/faw/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
             RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
 
-            COPY {build_faw_dir}/common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
+            COPY {build_faw_dir}/faw/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
             RUN pip3 install -r /home/pdf-observatory/requirements.txt
     ''')
 
@@ -629,17 +629,17 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     if development:
         dockerfile_final_postamble.append(rf'''
             # Add not-compiled code directories
-            COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
-            #COPY {build_faw_dir}/common/pdf-observatory /home/pdf-observatory
+            COPY {build_faw_dir}/faw/pdf-etl-parse /home/pdf-etl-parse
+            #COPY {build_faw_dir}/faw/pdf-observatory /home/pdf-observatory
             ''')
 
         # The CONFIG_FOLDER will be mounted as dist at runtime.
     else:
         dockerfile_final_postamble.append(rf'''
             # Add not-compiled code directories; omit "ui" for observatory
-            COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
-            COPY {build_faw_dir}/common/pdf-observatory/*.py /home/pdf-observatory/
-            COPY {build_faw_dir}/common/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
+            COPY {build_faw_dir}/faw/pdf-etl-parse /home/pdf-etl-parse
+            COPY {build_faw_dir}/faw/pdf-observatory/*.py /home/pdf-observatory/
+            COPY {build_faw_dir}/faw/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
             COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
 
             # The final stage must always have the distribution folder available as
@@ -697,7 +697,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
 
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
-            COPY {build_faw_dir}/common/s6-overlay-amd64.tar.gz /tmp/
+            COPY {build_faw_dir}/faw/s6-overlay-amd64.tar.gz /tmp/
 
             # Updated for ubuntu 20.04, for which /bin is a symlink
             # Still need old extract command for previous versions.
@@ -741,7 +741,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
                 && chmod a+x /etc/services.d/mongod/log/run
 
-            # Observatory service (modifications must also change common/teaming/pyinfra/deploy.py)
+            # Observatory service (modifications must also change faw/teaming/pyinfra/deploy.py)
             RUN \
                 mkdir -p /etc/cont-init.d \
                 && echo -e '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
@@ -778,7 +778,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
 
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time
             # information.
-            COPY {build_faw_dir}/common/timeout-master /home/timeout
+            COPY {build_faw_dir}/faw/timeout-master /home/timeout
             RUN chmod a+x /home/timeout/timeout \
                 && ln -s /home/timeout/timeout /usr/bin/timeout_pshved
 

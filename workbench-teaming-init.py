@@ -109,7 +109,7 @@ workers = {repr(args.workers)}
 ''')
 
     pyinfra_template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-            'common', 'teaming', 'pyinfra')
+            'faw', 'teaming', 'pyinfra')
     for fname in os.listdir(pyinfra_template_dir):
         if fname.startswith('.'):
             continue
