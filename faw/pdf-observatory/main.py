@@ -490,34 +490,33 @@ class Client(vuespa.Client):
                         suffix='.html')
                 file_out.close()
                 return file_out.name
-            cmd = self._cmd_plugin_template_replace(cmd, vuespa_url, {
+            async with self._cmd_plugin_template_replace(cmd, vuespa_url, {
                     '<inputFile>': lambda: input_spec,
                     '<jsonArguments>': lambda: json.dumps(json_args),
                     '<outputHtml>': get_output_html,
-            }, extra_api_info=extra_api_info)
+            }, extra_api_info=extra_api_info) as cmd:
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            cwd=plugin_def['cwd'],
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if await proc.wait() != 0:
+                        raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
 
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        cwd=plugin_def['cwd'],
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-                if await proc.wait() != 0:
-                    raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
+                    r = {'mimetype': plugin_def['outputMimeType']}
+                    if file_out is None:
+                        r['result'] = stdout.decode('latin1')
+                    else:
+                        with open(file_out.name, 'rb') as f:
+                            r['result'] = f.read().decode('latin1')
 
-                r = {'mimetype': plugin_def['outputMimeType']}
-                if file_out is None:
-                    r['result'] = stdout.decode('latin1')
-                else:
-                    with open(file_out.name, 'rb') as f:
-                        r['result'] = f.read().decode('latin1')
-
-                return r
-            finally:
-                if file_out is not None:
-                    os.unlink(file_out.name)
+                    return r
+                finally:
+                    if file_out is not None:
+                        os.unlink(file_out.name)
         else:
             raise NotImplementedError(plugin_def['type'])
 
@@ -544,21 +543,21 @@ class Client(vuespa.Client):
             if plugin_def['type'] == 'program':
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, 'exec'
-                cmd = self._cmd_plugin_template_replace(cmd, api_url, {
+                async with self._cmd_plugin_template_replace(cmd, api_url, {
                         '<jsonArguments>': lambda: json.dumps(json_args),
                         '<outputHtml>': get_output_html,
-                }, extra_api_info=extra_api_info)
-                proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        cwd=plugin_def['cwd'],
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                }, extra_api_info=extra_api_info) as cmd:
+                    proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            cwd=plugin_def['cwd'],
+                            stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
 
-                        # Important, otherwise the read process will freeze when
-                        # a sufficiently large record gets written...
-                        limit=1e7,
-                )
+                            # Important, otherwise the read process will freeze when
+                            # a sufficiently large record gets written...
+                            limit=1e7,
+                    )
                 result = {'html': None, 'decisions': []}
                 d = result['decisions']
                 # Track stderr to forward to user interface
@@ -689,7 +688,8 @@ class Client(vuespa.Client):
         return r
 
 
-    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
+    @contextlib.asynccontextmanager
+    async def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
             extra_api_info):
         if not api_url.endswith('/'):
             api_url = api_url+ '/'
@@ -705,16 +705,33 @@ class Client(vuespa.Client):
                 raise ValueError(f'Cannot overwrite {k}')
             template_vals[k] = v
 
-        r = []
-        for c in cmd:
-            if c.startswith('<'):
-                rr = template_vals.get(c)
-                if rr is None:
-                    raise ValueError(c)
-                r.append(rr())
-            else:
-                r.append(c)
-        return r
+        files_to_delete = []
+        try:
+            r = []
+            for c in cmd:
+                if c.startswith('<tempFile'):
+                    suffix = c[9:-1]
+                    if suffix:
+                        assert suffix[0] == ' ', suffix
+                        suffix = suffix[1:]
+                        assert ' ' not in suffix, suffix
+                        assert '"' not in suffix, suffix
+                    temp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+                    temp.close()
+                    files_to_delete.append(temp.name)
+                    r.append(temp.name)
+                elif c.startswith('<'):
+                    rr = template_vals.get(c)
+                    if rr is None:
+                        raise ValueError(c)
+                    r.append(rr())
+                else:
+                    r.append(c)
+
+            yield r
+        finally:
+            for f in files_to_delete:
+                os.unlink(f)
 
 
     async def _statsbyfile_cursor(self, options, match_id=None):
