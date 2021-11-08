@@ -28,6 +28,7 @@ class AsStatus(enum.Enum):
     REBUILDING = 'rebuilding'  # Triggers re-parsing of files with different
                                # versions, and assembling of data into the
                                # analysis set's document collection.
+    COMPILING = 'compiling'
     DELETE = 'delete'
 
 def config_update(app_config):
@@ -303,7 +304,7 @@ def _as_populate(as_name, mongo_info, app_config):
     at.
 
     Generally:
-        REBUILD_IDS -> REBUILD_DATA -> REBUILDING -> UP_TO_DATE.
+        REBUILD_IDS -> REBUILD_DATA -> REBUILDING -> COMPILING -> UP_TO_DATE.
 
     Must be re-entrant.
     """
@@ -339,9 +340,10 @@ def _as_populate(as_name, mongo_info, app_config):
         as_doc.update(update)
         return True
 
-    # On start, delete old result documents to avoid confusing the user
-    if as_doc['status'] in [AsStatus.REBUILD_IDS.value, AsStatus.REBUILD_DATA.value]:
-        col_dst.drop()
+    # Do NOT delete old result documents to avoid confusing the user. Now that
+    # parsing is on-demand, and governed by the analysis sets, it makes sense
+    # to keep old data around until we can actually replace it. This minimizes
+    # user downtime.
 
     if as_doc['status'] == AsStatus.REBUILD_IDS.value:
         with dask.distributed.worker_client():  # Secede from dask for long op
@@ -355,23 +357,33 @@ def _as_populate(as_name, mongo_info, app_config):
             return
 
     ## Below this is AsStatus.REBUILDING
-
-    # Stage 1 -- run pipeline parsers on files as needed
-    _, pv_data = as_doc['parser_versions']
-    _, pv_data_done = as_doc.get('parser_versions_done', [{}, {}])
-    with dask.distributed.worker_client():
-        if _as_populate_parsers(app_config, pv_data, pv_data_done, col_ids,
-                col_parse):
-            # On completion, assign `parser_versions_done` so we don't re-run
-            # this set of parsers if any other parsers change down the line.
-            col_as_metadata.update_one({'_id': as_doc['_id']},
-                    {'$set': {'parser_versions_done': as_doc['parser_versions']}})
+    if as_doc['status'] == AsStatus.REBUILDING.value:
+        # Stage 1 -- run pipeline parsers on files as needed
+        _, pv_data = as_doc['parser_versions']
+        _, pv_data_done = as_doc.get('parser_versions_done', [{}, {}])
+        with dask.distributed.worker_client():
+            if not _as_populate_parsers(app_config, pv_data, pv_data_done,
+                    col_ids, col_parse):
+                # Failure -- abort without updating anything
+                return
+        # On completion, assign `parser_versions_done` so we don't re-run
+        # this set of parsers if any other parsers change down the line.
+        col_as_metadata.update_one({'_id': as_doc['_id']},
+                {'$set': {'parser_versions_done': as_doc['parser_versions']}})
 
         if faw_internal_util.dask_check_if_cancelled():
+            # One final check before purging previous data
             return
 
-        # Stage 2 -- collect parser information
-        _as_populate_gather(as_doc, col_ids, col_dst)
+        # Delete original data immediately before setting status to COMPILING
+        # which loads new results.
+        col_dst.drop()
+        if not update_status(AsStatus.COMPILING.value):
+            return
+
+    # Finally, compiling
+    # Collect parser information
+    _as_populate_gather(as_doc, col_ids, col_dst)
 
     # Declare done
     if not update_status(AsStatus.UP_TO_DATE.value):
@@ -388,7 +400,7 @@ def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
 
     Must happen outside of dask context.
 
-    Returns `True` on completion; any other result is bad.
+    Returns `True` on successful completion, even if `parser_versions == parser_versions_done`.
 
     Note that this is used multiple places.
     """

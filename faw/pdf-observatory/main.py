@@ -757,6 +757,7 @@ class Client(vuespa.Client):
 
         fresh_key = (
                 # Hashable elements describing this analysis set's state
+                adoc['status_done_time'],
                 await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
                 *[(k, v) for k, v in adoc.get('parser_versions_done', [{}, {}])[1].items()])
         if not hasattr(self, '_statsbyfile_cursor_cache'):
