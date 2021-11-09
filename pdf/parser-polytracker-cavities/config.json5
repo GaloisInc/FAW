@@ -17,10 +17,10 @@
   build: {
     stages: {
       mupdf: {
-        from: 'trailofbits/polytracker:latest',
+        from: 'trailofbits/polytracker:3.1.0',
         copy_output: {
           '/tmp/mupdf/build/debug/mutool_track_no_control_flow': '/usr/bin/',
-          '/lib/x86_64-linux-gnu/libtinfo.so.6': '/lib/x86_64-linux-gnu/libtinfo.so.6'
+          '/lib/x86_64-linux-gnu/libtinfo.so': '/lib/x86_64-linux-gnu/'
         },
         commands: [
           'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
@@ -38,7 +38,7 @@
       },
       final: {
         commands: [
-          'RUN pip3 install "polytracker >= 3.0.1"',
+          'RUN pip3 install "polytracker >= 3.1.0"',
         ],
       }
     },
