@@ -1,12 +1,12 @@
 {
   parsers: {
-    "polytracker-file-cavities": {
+    "file-cavities": {
       version: 'polytracker-v1',
-      exec: ['python3', 'main.py', '<inputFile>'],
+      exec: ['python3', 'main.py', '<inputFile>', '--timeout', '60'],
       parse: {
         type: 'regex-counter',
         version: '1',
-        stdstar: {
+        stdout: {
           '^.*$': {
             nameReplace: {'[0-9]+': '<INT>'},
           }
