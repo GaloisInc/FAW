@@ -24,6 +24,7 @@
           version: 'test',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '.*': {
                 nameReplace: {'[0-9]': ''},
@@ -36,6 +37,7 @@
           version: 'test-limit-output2',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '^\\[?<?[a-f0-9]+>?': {
                 nameGroup: '',
@@ -46,11 +48,12 @@
             },
           },
         },
-        refIccMax: {
+        refIccMaxIccDump: {
           exec: ['/opt/reficcmax/bin/iccDumpProfile', '-v', '<inputFile>'],
           version: 'test',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '.*': {
                 nameReplace: {'[0-9]': ''},
@@ -58,13 +61,45 @@
             },
           },
         },
-        refIccMaxToXml: {
+        refIccMaxIccApplyProfiles: {
+          exec: [
+            '/opt/reficcmax/bin/iccApplyProfiles',
+            './cat.jpg.tiff', '<tempFile .tiff>',
+            '0', '0', '0', '0', '0',
+            '<inputFile>',
+            '0'],
+          version: 'test',
+          parse: {
+            type: 'regex-counter',
+            version: '1',
+            stdstar: {
+              '.*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+        refIccMaxPeterIccDump: {
+          exec: ['/opt/reficcmax_peter/bin/iccDumpProfile', '-v', '<inputFile>'],
+          version: 'test',
+          parse: {
+            type: 'regex-counter',
+            version: '1',
+            stdstar: {
+              '.*': {
+                nameReplace: {'[0-9]': ''},
+              },
+            },
+          },
+        },
+        refIccMaxToAndFromXml: {
           exec: ['bash', '-c',
               '/opt/reficcmax/bin/iccToXml "$0" "$1" ; /opt/reficcmax/bin/iccFromXml "$1" "$2"',
               '<inputFile>', '<tempFile .xml>', '<tempFile .icc>'],
           version: 'test6',
           parse: {
             type: 'regex-counter',
+            version: '1',
             stdstar: {
               '.*': {
                 nameReplace: {'[0-9]': ''},
@@ -94,6 +129,16 @@ outputs:  \n\
     },
 
     file_detail_views: {
+      refIccMaxCatPhoto: {
+        label: 'refIccMax Apply to cat',
+        type: 'program_to_html',
+        exec: ['python3', 'iccApplyProfile.py',
+          '/opt/reficcmax/bin/iccApplyProfiles',
+          './cat.jpg.tiff', '<tempFile .tiff>',
+          '0', '0', '0', '0', '0',
+          '<inputFile>',
+          '0'],
+      },
     },
 
     build: {
@@ -130,7 +175,7 @@ outputs:  \n\
             // to specify their own 'from' keys.
 
             base: {
-                'from': 'ubuntu:18.04',
+                'from': 'ubuntu:21.04',
                 commands: [
                     // Base packages
                     'RUN apt-get update && apt-get install -y \
@@ -188,11 +233,26 @@ outputs:  \n\
               copy_output: {
                 '/opt/reficcmax': true,
                 '/opt/reficcmax/lib': '/usr/lib',
+                '/opt/reficcmax_peter': true,
               },
               commands: [
-                'RUN git clone https://github.com/InternationalColorConsortium/RefIccMAX \
+                'RUN echo "libtiff dependency -- install must end in usr/local..." \
+                  && wget https://download.osgeo.org/libtiff/tiff-4.3.0.tar.gz \
+                  && tar -xzvf tiff-4.3.0.tar.gz \
+                  && cd tiff-4.3.0 \
+                  && ./configure prefix=/opt/reficcmax/libtiff/usr/local && make && make install \
+                  && cd && rm -rf tiff-4.3.0',
+                'RUN echo "at least 2021-11-05" \
+                  && git clone https://github.com/InternationalColorConsortium/RefIccMAX \
                   && cd RefIccMAX && mkdir build && cd build \
-                  && cmake -DCMAKE_INSTALL_PREFIX=/opt/reficcmax ../Build/Cmake \
+                  && cmake -DCMAKE_INSTALL_PREFIX=/opt/reficcmax -DTIFF_LIBRARY=/opt/reficcmax/libtiff/usr/local/lib/libtiff.so -DTIFF_INCLUDE_DIR=/opt/reficcmax/libtiff/usr/local/include ../Build/Cmake \
+                  && make \
+                  && make install',
+                // Same image, install Peter's version too
+                'RUN cd / \
+                  && git clone https://github.com/petervwyatt/DemoIccMAX \
+                  && cd DemoIccMAX && mkdir build && cd build \
+                  && cmake -DCMAKE_INSTALL_PREFIX=/opt/reficcmax_peter -DTIFF_LIBRARY=/opt/reficcmax/libtiff/usr/local/lib/libtiff.so -DTIFF_INCLUDE_DIR=/opt/reficcmax/libtiff/usr/local/include ../Build/Cmake \
                   && make \
                   && make install',
               ],
@@ -205,7 +265,7 @@ outputs:  \n\
                 commands: [
                     // Note that {dist} gets replaced in Dockerfile commands with
                     // the directory containing `config.json5`
-                    'RUN apt-get update && apt-get install -y argyll liblcms2-utils',
+                    'RUN apt-get update && apt-get install -y argyll imagemagick liblcms2-utils',
                ],
             },
         },

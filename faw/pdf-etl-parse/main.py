@@ -8,6 +8,7 @@ import functools
 import logging
 import pyjson5
 import re
+import traceback
 
 QUEUE_PROCESSING_TIMEOUT = 60
 """Max seconds a parser might be active.  This should be several standard
@@ -132,6 +133,9 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
                             return r.strip()
                         name = text_from_spec(r_result['nameGroup'],
                                 r_result['nameReplace'])
+                        # name CANNOT have null characters -- we could push this
+                        # off to the config, but it's universal. So replace.
+                        name = name.replace('\0', '<NUL>')
                         if not name:
                             if r_result['fallthrough']:
                                 continue
@@ -204,7 +208,8 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parsers_config):
         }
         conn_dst.replace_one({'_id': d['_id']}, d, upsert=True)
     except:
-        raise ValueError(f'While parsing {inv_name} for {doc["file"]}')
+        # Dask doesn't show chained exceptions as of 2021-11-05
+        raise ValueError(f'While parsing {inv_name} for {doc["file"]}:\n\n{traceback.format_exc()}')
 
 
 if __name__ == '__main__':

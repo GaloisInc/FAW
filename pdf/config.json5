@@ -315,9 +315,10 @@ with open(sys.argv[1], 'w') as html: \n\
             // to specify their own 'from' keys.
 
             // All `commands` get run through `str.format()` in python, with
-            // `dist` mapping to the folder with config.json5, and `disttarg`
-            // mapping to `/home/dist`, but also working with subfolders
-            // containing `config.json5`.
+            // `dist` mapping to the folder with config.json5 on the host system
+            // (outside of docker), and `disttarg` mapping to `/home/dist` path
+            // within docker for the same folder. These are both important for
+            // copying, e.g., requirements.txt
 
             base: {
                 'from': 'ubuntu:20.04',

@@ -65,7 +65,14 @@ def as_parse_main(app_config, api_info):
                 work_max = 0
                 for w in client.scheduler_info()['workers'].values():
                     work_max += 4 * w['nthreads']
+
+                # Clear out errors that are old
+                col.update_many({'error_until': {'$lt': time.time()}},
+                        {'$unset': {'error_until': True}})
+
+                # Wait another X sec before doing this bit
                 last_update = t
+
 
             if outstanding.count() > work_max // 2:
                 # Busy enough, no need to query DB
@@ -131,10 +138,6 @@ def as_parse_main(app_config, api_info):
             next_work(from_idle=True)
 
         while True:
-            # Before starting a new round, clear out errors that are old
-            col.update_many({'error_until': {'$lt': time.time()}},
-                    {'$unset': {'error_until': True}})
-
             # Initial load
             next_work()
 
@@ -383,7 +386,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         t_start = time.monotonic()
         p = subprocess.Popen(args,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                cwd=f"/home/dist/{parser_cfg['cwd']}")
+                cwd=parser_cfg['cwd'])
 
         psutil_mem = 0
         psutil_cpu = {}  # {pid: last known stats, summed at end}

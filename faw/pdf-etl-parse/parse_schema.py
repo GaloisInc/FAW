@@ -19,7 +19,7 @@ def schema_get():
                 s.Optional('disabled', default=False): s.Or(True, False),
                 s.Optional('mustSucceed', default=False): s.Or(True, False),
                 'exec': [str],
-                s.Optional('cwd', default='.'): str,
+                s.Optional('cwd', default='/home/dist'): str,
                 s.Optional('timeout', default=None): s.Or(float, int, None),
                 'version': str,
                 'parse': s.Or(

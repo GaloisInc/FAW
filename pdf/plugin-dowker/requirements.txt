@@ -1,2 +1,0 @@
-pypugjs
-plotly

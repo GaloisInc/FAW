@@ -42,6 +42,7 @@ app_init = None
 app_mongodb = None
 app_mongodb_conn = None
 app_pdf_dir = None
+app_production = False
 
 etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 
@@ -72,7 +73,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     """
 
     global app_config, app_config_path, app_docker, app_hostname, app_hostport, \
-            app_init, app_mongodb, app_mongodb_conn, app_pdf_dir
+            app_init, app_mongodb, app_mongodb_conn, app_pdf_dir, app_production
 
     assert in_docker, 'Config specifying parsers must be in docker'
 
@@ -93,6 +94,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
         return
 
     app_docker = in_docker
+    app_production = production
 
     mhost_port, db = app_mongodb.split('/')
     mhost, mport = mhost_port.split(':')
@@ -218,13 +220,13 @@ async def _app_parser_stats():
 
                 _app_parser_sizetable[k] = r
                 parser['size_doc'] = r[0]
-            promises.append(stat_pop(k, parser))
+            promises.append(asyncio.create_task(stat_pop(k, parser)))
     if promises:
         await asyncio.wait(promises)
     return parsers
 
 def _get_api_info(extra_info={}):
-    """NOTE: Updates here must also affect `common/teaming/pyinfra/deploy.py`,
+    """NOTE: Updates here must also affect `faw/teaming/pyinfra/deploy.py`,
     where the worker script gets written. look for "--api-info" in that file.
     """
     r = {
@@ -371,11 +373,12 @@ async def _init_check_pdfs():
             # User re-triggered this step, so stop processing.
             return
 
-        batch.add(insert_or_ignore(ff))
+        batch.add(asyncio.create_task(insert_or_ignore(ff)))
         if len(batch) > batch_max:
             _, batch = await asyncio.wait(batch,
                     return_when=asyncio.FIRST_COMPLETED)
-    await asyncio.wait(batch)
+    if batch:
+        await asyncio.wait(batch)
     await kick_asets_if_inserted()
 
     # For development mode -- use watchgod to live-reload files. Don't do this
@@ -487,34 +490,33 @@ class Client(vuespa.Client):
                         suffix='.html')
                 file_out.close()
                 return file_out.name
-            cmd = self._cmd_plugin_template_replace(cmd, vuespa_url, {
+            async with self._cmd_plugin_template_replace(cmd, vuespa_url, {
                     '<inputFile>': lambda: input_spec,
                     '<jsonArguments>': lambda: json.dumps(json_args),
                     '<outputHtml>': get_output_html,
-            }, extra_api_info=extra_api_info)
+            }, extra_api_info=extra_api_info) as cmd:
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            cwd=plugin_def['cwd'],
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if await proc.wait() != 0:
+                        raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
 
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-                if await proc.wait() != 0:
-                    raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
+                    r = {'mimetype': plugin_def['outputMimeType']}
+                    if file_out is None:
+                        r['result'] = stdout.decode('latin1')
+                    else:
+                        with open(file_out.name, 'rb') as f:
+                            r['result'] = f.read().decode('latin1')
 
-                r = {'mimetype': plugin_def['outputMimeType']}
-                if file_out is None:
-                    r['result'] = stdout.decode('latin1')
-                else:
-                    with open(file_out.name, 'rb') as f:
-                        r['result'] = f.read().decode('latin1')
-
-                return r
-            finally:
-                if file_out is not None:
-                    os.unlink(file_out.name)
+                    return r
+                finally:
+                    if file_out is not None:
+                        os.unlink(file_out.name)
         else:
             raise NotImplementedError(plugin_def['type'])
 
@@ -541,21 +543,21 @@ class Client(vuespa.Client):
             if plugin_def['type'] == 'program':
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, 'exec'
-                cmd = self._cmd_plugin_template_replace(cmd, api_url, {
+                async with self._cmd_plugin_template_replace(cmd, api_url, {
                         '<jsonArguments>': lambda: json.dumps(json_args),
                         '<outputHtml>': get_output_html,
-                }, extra_api_info=extra_api_info)
-                proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        cwd=os.path.join(etl_path, 'dist') + '/' + plugin_def['cwd'],
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                }, extra_api_info=extra_api_info) as cmd:
+                    proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            cwd=plugin_def['cwd'],
+                            stdin=asyncio.subprocess.PIPE,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
 
-                        # Important, otherwise the read process will freeze when
-                        # a sufficiently large record gets written...
-                        limit=1e7,
-                )
+                            # Important, otherwise the read process will freeze when
+                            # a sufficiently large record gets written...
+                            limit=1e7,
+                    )
                 result = {'html': None, 'decisions': []}
                 d = result['decisions']
                 # Track stderr to forward to user interface
@@ -686,7 +688,8 @@ class Client(vuespa.Client):
         return r
 
 
-    def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
+    @contextlib.asynccontextmanager
+    async def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
             extra_api_info):
         if not api_url.endswith('/'):
             api_url = api_url+ '/'
@@ -702,16 +705,33 @@ class Client(vuespa.Client):
                 raise ValueError(f'Cannot overwrite {k}')
             template_vals[k] = v
 
-        r = []
-        for c in cmd:
-            if c.startswith('<'):
-                rr = template_vals.get(c)
-                if rr is None:
-                    raise ValueError(c)
-                r.append(rr())
-            else:
-                r.append(c)
-        return r
+        files_to_delete = []
+        try:
+            r = []
+            for c in cmd:
+                if c.startswith('<tempFile'):
+                    suffix = c[9:-1]
+                    if suffix:
+                        assert suffix[0] == ' ', suffix
+                        suffix = suffix[1:]
+                        assert ' ' not in suffix, suffix
+                        assert '"' not in suffix, suffix
+                    temp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+                    temp.close()
+                    files_to_delete.append(temp.name)
+                    r.append(temp.name)
+                elif c.startswith('<'):
+                    rr = template_vals.get(c)
+                    if rr is None:
+                        raise ValueError(c)
+                    r.append(rr())
+                else:
+                    r.append(c)
+
+            yield r
+        finally:
+            for f in files_to_delete:
+                os.unlink(f)
 
 
     async def _statsbyfile_cursor(self, options, match_id=None):
@@ -737,6 +757,7 @@ class Client(vuespa.Client):
 
         fresh_key = (
                 # Hashable elements describing this analysis set's state
+                adoc['status_done_time'],
                 await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
                 *[(k, v) for k, v in adoc.get('parser_versions_done', [{}, {}])[1].items()])
         if not hasattr(self, '_statsbyfile_cursor_cache'):
@@ -802,10 +823,12 @@ class Client(vuespa.Client):
 
 
     async def api_clear_db(self):
-        _db_abort_process()
-        await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
-        _db_reprocess()
-
+        if not app_production:
+            _db_abort_process()
+            await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
+            _db_reprocess()
+        else:
+            raise Exception('Reset DB not allowed for Production runs.')
 
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
@@ -822,6 +845,11 @@ class Client(vuespa.Client):
         pdfs_max = await col.estimated_document_count()
         pdfs_not_done = (
                 await app_mongodb_conn['as_parse'].estimated_document_count())
+        if pdfs_not_done != 0:
+            # Mongodb estimates are terrible and this makes a UI element pop
+            # up, so...
+            if (await app_mongodb_conn['as_parse'].find_one({}, {})) is None:
+                pdfs_not_done = 0
         pdfs_err = await (app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
                 .count_documents({'error_until': {'$exists': True}}))
         # Faster than one would think, because number of idle parses is capped

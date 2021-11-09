@@ -30,18 +30,24 @@
                     @click="reprocess" :disabled="!decisionDefinition"
                     ) Reprocess decisions
               span(v-if="!decisionDefinition") Fix filter definition first.
-            v-btn.download(@click="download") Download decisions
+            v-btn.download(@click="downloadDecisions") Download decisions
+            v-tooltip(bottom)
+              template(v-slot:activator="{on}")
+                div(v-on="on")
+                  v-btn.download(@click="downloadFeatures") Download features
+              span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
             v-dialog(v-model="resetDbDialog" persistent max-width="800")
               template(v-slot:activator="{on}")
                 v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
               v-card
-                v-card-title Reset entire DB, re-running all tools and parsers?
+                v-card-title Reset entire DB, re-running all tools and parsers? (Disabled in production.)
                 v-card-actions(:style={'flex-wrap': 'wrap'})
                   v-btn(@click="resetDbDialog=false") Cancel
                   v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
 
           div
             span(v-if="pdfGroupsDirty") Data is stale; press 'Reprocess' to download fresh data
+            span(v-else-if="pdfGroupsLoading") Data is loading...
             span(v-else) Data is up-to-date
           AnalysisSetConfig(:currentId.sync="analysisSetId"
               :pipeCfg="config && config.pipelines"
@@ -462,6 +468,7 @@ export default Vue.extend({
       // entry.
       pdfGroups: {groups: {}, files: []} as PdfGroups,
       pdfGroupsDirty: false,
+      pdfGroupsLoading: false,
       plotShow: true,
       pluginIframeLast: '',
       pluginIframeLoading: 0,
@@ -767,13 +774,59 @@ export default Vue.extend({
         }]);
       }
     },
-    download() {
+    downloadDecisions() {
       const json = JSON.stringify(this.pdfs);
-      let blob = new Blob([json], { type: 'text/plain;charset=utf-8;' });
+      this._downloadFile(json, 'decisions.json');
+    },
+    downloadFeatures() {
+      const csvLines = [];
+      csvLines.push(['feature'].concat(this.pdfGroups.files));
+      for (const [ft, files] of Object.entries(this.pdfGroups.groups)) {
+        const csvLine = [ft];
+        const okSet = new Map(files);
+        for (let i = 0, j = this.pdfGroups.files.length; i < j; i++) {
+          const v = okSet.get(i);
+          if (v === undefined) csvLine.push('');
+          else csvLine.push(v.toString());
+        }
+        csvLines.push(csvLine);
+      }
+      // CSV Writer
+      const csv = [];
+      let first = true;
+      let cellCount;
+      for (const line of csvLines) {
+        if (first) {
+          cellCount = line.length;
+          first = false;
+        }
+        else csv.push('\n');
+
+        if (cellCount !== line.length) {
+          throw new Error(`Invalid CSV lengths? ${cellCount} != ${line.length}`);
+        }
+
+        let firstCell = true;
+        for (const cell of line) {
+          if (firstCell) firstCell = false;
+          else csv.push(',');
+
+          let sCell = cell.toString();
+          if (/['"\n,;\t]/.test(sCell)) {
+            sCell = sCell.replace(/"/g, '""');
+            sCell = `"${sCell}"`;
+          }
+          csv.push(sCell);
+        }
+      }
+      this._downloadFile(csv.join(''), 'features.csv');
+    },
+    _downloadFile(content: string, name: string) {
+      let blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
       let link = document.createElement('a');
       let url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', "decisions.json");
+      link.setAttribute('download', name);
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
@@ -1101,7 +1154,6 @@ export default Vue.extend({
       }
 
       if (!this.reprocessInnerPdfGroups && this.pdfGroupsDirty) {
-        this.pdfGroupsDirty = false;
         // Limit to one repeat of cleaning pdfGroups
         this.reprocessInnerPdfGroups = true;
         await this._pdfGroupsUpdate();
@@ -1580,16 +1632,23 @@ export default Vue.extend({
     async _pdfGroupsUpdate() {
       if (this.analysisSetId === null) return;
       // Clear old data ; makes it apparent to user that data is being loaded.
+      this.pdfGroupsDirty = false;
       this.pdfGroups = {groups: {}, files: []};
       this.fileFilters = [];
 
-      const opts = this._pdfGroupsSubsetOptions();
-      const start = window.performance.now();
-      // Avoid reactivity pause by freezing large object before assigning
-      this.pdfGroups = Object.freeze(
-          await this.$vuespa.call('decisions_get', opts));
-      const tdelta = (window.performance.now() - start) / 1000;
-      console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
+      this.pdfGroupsLoading = true;
+      try {
+        const opts = this._pdfGroupsSubsetOptions();
+        const start = window.performance.now();
+        // Avoid reactivity pause by freezing large object before assigning
+        this.pdfGroups = Object.freeze(
+            await this.$vuespa.call('decisions_get', opts));
+        const tdelta = (window.performance.now() - start) / 1000;
+        console.log(`Refreshing files took ${tdelta.toFixed(2)}s`);
+      }
+      finally {
+        this.pdfGroupsLoading = false;
+      }
     },
     _pdfGroupsSubsetOptions(filter: boolean=false) {
       const r: any = {analysis_set_id: this.analysisSetId};

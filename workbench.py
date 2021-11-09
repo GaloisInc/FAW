@@ -8,6 +8,7 @@ running end-user copies of the Galois Format Analysis Workbench.
 # downstream users. Other imports are allowed in functions not used by the
 # version published as part of a build.
 import argparse
+import dataclasses
 import hashlib
 import io
 import os
@@ -36,6 +37,7 @@ VOLUME_SUFFIX = '-data'
 
 # Keep track of the directory containing the FAW
 faw_dir = os.path.dirname(os.path.abspath(__file__))
+ALL_FOLDER = os.path.abspath(os.path.join(faw_dir, 'all'))
 
 def main():
     """
@@ -73,23 +75,28 @@ def main():
             "files to investigate.")
     parser.add_argument('--port', default=8123, type=int,
             help="Port on which Galois Workbench is accessed.")
-    parser.add_argument('--port-dask', default=8787, type=int,
+    parser.add_argument('--port-dask', default=None, type=int,
             help="If specified, port on which to expose the dask dashboard.")
     parser.add_argument('--port-mongo', default=None, type=int,
             help="If specified, port on which to expose the mongo instance.")
     parser.add_argument('--copy-mongo-from', default=None, type=str,
             help="Replace the pdf-etl database used by the observatory with a "
             "copy of an existing database. Format: localhost:27019/120pdfs")
-    parser.add_argument('--development', action='store_true',
-            help="Developer option: mount source code over docker image, for "
-            "Vue.js hot reloading. Also adds `sys_ptrace` capability to docker "
+    parser.add_argument('--production', action='store_true',
+            help="Developer option on by default: mount source code over docker image, for "
+            "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.")
     args = parser.parse_args()
     pdf_dir = args.file_dir
     port = args.port
     port_mongo = args.port_mongo
     copy_mongo_from = args.copy_mongo_from
-    development = args.development
+    development = not args.production
+
+    build_mode = (os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build')
+    if build_mode:
+        # Exit before building image, which can be expensive
+        assert not development, "Build cannot use --development"
 
     config_data = None
     if IMAGE_TAG is None:
@@ -98,7 +105,6 @@ def main():
             config = args.config_dir
         else:
             config = CONFIG_FOLDER
-        config_data = _check_config_file(config)
 
         # Figure out build folder
         config_rel = os.path.relpath(config, faw_dir)
@@ -122,12 +128,13 @@ def main():
             build_dir = faw_dir
             build_faw_dir = '.'
 
+        # Ensure config is up to date
+        config_data = _check_config_file(config, build_dir)
+
     # Check that observatory image is loaded / built
     _check_image(development=development, config_data=config_data,
             build_dir=build_dir, build_faw_dir=build_faw_dir)
-    if os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build':
-        assert not development, "Build cannot use --development"
-
+    if build_mode:
         # Populate the given directory with a built version of the workbench.
         try:
             shutil.rmtree(pdf_dir)
@@ -146,7 +153,7 @@ def main():
 
         # Export readme
         with \
-                open(os.path.join('common', 'README-dist.md')) as fin, \
+                open(os.path.join('faw', 'README-dist.md')) as fin, \
                 open(os.path.join(pdf_dir, 'README.md'), 'w') as fout:
             fout.write(
                     re.sub(r'{distribution}', dist_name,
@@ -202,15 +209,16 @@ def main():
         extra_flags.append(IMAGE_TAG)
     else:
         # Mount various internal components
-        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-etl-parse:/home/pdf-etl-parse'])
-        extra_flags.extend(['-v', f'{faw_dir}/common/pdf-observatory:/home/pdf-observatory'])
+        extra_flags.extend(['-v', f'{faw_dir}/faw/pdf-etl-parse:/home/pdf-etl-parse'])
+        extra_flags.extend(['-v', f'{faw_dir}/faw/pdf-observatory:/home/pdf-observatory'])
 
         # Mount distribution code
+        extra_flags.extend(['-v', f'{ALL_FOLDER}:/home/all'])
         extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
 
         # Mount utilities for restarting the FAW.. can be handy.
-        for f in os.listdir(os.path.join(faw_dir, 'common', 'docker-bin')):
-            ff = os.path.join(faw_dir, 'common', 'docker-bin', f)
+        for f in os.listdir(os.path.join(faw_dir, 'faw', 'docker-bin')):
+            ff = os.path.join(faw_dir, 'faw', 'docker-bin', f)
             extra_flags.extend(['-v', f'{ff}:/usr/bin/{f}:ro'])
 
         # Allow profiling via e.g. py-spy
@@ -224,7 +232,7 @@ def main():
         # locally. Notably, we do this from docker s.t. the node version used
         # to install packages is the same one used to run the FAW.
         #subprocess.check_call(['npm', 'install'],
-        #        cwd=os.path.join(faw_dir, 'common', 'pdf-observatory', 'ui'))
+        #        cwd=os.path.join(faw_dir, 'faw', 'pdf-observatory', 'ui'))
         subprocess.check_call(['docker', 'run', '-it', '--rm', '--entrypoint',
                 '/bin/bash']
                 + extra_flags
@@ -242,14 +250,8 @@ def main():
             while True:
                 try:
                     new_ts = {}
-                    for configdir in [CONFIG_FOLDER] + [
-                            os.path.join(CONFIG_FOLDER, p)
-                            for p in os.listdir(CONFIG_FOLDER)
-                            if os.path.isdir(os.path.join(CONFIG_FOLDER, p))]:
-                        cfg_path = os.path.join(configdir, 'config.json5')
-                        if not os.path.lexists(cfg_path):
-                            continue
-
+                    for config_spec in _plugin_folders(include_root=True):
+                        cfg_path = os.path.join(config_spec.local_path, 'config.json5')
                         ts = os.path.getmtime(cfg_path)
                         new_ts[cfg_path] = ts
 
@@ -262,7 +264,7 @@ def main():
 
                         print('workbench: Updating /home/config.json')
                         new_config = _export_config_json(_check_config_file(
-                                None)).encode('utf-8')
+                                None, build_dir)).encode('utf-8')
                         # Docker cp is weird... if stdin, it's a tarred
                         # directory
                         buf = io.BytesIO()
@@ -304,7 +306,7 @@ def main():
             ] + extra_flags)
 
 
-def _check_config_file(config):
+def _check_config_file(config, build_dir):
     """For non-deployment editions, we must load config from a json5 file.
 
     This also gets run for deployments, as this function is responsible for
@@ -330,8 +332,8 @@ def _check_config_file(config):
     # increasing modification time. This is important so that developers
     # don't have to keep rebuilding unnecessary stages.
     child_configs = []
-    for child_name in os.listdir(CONFIG_FOLDER):
-        child_path = os.path.join(CONFIG_FOLDER, child_name)
+    for child_folder in _plugin_folders():
+        child_path = child_folder.local_path
         if not os.path.isdir(child_path):
             continue
         child_config_path = os.path.join(child_path, 'config.json5')
@@ -344,35 +346,37 @@ def _check_config_file(config):
             continue
 
         modtime = os.path.getmtime(child_config_path)
-        child_configs.append((modtime, child_name, child_config))
+        child_configs.append((modtime, child_folder, child_config))
 
     # Stable sort; mod time first, then child name
-    child_configs.sort(key=lambda m: (m[0], m[1]))
-    for _, child_name, child_config in child_configs:
+    child_configs.sort(key=lambda m: (m[0], m[1].name))
+    for _, child_folder, child_config in child_configs:
         # First traversal -- patch keys and values
         nodes = [([], child_config)]
         while nodes:
             path, src = nodes.pop()
             for k, v in src.items():
                 ## Rewrite v
-                # Check executables; amend cwd
+                # Check executables; amend cwd so default matches plugin
                 if path and (
                         'file_detail_views' == path[-1]
                         or 'decision_views' == path[-1]
                         or 'parsers' == path[-1]
                         or 'tasks' == path[-1]):
                     if 'cwd' in v:
-                        v['cwd'] = f'{child_name}/' + v['cwd']
+                        if not v['cwd'].startswith('/'):
+                            v['cwd'] = f'{child_folder.prod_path}/' + v['cwd']
                     else:
-                        v['cwd'] = child_name
+                        v['cwd'] = child_folder.prod_path
 
                 # Docker build stage patch
                 if path == ['build', 'stages']:
                     if 'commands' in v:
                         v['commands'] = [
                                 vv
-                                    .replace('{disttarg}', f'{{disttarg}}/{child_name}')
-                                    .replace('{dist}', f'{{dist}}/{child_name}')
+                                    .replace('{disttarg}', child_folder.prod_path)
+                                    .replace('{dist}',
+                                        os.path.relpath(child_folder.local_path, build_dir))
                                 for vv in v['commands']]
 
                 if isinstance(v, dict):
@@ -389,7 +393,7 @@ def _check_config_file(config):
                     # Adding a build stage. If not 'base' or 'final', then
                     # prepend config folder name
                     if k not in ['base', 'final']:
-                        k = f'{child_name}_{k}'
+                        k = f'{child_folder.name}_{k}'
 
                 # New entries only for these
                 if path in [
@@ -399,7 +403,7 @@ def _check_config_file(config):
                         ['parsers'],
                         ]:
                     # Amend these with the child's name, to allow for copying
-                    k = f'{child_name.replace("_", "-")}-{k}'
+                    k = f'{child_folder.name.replace("_", "-")}-{k}'
                     assert k not in dst, f'Cannot extend {path} {k}; must be new'
 
                 ## Check for merge type
@@ -428,7 +432,7 @@ def _check_config_file(config):
     # Pull in parser-specific schema
     import importlib.util
     spec = importlib.util.spec_from_file_location('etl_parse',
-            os.path.join(faw_dir, 'common', 'pdf-etl-parse', 'parse_schema.py'))
+            os.path.join(faw_dir, 'faw', 'pdf-etl-parse', 'parse_schema.py'))
     etl_parse = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(etl_parse)
 
@@ -443,7 +447,7 @@ def _check_config_file(config):
                             '<filesPath>', '<apiInfo>', '<jsonArguments>', '<mongo>', '<outputHtml>',
                             '<workbenchApiUrl>']),
                         )],
-                    s.Optional('cwd', default='.'): str,
+                    s.Optional('cwd', default='/home/dist'): str,
                     'execStdin': s.And(str, lambda x: all([
                         y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
                         for y in re.finditer('<[^>]*>', x)]),
@@ -456,7 +460,7 @@ def _check_config_file(config):
                     'label': str,
                     'type': 'program_to_html',
                     'exec': [str],
-                    s.Optional('cwd', default='.'): str,
+                    s.Optional('cwd', default='/home/dist'): str,
                     s.Optional('outputMimeType', default='text/html'): str,
                 },
             }),
@@ -483,7 +487,7 @@ def _check_config_file(config):
                                 s.Optional('disabled', default=False): s.Or(True, False),
                                 'version': str,
                                 'exec': [str],
-                                s.Optional('cwd', default='.'): str,
+                                s.Optional('cwd', default='/home/dist'): str,
                                 s.Optional('dependsOn', default=[]): [str],
                             },
                         },
@@ -530,7 +534,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             of the FAW code.
     """
     build_local = development or os.path.lexists(os.path.join(faw_dir,
-            'common', 'pdf-observatory'))
+            'faw', 'pdf-observatory'))
     if not build_local:
         # For e.g. version updates, load the image first.
         image_file = os.path.join(faw_dir, IMAGE_TAG + '.image')
@@ -603,7 +607,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # Install npm locally, only for the build.
             RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
 
-            COPY {build_faw_dir}/common/pdf-observatory/ui /home/pdf-observatory/ui
+            COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
 
             RUN cd /home/pdf-observatory/ui \
                 && npm install \
@@ -613,10 +617,10 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     # Always install observatory component dependencies as first part of final
     # stage (to minimize rebuilds on user code changes)
     dockerfile_final.append(rf'''
-            COPY {build_faw_dir}/common/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
+            COPY {build_faw_dir}/faw/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
             RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
 
-            COPY {build_faw_dir}/common/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
+            COPY {build_faw_dir}/faw/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
             RUN pip3 install -r /home/pdf-observatory/requirements.txt
     ''')
 
@@ -626,18 +630,22 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
     if development:
         dockerfile_final_postamble.append(rf'''
             # Add not-compiled code directories
-            COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
-            #COPY {build_faw_dir}/common/pdf-observatory /home/pdf-observatory
+            COPY {build_faw_dir}/faw/pdf-etl-parse /home/pdf-etl-parse
+            #COPY {build_faw_dir}/faw/pdf-observatory /home/pdf-observatory
             ''')
 
         # The CONFIG_FOLDER will be mounted as dist at runtime.
+        # The ALL_FOLDER will be mounted as `all` at runtime.
     else:
         dockerfile_final_postamble.append(rf'''
             # Add not-compiled code directories; omit "ui" for observatory
-            COPY {build_faw_dir}/common/pdf-etl-parse /home/pdf-etl-parse
-            COPY {build_faw_dir}/common/pdf-observatory/*.py /home/pdf-observatory/
-            COPY {build_faw_dir}/common/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
+            COPY {build_faw_dir}/faw/pdf-etl-parse /home/pdf-etl-parse
+            COPY {build_faw_dir}/faw/pdf-observatory/*.py /home/pdf-observatory/
+            COPY {build_faw_dir}/faw/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
             COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
+
+            # Copy shared plugins
+            COPY {shlex.quote(ALL_FOLDER)} /home/all
 
             # The final stage must always have the distribution folder available as
             # /home/dist; do this after copying the base material and building the
@@ -678,6 +686,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         if stage == 'base':
             # Ensure that e.g. curl, python3, python3-pip, and wget all get installed
             stage_commands = [
+                    'ENV DEBIAN_FRONTEND=noninteractive',
                     'RUN apt-get update && apt-get install -y curl python3 python3-pip wget',
                     ] + stage_commands
         dockerfile.extend(stage_commands)
@@ -693,7 +702,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
 
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
-            COPY {build_faw_dir}/common/s6-overlay-amd64.tar.gz /tmp/
+            COPY {build_faw_dir}/faw/s6-overlay-amd64.tar.gz /tmp/
 
             # Updated for ubuntu 20.04, for which /bin is a symlink
             # Still need old extract command for previous versions.
@@ -721,7 +730,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             ENV PYTHONUNBUFFERED 1
             # Ensure any python code running (dask, user code) has access to
             # the faw_pipelines_util and user packages.
-            ENV PYTHONPATH /home/dist:/home/pdf-observatory
+            ENV PYTHONPATH /home/dist:/home/all:/home/pdf-observatory
             # Always use 'bash' from this point forward, because 'echo' commands
             # are inconsistent between sh and bash.
             SHELL ["/bin/bash", "-c"]
@@ -737,7 +746,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
                 && chmod a+x /etc/services.d/mongod/log/run
 
-            # Observatory service (modifications must also change common/teaming/pyinfra/deploy.py)
+            # Observatory service (modifications must also change faw/teaming/pyinfra/deploy.py)
             RUN \
                 mkdir -p /etc/cont-init.d \
                 && echo -e '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
@@ -774,7 +783,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
 
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time
             # information.
-            COPY {build_faw_dir}/common/timeout-master /home/timeout
+            COPY {build_faw_dir}/faw/timeout-master /home/timeout
             RUN chmod a+x /home/timeout/timeout \
                 && ln -s /home/timeout/timeout /usr/bin/timeout_pshved
 
@@ -914,6 +923,45 @@ def _mongo_copy(db_name, copy_mongo_from):
             # Kill docker
             p.kill()
     asyncio.run(run_and_dump())
+
+
+@dataclasses.dataclass
+class _PluginFolderDesc:
+    """Paths are absolute.
+
+    local_path indicates on host OS.
+    prod_path indicates within docker.
+    """
+    name: str
+    local_path: str
+    prod_path: str
+def _plugin_folders(include_root=False):
+    """Yields `[_PluginFolderDesc]` for folders which contain
+    `config.json5` files. Optionally, also yields the base config path.
+    """
+    r = []
+    seen = set()
+    def add(d):
+        if d.name in seen:
+            raise ValueError(f'Plugin {d.name} found twice?')
+        seen.add(d.name)
+        r.append(d)
+
+    if include_root:
+        add(_PluginFolderDesc(name='<root>', local_path=CONFIG_FOLDER,
+                prod_path='/home/dist'))
+    for p in os.listdir(CONFIG_FOLDER):
+        pp = os.path.abspath(os.path.join(CONFIG_FOLDER, p))
+        if os.path.isdir(pp) and os.path.lexists(os.path.join(pp, 'config.json5')):
+            add(_PluginFolderDesc(name=p, local_path=pp,
+                    prod_path=f'/home/dist/{p}'))
+    for p in os.listdir(ALL_FOLDER):
+        pp = os.path.abspath(os.path.join(ALL_FOLDER, p))
+        pname = f'all__{p}'
+        if os.path.isdir(pp) and os.path.lexists(os.path.join(pp, 'config.json5')):
+            add(_PluginFolderDesc(name=pname, local_path=pp,
+                    prod_path=f'/home/all/{p}'))
+    return r
 
 
 if __name__ == '__main__':

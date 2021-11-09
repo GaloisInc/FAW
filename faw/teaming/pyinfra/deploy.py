@@ -109,9 +109,8 @@ else:
     worker_script = rf'''
 #! /bin/bash
 set -e
-# Fix up observatory
-echo -e '#! /bin/bash\ncd /home/dist\npython3 ../pdf-observatory/queue_client.py --mongo-db {webhost}:{config.port_mongo}/{user}-faw-db --pdf-dir /home/pdf-files --pdf-fetch-url http://{webhost}:{config.port}/file_download/ --config ../config.json --api-info {api_info_shell} 2>&1' > /etc/services.d/observatory/run
-chmod a+x /etc/services.d/observatory/run
+# Fix up observatory (now removed from teaming deployments; main server only)
+rm -rf /etc/services.d/observatory
 # Fix up dask -- disable scheduler, change worker to connect to global scheduler
 rm -rf /etc/services.d/dask-scheduler
 echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} --dashboard-address {config.port_dask_worker_dashboard} {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
@@ -137,18 +136,18 @@ docker_flags.append(docker_image_name)
 docker_flags.extend(docker_flags_cmd)
 server.shell(name="Kill old docker container, launch new",
         commands=[
-            # Stop / remove old
-            rf'''bash -c '\
-                    (docker stop {docker_container} || echo missing) \
-                    && (docker rm {docker_container} || echo missing) \
-                    ' ''',
-            # Load new image, if needed
+            # Load new image, if needed (may take awhile; do before removing old)
             rf'''bash -c '\
                     if [[ "{userhome}/docker-last-update" -ot "{userhome}/remote/{docker_image_file}" ]]; then \
                         docker load -i "{userhome}/remote/{docker_image_file}" \
                         && touch -r "{userhome}/remote/{docker_image_file}" "{userhome}/docker-last-update"; \
                     else echo up to date; \
                     fi \
+                    ' ''',
+            # Stop / remove old
+            rf'''bash -c '\
+                    (docker stop {docker_container} || echo missing) \
+                    && (docker rm {docker_container} || echo missing) \
                     ' ''',
             # Run new docker container as a service
             docker_flags[0] + ' ' + ' '.join([shlex.quote(q) for q in docker_flags[1:]]),

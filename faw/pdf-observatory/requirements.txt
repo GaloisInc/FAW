@@ -1,11 +1,13 @@
+cachetools
 dask[complete] >= 2021.09.0
 jupyter-server-proxy
 motor
 psutil
 pyjson5
 pympler
+requests
 strictyaml
 ujson
-vuespa >= 0.4.0
+vuespa >= 0.5.2
 #git+https://github.com/wwoods/python-vuespa@master
 # v20

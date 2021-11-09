@@ -24,9 +24,9 @@ The first invocation will take a long time (up to an hour or two). After that,
 it will be quite fast. Once it's loaded, point your browser at
 http://localhost:8123
 
-## Development mode
+## Development mode by default
 
-When integrating a new parser or developing a plugin, pass the `--development`
+When integrating a new parser or developing a plugin, consider not passing the `--production`
 flag to the `python3 workbench.py` command. This does a number of things:
 
 1. Mounts all folders in docker, rather than including them in the image. This
@@ -68,7 +68,7 @@ inefficiency of cloning FAW multiple times. The exception is that two builds
 will be maintained -- one for non-parent-directory distributions, and one for
 parent-directory distributions.
 
-While developing a distribution, consider using `--development` to use Vue's
+While developing a distribution, consider not using `--production` to use Vue's
 live reload functionality and to mount the distribution's folder into
 `/home/` in a way which allows for making changes without stopping and starting
 the development server.
@@ -88,11 +88,11 @@ docker image in a standalone fashion; that file is packaged with any builds.
 
 ## Troubleshooting
 
-1. Should `--development` fail to start the web interface, try deleting
+1. Should the web interface fail to start, try deleting
   the `common/pdf-observatory/ui/node_modules` directory and trying again. This
   can happen due to mismatches between node versions in docker containers.
 
-2. In `--development` mode, attaching to the docker container gives access to
+2. When not in `--production` mode, attaching to the docker container gives access to
   a variety of useful information. In particular, `s6-logwatch /var/log/observatory`
   will show the logs for the FAW instance; `/var/log` in general contains a
   number of logs on the various processes which comprise the FAW. Futhermore,
