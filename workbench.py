@@ -645,7 +645,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
 
             # Copy shared plugins
-            COPY {shlex.quote(ALL_FOLDER)} /home/all
+            COPY {shlex.quote(build_faw_dir + '/all')} /home/all
 
             # The final stage must always have the distribution folder available as
             # /home/dist; do this after copying the base material and building the
