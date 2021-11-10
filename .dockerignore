@@ -1,6 +1,7 @@
 # Note: This file may be copied into the parent directory! Paths should not
 # assume it is in its current location.
 **/build
+**/remote/*.image
 **/node_modules
 **/.mypy_cache
 **/__pycache__
