@@ -105,7 +105,8 @@
               @filter-file-list="fileFilterAdd($event.name, new Set($event.files))"
               :pdfs="pdfs"
               :pdfsReference="pdfsReference"
-              :decisionAspectSelected="decisionAspectSelected")
+              :decisionAspectSelected="decisionAspectSelected"
+              :decisionAspectSelectedName="decisionAspectSelected === 'filter-faw-custom' ? 'Search: ' + decisionSearchCustom : decisionAspectSelected")
 
             //- Global listing of reasons files failed
             v-expansion-panels(:value="0" :popout="true" v-if="decisionAspectSelected.startsWith('filter-')")
