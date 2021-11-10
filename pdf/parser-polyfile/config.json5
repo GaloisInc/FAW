@@ -2,7 +2,7 @@
   parsers: {
     polyfile: {
       exec: ['python3', 'main.py', '<inputFile>'],
-      version: 'polyfile-v1',
+      version: 'polyfile-v0.3.4',
       parse: {
         type: 'regex-counter',
         version: '1',
@@ -29,7 +29,7 @@
     stages: {
       final: {
         commands: [
-          'RUN pip3 install "polyfile >= 0.3.3"',
+          'RUN pip3 install "polyfile >= 0.3.4"',
           // Polyfile now requires 7zip as of 2021-05-04
           'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
         ],
