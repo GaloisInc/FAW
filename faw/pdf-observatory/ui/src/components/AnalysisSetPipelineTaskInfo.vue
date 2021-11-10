@@ -8,7 +8,7 @@
         v-icon(v-if="status.disabled_by_config" color="red") mdi-do-not-disturb
         span {{pipeline}} {{task}} -- status: {{status.status_msg}}
     v-expansion-panel-content
-      json-tree(:data="status.last_run_info" :level="1")
+      JsonTree(:data="status.last_run_info" :level="1")
       v-dialog(v-model="resetDbDialog" persistent max-width="800")
         template(v-slot:activator="{on}")
           v-btn.resetdb(v-on="on") Reset task DB

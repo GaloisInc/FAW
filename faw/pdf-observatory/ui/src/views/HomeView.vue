@@ -69,7 +69,7 @@
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
                 details(v-show="pluginDecIframeSrc != null")
                   summary Debugging stats
-                  json-tree(:data="pluginDecDebug" :level="2")
+                  JsonTree(:data="pluginDecDebug" :level="2")
 
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
@@ -223,7 +223,11 @@
 
           //- Big margin-bottom to prevent scroll-back when changing file selection
           v-sheet(:elevation="3" style="margin-top: 1em; padding: 1em; margin-bottom: 50vh")
-            v-subheader Results for {{decisionSelected.testfile}}
+            v-subheader
+              span Results for {{decisionSelected.testfile}}
+              span(v-if="decisionSelected.testfile")
+                span &nbsp;
+                a(:href="'/file_download/' + decisionSelected.testfile") (download)
             v-tabs(v-model="dbView" grow)
               v-tab(:key="DbView.Decision") Decision
               v-tab(:key="DbView.Tools") Output - Tools

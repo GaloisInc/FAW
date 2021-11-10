@@ -1,7 +1,7 @@
 <template lang="pug">
   .db-view
     .error(v-if="error" style="white-space: pre-wrap") {{error}}
-    json-tree(:data="items" :level="1")
+    JsonTree(:data="items" :level="1")
 </template>
 
 

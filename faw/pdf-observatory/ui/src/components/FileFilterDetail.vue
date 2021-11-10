@@ -6,10 +6,10 @@
       .decision-info {{decisionSelected.info}}
 
     div Current decision
-      json-tree(:data="decisionSelected" :level="2")
+      JsonTree(:data="decisionSelected" :level="2")
 
     div Reference decision
-      json-tree(:data="decisionReference" :level="2")
+      JsonTree(:data="decisionReference" :level="2")
 
     div(style="font-weight: bold; border-top: solid 1px #000") In-Tool Decision Details
     .decision-overview

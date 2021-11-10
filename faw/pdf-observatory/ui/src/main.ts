@@ -7,7 +7,7 @@ import VClipboard from 'v-clipboard';
 Vue.use(VClipboard);
 
 import JsonTree from '@/components/json-tree.vue';
-Vue.component('json-tree', JsonTree);
+Vue.component('JsonTree', JsonTree);
 
 import './main.scss';
 
