@@ -651,8 +651,6 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             # /home/dist; do this after copying the base material and building the
             # base UI, so user changes trigger those rebuilds infrequently.
             COPY {shlex.quote(config_rel_dir)} /home/dist
-
-            ENV OBS_PRODUCTION "--production"
             ''')
 
     for stage, stage_def in {**config_data['build']['stages'],
@@ -792,7 +790,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             ENV LC_ALL C.UTF-8
             ENV LANG C.UTF-8
             ENV DB observatory-default-data
-            ENV OBS_PRODUCTION ""
+            ENV OBS_PRODUCTION "{'--production' if not development else ''}"
             ENTRYPOINT ["/init"]
             ''')
 
