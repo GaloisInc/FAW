@@ -32,15 +32,21 @@ def main():
     try:
         print(f'Converting output to JPG for browser...', file=sys.stderr)
         subprocess.call(['convert', args.file_out, jpg_file])
-
         with open(jpg_file, 'rb') as f:
             b64 = base64.b64encode(f.read())
             b64 = b64.decode('latin1')
-            print(f'<!DOCTYPE html><html><body>')
-            print(f'<img src="data:image/jpg;base64,{b64}" />')
-            print(f'<div>Return code: {retcode}</div>')
-            print(f'<div style="white-space: pre-wrap">Output: {html.escape(stdout)}</div>')
-            print(f'</body></html>')
+
+        subprocess.call(['convert', args.file_in, jpg_file])
+        with open(jpg_file, 'rb') as f:
+            b64_orig = base64.b64encode(f.read()).decode('latin1')
+
+        print(f'<!DOCTYPE html><html><body>')
+        print(f'<div>Original / applied</div>')
+        print(f'<img src="data:image/jpg;base64,{b64_orig}" />')
+        print(f'<img src="data:image/jpg;base64,{b64}" />')
+        print(f'<div>Return code: {retcode}</div>')
+        print(f'<div style="white-space: pre-wrap">Output: {html.escape(stdout)}</div>')
+        print(f'</body></html>')
     finally:
         os.unlink(jpg_file)
 
