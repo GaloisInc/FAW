@@ -60,9 +60,10 @@
 <script lang="ts">
 import Vue from 'vue';
 
-import CheckmarkComponent from '@/components/Checkmark.vue';
+import CheckmarkComponent from '@/components/CheckmarkComponent.vue';
 import {PdfDecision, sortByReject} from '@/components/common';
 import {DslResult} from '@/dsl';
+import {regexEscape} from '@/util';
 
 export default Vue.extend({
   components: {
@@ -87,7 +88,7 @@ export default Vue.extend({
   },
   methods: {
     regexEscape(v: string): string {
-      return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      return regexEscape(v);
     },
     async updateDecisionReasons() {
       this.fileStats.clear();
@@ -106,7 +107,7 @@ export default Vue.extend({
             continue;
           }
           const info = this.decisionSelectedDsl.info;
-          const dRe = new RegExp(`^'([^']*)' (rejected|accepted) '${RegExp.escape(d)}'$`, 'gm');
+          const dRe = new RegExp(`^'([^']*)' (rejected|accepted) '${regexEscape(d)}'$`, 'gm');
           const dMatches = new Array<RegExpExecArray|null>();
           let dMatch;
           for (const line of info) {

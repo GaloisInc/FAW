@@ -16,8 +16,6 @@ export default Vue.extend({
   },
   methods: {
     stats() {
-      const n = this.pdfs.length;
-
       let changed = 0;
 
       const attr = this.decisionAspectSelected;

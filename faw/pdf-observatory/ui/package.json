@@ -14,8 +14,8 @@
     "pug": "^3.0.2",
     "pug-plain-loader": "^1.0.0",
     "v-clipboard": "^2.2.3",
-    "vue": "^2.6.10",
-    "vue-router": "^3.1.3",
+    "vue": "^2.6.14",
+    "vue-router": "^3.5.3",
     "vue2-ace-editor": "0.0.15",
     "vuetify": "^2.4.11"
   },
@@ -25,18 +25,18 @@
     "@types/d3-selection": "^1.4.1",
     "@types/pegjs": "^0.10.1",
     "@vue/cli": "^4.5.12",
-    "@vue/cli-plugin-eslint": "^4.1.0",
-    "@vue/cli-plugin-router": "^4.1.0",
-    "@vue/cli-plugin-typescript": "^4.4.6",
-    "@vue/cli-service": "^4.1.0",
-    "@vue/eslint-config-typescript": "^4.0.0",
-    "eslint": "^5.16.0",
-    "eslint-plugin-vue": "^5.0.0",
+    "@vue/cli-plugin-eslint": "~4.5.15",
+    "@vue/cli-plugin-router": "^4.5.15",
+    "@vue/cli-plugin-typescript": "~4.5.15",
+    "@vue/cli-service": "~4.5.15",
+    "@vue/eslint-config-typescript": "^9.0.1",
+    "eslint": "^6.8.0",
+    "eslint-plugin-vue": "^8.0.3",
     "sass": "^1.23.7",
     "sass-loader": "^8.0.0",
-    "typescript": "^3.7.3",
-    "vue-cli-plugin-vuetify": "~2.0.4",
-    "vue-template-compiler": "^2.6.10",
+    "typescript": "~4.1.5",
+    "vue-cli-plugin-vuetify": "~2.4.3",
+    "vue-template-compiler": "^2.6.14",
     "vuetify-loader": "^1.3.0"
   },
   "eslintConfig": {
@@ -44,16 +44,23 @@
     "env": {
       "node": true
     },
+    "plugins": [
+      "@typescript-eslint"
+    ],
     "extends": [
-      "plugin:vue/essential",
-      "eslint:recommended",
-      "@vue/typescript"
+      "plugin:vue/recommended"
     ],
     "rules": {
       "no-console": "off",
       "no-constant-condition": "off",
-      "no-inner-declarations": "off"
+      "no-inner-declarations": "off",
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": ["error", {"args": "none"}],
+      "vue/component-tags-order": "off",
+      "vue/order-in-components": "off",
+      "vue/require-default-prop": "off"
     },
+    "parser": "vue-eslint-parser",
     "parserOptions": {
       "parser": "@typescript-eslint/parser"
     }

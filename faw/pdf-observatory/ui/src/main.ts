@@ -10,7 +10,6 @@ import JsonTree from '@/components/json-tree.vue';
 Vue.component('json-tree', JsonTree);
 
 import './main.scss';
-import './util';
 
 declare var VueSpaBackend: any;
 Vue.use(VueSpaBackend);

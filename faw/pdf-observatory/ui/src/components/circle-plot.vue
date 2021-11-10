@@ -1,17 +1,14 @@
 <template>
-  <div class="svg-container"></div>
+  <div class="svg-container" />
 </template>
 
 <script lang="ts">
 import Vue from "vue";
-import Vuetify from "vuetify";
 import { PdfDecision } from "./common";
 import * as d3 from "d3";
 import { DslResult } from "../dsl";
 
 type StatusId = number;
-type Status = string;
-type Aspect = string;
 
 interface Statuses {
   [aspect: string]: Map<any, number> | undefined;
@@ -50,13 +47,13 @@ const max_nodes = 750;
 
 export default Vue.extend({
   name: "CirclePlot",
-  props: [
-    "pdfs",
-    "pdfsReference",
-    "pdfsSearched",
-    "decisionDefinition",
-    "decisionAspectSelected"
-  ],
+  props: {
+    pdfs: Object,
+    pdfsReference: Object,
+    pdfsSearched: Object,
+    decisionDefinition: Object,
+    decisionAspectSelected: Object,
+  },
   data() {
     return {
       centers: {} as Centers,
@@ -238,7 +235,7 @@ export default Vue.extend({
       if (ss === undefined) return [];
 
       const points = Array.from(ss.entries()).map(e => {
-        const [status, statusId] = e;
+        const [, statusId] = e;
         return nodes
           .filter(
             (d: any) => this.node.statuses[d.testfile]?.[aspect] === statusId

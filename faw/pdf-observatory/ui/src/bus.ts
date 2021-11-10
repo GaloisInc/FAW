@@ -14,7 +14,7 @@ const bus = new Vue;
 };
 
 interface BusType {
-  error: (e: any) => void;
+  error?: (e: any) => void;
   $emit: (name: string, e: any) => void;
   $off: (name: string, cb?: (e: any) => void) => void;
   $on: (name: string, cb: (e: any) => void) => void;

@@ -371,6 +371,7 @@
 //import HelloWorld from '@/components/HelloWorld.vue'
 
 import bus from '@/bus';
+import {regexEscape} from '@/util';
 
 // Editor-related includes
 import AceEditorComponent from 'vue2-ace-editor';
@@ -386,7 +387,7 @@ import {DslExpression, DslResult, dslParser, dslDefault} from '@/dsl';
 import {AsData} from '@/interface/aset';
 
 import AnalysisSetConfigComponent from '@/components/AnalysisSetConfig.vue';
-import CheckmarkComponent from '@/components/Checkmark.vue';
+import CheckmarkComponent from '@/components/CheckmarkComponent.vue';
 import CirclePlotComponent from '@/components/circle-plot.vue';
 import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
 import StatsComponent from '@/components/HomeStats.vue';
@@ -413,7 +414,7 @@ export class LoadingStatus {
 }
 
 export default Vue.extend({
-  name: 'home',
+  name: 'HomeView',
   components: {
     AceEditor: AceEditorComponent,
     AnalysisSetConfig: AnalysisSetConfigComponent,
@@ -726,7 +727,7 @@ export default Vue.extend({
         await fn();
       }
       catch (e) {
-        bus.error(e);
+        bus.error!(e);
         throw e;
       }
     },
@@ -1035,7 +1036,7 @@ export default Vue.extend({
           let refDecs = null;
           let pluginDef: any = null;
           if (pluginKey.indexOf('!') !== -1) {
-            const [aset, pipeline, plugin] = pluginKey.split('!');
+            const [, pipeline, plugin] = pluginKey.split('!');
             pluginDef = this.config['pipelines'][pipeline]['decision_views'][plugin];
           }
           else {
@@ -1133,7 +1134,7 @@ export default Vue.extend({
       if (!this.config) return {};
       const o = Object.assign({}, this.config[key]);
       for (const aset of this.asData.asets) {
-        for (const [pk, pv] of Object.entries(aset.pipelines)) {
+        for (const [pk] of Object.entries(aset.pipelines)) {
           for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][key])) {
             const pluginKey = `${aset.id}!${pk}!${ppk}`;
             const ok: any = o[pluginKey] = Object.assign({}, ppv);
@@ -1144,7 +1145,7 @@ export default Vue.extend({
       return o;
     },
     regexEscape(v: string): string {
-      return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      return regexEscape(v);
     },
     async reprocess() {
       /** Re-calculate decisions based on DSL */
@@ -1214,7 +1215,7 @@ export default Vue.extend({
       // Build file list
       const newPdfs = [];
       const pdfMap = new Map<number, PdfDecision>();
-      for (const [k, files] of Object.entries(groups)) {
+      for (const [, files] of Object.entries(groups)) {
         for (const f of files) {
           if (pdfMap.has(f[0])) continue;
           const dec = {

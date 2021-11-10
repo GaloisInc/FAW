@@ -595,7 +595,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         # Development extensions... add not-compiled code directories.
         dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
-            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+            RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
             # Install watchgod, which allows for live-reloading analysis sets
             # on file changes.
             RUN pip3 install watchgod
@@ -605,7 +605,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         dockerfile_middle.append(rf'''
             FROM base AS ui-builder
             # Install npm locally, only for the build.
-            RUN curl -sL https://deb.nodesource.com/setup_14.x | bash - && apt-get install -y nodejs
+            RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
 
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
 
