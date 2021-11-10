@@ -330,6 +330,16 @@ async def _init_check_pdfs():
         col.create_index([('queueErr', pymongo.ASCENDING)]),
         # Partial index isn't used for count, unfortunately.
         col.create_index([('queueStop', pymongo.ASCENDING)]),
+
+        # Create additional indices required for other FAW components
+        db['rawinvocations'].create_index([('file', pymongo.ASCENDING)]),
+        db['rawinvocations'].create_index([('result._cons', pymongo.ASCENDING)]),
+
+        db['invocationsparsed'].create_index([('file', pymongo.ASCENDING)]),
+        db['invocationsparsed'].create_index([('result.k', pymongo.ASCENDING)]),
+        # Another index for quickly gathering information about features from
+        # different exit codes
+        db['invocationsparsed'].create_index([('parser', pymongo.ASCENDING), ('exitcode', pymongo.ASCENDING)]),
     ])
 
     # Use a batch to support parallelism on mongodb's side
