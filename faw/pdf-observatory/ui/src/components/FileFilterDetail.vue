@@ -101,8 +101,8 @@ export default Vue.extend({
     fileStatsSearchUpdate() {
       const re = new RegExp(this.fileStatsSearch,
           this.fileStatsSearchInsensitive ? 'i' : '');
-      this.fileStatsSearchCache = this.fileStats.get('other').filter(
-          x => re.test(x));
+      this.fileStatsSearchCache = this.fileStats.get('other')!.filter(
+          x => re.test(x[0]));
     },
     regexEscape(v: string): string {
       return regexEscape(v);
