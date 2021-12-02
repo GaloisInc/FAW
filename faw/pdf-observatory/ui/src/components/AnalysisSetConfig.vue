@@ -67,7 +67,14 @@
                       v-btn(@click="saveAs.definition.rules.push({parser: parser.id, src: '', dst: ''})") Add new
           v-row(class="btn-row")
             v-btn(@click="asFormSave" :disabled="!asFormValid") Save / regenerate
-            v-btn(color="red" @click="asFormDelete" :disabled="currentId === NEW_ID") Delete
+            v-dialog(v-model="asFormDeleteDialog" persistent max-width="800")
+              template(v-slot:activator="{on}")
+                v-btn(color="red" v-on="on" :disabled="currentId === NEW_ID") Delete
+              v-card
+                v-card-title Really delete this analysis set?
+                v-card-actions(:style={'flex-wrap': 'wrap'})
+                  v-btn(@click="asFormDeleteDialog = false") Cancel
+                  v-btn(@click="asFormDelete(); asFormDeleteDialog = false") Delete analysis set
 
     v-btn(block @click="pipeExpanded = !pipeExpanded" style="margin-top: 1em")
       span(v-if="!pipeExpanded") Pipelines
@@ -121,6 +128,7 @@ export default Vue.extend({
       NEW_ID: '<new>',
       alive: true,
       asData: {asets: [], parsers: []} as AsData,
+      asFormDeleteDialog: false,
       asFormValid: false,
       expanded: false,
       ftCountCache: new Map<string, Map<string, {count: number|string, updated: number}>>(),
