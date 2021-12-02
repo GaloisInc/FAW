@@ -161,7 +161,7 @@
           .file-lists
             v-list(dense)
               v-subheader
-                span(style="white-space: pre-wrap") Current decisions (top {{pdfsToShowMax}}) -!{' '}
+                span(style="white-space: pre-wrap") Current decisions -!{' '}
                 Stats(:pdfs="pdfs" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
               v-list-item-group(mandatory)
                 v-list-item(
