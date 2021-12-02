@@ -39,7 +39,10 @@
                     v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
 
     .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
-      v-virtual-scroll(:items="fileStats.get('other')" item-height="25" height="750" bench="2")
+      div(style="display: flex; flex-direction: row; align-items: center")
+        v-text-field(label="Search regex" v-model="fileStatsSearch")
+        v-checkbox(v-model="fileStatsSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
+      v-virtual-scroll(:items="fileStatsSearchCache" item-height="25" height="750" bench="2")
         template(v-slot:default="{item}")
           div(:key="item[0]")
             v-menu(offset-y max-width="400")
@@ -79,20 +82,35 @@ export default Vue.extend({
   data() {
     return {
       fileStats: new Map<string, Array<[string, string]>>(),
+      fileStatsSearch: '',
+      fileStatsSearchCache: new Array<[string, string]>(),
+      fileStatsSearchInsensitive: true,
+      fileStatsSearchTimer: null as any,
     };
   },
   watch: {
     decisionSelectedDsl() {
       this.updateDecisionReasons();
     },
+    fileStatsSearch() {
+      if (this.fileStatsSearchTimer) clearTimeout(this.fileStatsSearchTimer);
+      this.fileStatsSearchTimer = setTimeout(() => this.fileStatsSearchUpdate(), 250);
+    },
   },
   methods: {
+    fileStatsSearchUpdate() {
+      const re = new RegExp(this.fileStatsSearch,
+          this.fileStatsSearchInsensitive ? 'i' : '');
+      this.fileStatsSearchCache = this.fileStats.get('other').filter(
+          x => re.test(x));
+    },
     regexEscape(v: string): string {
       return regexEscape(v);
     },
     async updateDecisionReasons() {
       this.fileStats.clear();
       this.fileStats.set('other', []);
+      this.fileStatsSearchUpdate();
 
       const tf = this.decisionSelectedDsl.testfile;
       if (tf) {
@@ -154,6 +172,7 @@ export default Vue.extend({
         // Vue doesn't track reactivity on Map objects.  So, re-assign with
         // copy.
         Vue.set(this, 'fileStats', new Map(this.fileStats));
+        this.fileStatsSearchUpdate();
       }
     },
   },
