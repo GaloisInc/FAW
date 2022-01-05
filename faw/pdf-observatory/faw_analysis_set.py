@@ -20,6 +20,8 @@ import traceback
 
 _app_config = None
 _app_config_version = 0
+_app_force_stale = {}  # {'aset': True} for asets which have been modified in such
+                       # a way that their current processing should be aborted.
 
 class AsStatus(enum.Enum):
     UP_TO_DATE = ''
@@ -153,6 +155,7 @@ async def as_update(id, definition):
             'definition': definition,
             'status': AsStatus.REBUILD_IDS.value
     }}, upsert=True)
+    _app_force_stale[id] = True
 
 
 ########################################################
@@ -171,6 +174,10 @@ Stats collection: old statsbyfile, but new schema.
 async def _as_manage(aset, api_info, client, client_tasks):
     name = aset['_id']
     mongo_info = api_info['mongo']
+
+    # Forced staleness due to external modification
+    if _app_force_stale.pop(name, False):
+        return
 
     # Check old task status -- see if it finished
     old_task_info = client_tasks.get(name)
@@ -595,6 +602,9 @@ def as_create_id_collection(db, app_config, aset_id, col_name, *,
     IMPORTANT: this may take an extraordinarily long time! If the analysis set
     has feature dependencies, then those parsers must be run on 100% of files in
     the database before this set can proceed.
+
+    MAY call `faw_internal.dask_check_if_cancelled()` and return `None` for
+    early exits. In this case, `col_name` will not exist.
 
     THEREFORE: SHOULD BE CALLED OUTSIDE OF DASK CONTEXT!
 
