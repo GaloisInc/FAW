@@ -39,6 +39,10 @@
                     v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
 
     .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
+      div(style="display: flex; flex-direction: row; align-items: center; margin-top: -1em; margin-bottom: -2em")
+        span (
+        v-checkbox(v-model="fileStatsAsOnly" label="only show features included in current analysis set")
+        span )
       div(style="display: flex; flex-direction: row; align-items: center")
         v-text-field(label="Search regex" v-model="fileStatsSearch")
         v-checkbox(v-model="fileStatsSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
@@ -82,6 +86,7 @@ export default Vue.extend({
   data() {
     return {
       fileStats: new Map<string, Array<[string, string]>>(),
+      fileStatsAsOnly: false,
       fileStatsSearch: '',
       fileStatsSearchCache: new Array<[string, string]>(),
       fileStatsSearchInsensitive: true,
@@ -90,6 +95,9 @@ export default Vue.extend({
   },
   watch: {
     decisionSelectedDsl() {
+      this.updateDecisionReasons();
+    },
+    fileStatsAsOnly() {
       this.updateDecisionReasons();
     },
     fileStatsSearch() {
@@ -115,7 +123,7 @@ export default Vue.extend({
       const tf = this.decisionSelectedDsl.testfile;
       if (tf) {
         const data = await this.$vuespa.call('load_db', tf, 'statsbyfile',
-            this.asOptions);
+            this.asOptions, {as_only: this.fileStatsAsOnly});
         // Prevent duplicates by re-setting the array whenever we get data
         this.fileStats.clear();
         this.fileStats.set('other', []);

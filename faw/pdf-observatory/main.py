@@ -877,7 +877,8 @@ class Client(vuespa.Client):
         }
 
 
-    async def api_load_db(self, pdf, collection, options=None):
+    async def api_load_db(self, pdf, collection, as_options=None,
+            other_options=None):
         """Loads a specific entry from the pdf-etl database, for manual
         inspection.
         """
@@ -893,13 +894,21 @@ class Client(vuespa.Client):
             def postproc(d):
                 d['result'] = {dr['k']: dr['v'] for dr in d['result']}
         elif collection == 'statsbyfile':
-            cursor = self._statsbyfile_cursor(options, match_id=pdf)
-            cursor_batched = True
-            options = None
+            if other_options and other_options.get('as_only'):
+                cursor = self._statsbyfile_cursor(as_options, match_id=pdf)
+                cursor_batched = True
+                as_options = None
+            else:
+                docs = [{}]
+                async for d in app_mongodb_conn['invocationsparsed'].find({
+                        'file': pdf}):
+                    p = d['parser']
+                    docs[0].update({f'{p}_{kv["k"]}': kv['v'] for kv in d['result']})
+                return docs
         else:
             raise NotImplementedError(collection)
 
-        assert options is None
+        assert as_options is None
 
         docs = [d async for d in cursor]
         if cursor_batched:
