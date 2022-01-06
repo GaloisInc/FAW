@@ -38,6 +38,11 @@ interface Node {
   y: number;
   id: number;
 }
+interface NodeCollection {
+  statuses: NodeStatuses;
+  ref_statuses: NodeStatuses;
+  nodes: Node[];
+}
 
 const dotWidth = 5
 const width = 1500;
@@ -48,11 +53,11 @@ const max_nodes = 750;
 export default Vue.extend({
   name: "CirclePlot",
   props: {
-    pdfs: Object,
-    pdfsReference: Object,
+    pdfs: Object as () => PdfDecision[],
+    pdfsReference: Object as () => PdfDecision[],
     pdfsSearched: Object,
     decisionDefinition: Object,
-    decisionAspectSelected: Object,
+    decisionAspectSelected: String,
   },
   data() {
     return {
@@ -72,10 +77,10 @@ export default Vue.extend({
       simulation: null as any,
       statuses: {} as Statuses,
       node: {
-        statuses: {} as NodeStatuses,
-        ref_statuses: {} as NodeStatuses,
-        nodes: [] as Node[]
-      }
+        statuses: {},
+        ref_statuses: {},
+        nodes: [],
+      } as NodeCollection,
     };
   },
   model: {
@@ -364,7 +369,7 @@ export default Vue.extend({
       }
       return centers[status_id] || 0.;
     },
-    nodeInit(statuses: Statuses) {
+    nodeInit(statuses: Statuses): NodeCollection {
       let node_statuses: NodeStatuses = {};
       const nodes: Node[] = [];
       let i = 0;
