@@ -765,11 +765,20 @@ class Client(vuespa.Client):
         adoc = await app_mongodb_conn['as_metadata'].find_one({
                 '_id': options['analysis_set_id']})
 
+        def dict_hash(vdict):
+            '''hash dictionary elements reliably'''
+            r = []
+            for k, v in sorted(vdict.items(), key=lambda m: m[0]):
+                if isinstance(v, dict):
+                    r.append((k, dict_hash(v)))
+                else:
+                    r.append((k, v))
+            return tuple(r)
         fresh_key = (
                 # Hashable elements describing this analysis set's state
                 adoc.get('status_done_time'),
                 await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
-                *[(k, v) for k, v in adoc.get('parser_versions_done', [{}, {}])[1].items()])
+                dict_hash(adoc.get('parser_versions_done', [{}, {}])[1]))
         if not hasattr(self, '_statsbyfile_cursor_cache'):
             self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100,
                     ttl=5 * 60)

@@ -86,6 +86,14 @@ To build a standalone workbench in `build/label`, run:
 See `common/README-dist.md` for additional information on running the workbench
 docker image in a standalone fashion; that file is packaged with any builds.
 
+## Database backup
+
+Running `./workbench.py <DIST> <FOLDER> --copy-mongo-to <FILE>` will create a
+backup of the current database for `<DIST>` and `<FOLDER>` at `<FILE>`, which
+must be specified as an absolute path. This backup may be restored by running
+`./workbench.py <DIST> <FOLDER> --copy-mongo-from <FILE>`, again using an
+absolute path.
+
 ## Troubleshooting
 
 1. Should the web interface fail to start, try deleting

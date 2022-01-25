@@ -33,6 +33,7 @@ class AsStatus(enum.Enum):
     COMPILING = 'compiling'
     DELETE = 'delete'
 
+
 def config_update(app_config):
     """Update app config; will trigger
     """
@@ -51,6 +52,38 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
 
     # Launch other management tasks both as asynchronous threads and via dask
     api_info = get_api_info()
+
+    # Porting old version of DB (pre-parser_parsers_shared) to new version
+    asets = [('as_metadata', d)
+            async for d in app_mongodb_conn['as_metadata'].find()]
+    asets.append(('misc', await app_mongodb_conn['misc'].find_one({'_id': 'as_idle'})))
+    for coll, doc in asets:
+        if doc is None:
+            # misc guard
+            continue
+
+        changes = {}
+        # Check for old format of data -- parser_versions not a list
+        if not isinstance(doc.get('parser_versions', []), list):
+            changes['parser_versions'] = [None, None]
+            changes['parser_versions_done'] = [None, None]
+        else:
+            # Check if parser versions are a single string instead of a dict of
+            # versions
+            for i, parser_set in enumerate(doc['parser_versions']):
+                if parser_set is None:
+                    continue
+                for k, v in parser_set.items():
+                    if not isinstance(v[0], dict):
+                        v_new = {'': v[0]}
+                        changes[f'parser_versions.{i}.{k}.0'] = v_new
+                    if not isinstance(v[1], dict):
+                        v_new = {'': v[1]}
+                        changes[f'parser_versions.{i}.{k}.1'] = v_new
+        if changes:
+            # Old data format, time for a new one
+            app_mongodb_conn[coll].update_one({'_id': doc['_id']},
+                    {'$set': changes})
 
     client = None
     client_tasks = {}
@@ -87,7 +120,7 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
                 # Spin up
                 new_tasks['as_parse'] = client.submit(
                             faw_analysis_set_parse.as_parse_main,
-                            _app_config, api_info,
+                            _app_config, api_info, priority=10000,
                             pure=False)
             else:
                 new_tasks['as_parse'] = parse_task
@@ -203,12 +236,6 @@ async def _as_manage(aset, api_info, client, client_tasks):
             faw_analysis_set_util.aset_parser_versions_calculate, _app_config,
                 _app_mongodb_conn.delegate, aset)
 
-    # Check for old format of data
-    if not isinstance(aset.get('parser_versions', []), list):
-        await _app_mongodb_conn['as_metadata'].update_one({'_id': aset['_id']},
-                {'$unset': {'parser_versions': True, 'parser_versions_done': True}})
-        return
-
     # Check for staleness -- old versions
     stale = False
     if versions_id != aset.get('parser_versions', [None, None])[0]:
@@ -272,7 +299,7 @@ async def _as_manage(aset, api_info, client, client_tasks):
 
     # Launch a new task
     future = client.submit(_as_populate, name, mongo_info, _app_config,
-            pure=False)
+            priority=10000, pure=False)
     return {name: future}
 
 
@@ -302,7 +329,7 @@ async def _as_manage_pipelines(aset, api_info, client, client_tasks):
     # Import here to break cyclical dependency
     import faw_pipelines
     future = client.submit(faw_pipelines.pipeline_admin, _app_config,
-            api_info, aset['_id'], pure=False)
+            api_info, aset['_id'], priority=10000, pure=False)
     return {name: future}
 
 
@@ -656,7 +683,7 @@ def as_create_id_collection(db, app_config, aset_id, col_name, *,
         # Finally, delete temporary, then set done
         tmp_id_col.drop()
         db['as_metadata'].update_one({'_id': aset['_id']},
-                {'$set': {'parser_versions_done': [parsers_id, parsers_data_done]}})
+                {'$set': {'parser_versions_done.0': parsers_id}})
 
     cursor = None  # Iterator for documents with only '_id' field
     count_map = []

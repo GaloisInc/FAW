@@ -208,10 +208,10 @@ def _dask_as_parse_file(app_config, api_info, doc):
 
         # Modify doc['parsers'] s.t. all parsers are represented and will be ran
         # on this file.
-        for pk, pv in app_config['parsers'].items():
-            if pv.get('disabled'):
-                continue
-            doc['parsers'][pk] = (pv['version'], pv['parse']['version'])
+        idle_parsers_doc = db['misc'].find_one({'_id': 'as_idle'})
+        if idle_parsers_doc is None:
+            raise ValueError("Could not find idle?")
+        doc['parsers'].update(idle_parsers_doc['parser_versions'][1])
 
     parser_set = list(doc.get('parsers', {}).keys())
     if parser_set:
@@ -224,6 +224,11 @@ def _dask_as_parse_file(app_config, api_info, doc):
                 {'parser': True, 'version_tool': True, 'version_parse': True}))
         versions_keyed = {}
         for v in rawinv:
+            # Convert from old style to new style versions
+            if not isinstance(v['invoker']['version'], dict):
+                v['invoker']['version'] = {'': v['invoker']['version']}
+
+            # Find version information, log this mongo document
             vv = versions_keyed.setdefault(v['invoker']['invName'],
                     [[v['invoker']['version'], None], [], []])
             # Should only be one, never know. Better to have self-healing db
@@ -232,6 +237,12 @@ def _dask_as_parse_file(app_config, api_info, doc):
                 # Want to re-run this one
                 vv[0][0] = None
         for v in invpar:
+            # Convert from old style to new style versions
+            if not isinstance(v['version_tool'], dict):
+                v['version_tool'] = {'': v['version_tool']}
+            if not isinstance(v['version_parse'], dict):
+                v['version_parse'] = {'': v['version_parse']}
+
             # Note that we want to delete parser if it doesn't match tool
             # version
             vv = versions_keyed.setdefault(v['parser'],
@@ -247,6 +258,7 @@ def _dask_as_parse_file(app_config, api_info, doc):
             ver_db_info = versions_keyed.get(k, [[None, None], [], []])
             ver_db = ver_db_info[0]
             ver_cfg = doc['parsers'][k]
+
             if ver_db[0] != ver_cfg[0]:
                 parsers_to_run_tool[k] = ver_cfg[0]
                 parsers_to_run_parser[k] = ver_cfg[1]
@@ -287,6 +299,8 @@ def _dask_as_parse_file(app_config, api_info, doc):
         # We need the file for these
         api = faw_pipelines_util.Api(api_info)
         with api.file_fetch(doc_id) as fpath:
+            # SDF TODO -- replace fpath.... no, api.file_fetch() should do the
+            # transformation
             for k, v in parsers_to_run_tool.items():
                 tool_doc = _as_run_tool(db['rawinvocations'],
                         fpath, doc_invname,
@@ -312,7 +326,9 @@ def _dask_as_parse_file(app_config, api_info, doc):
             return db[name]
         parsers_config = {k: get_cfg(k)}
         pdf_etl_parse.handle_doc(tool_doc, coll_resolver, fname_rewrite=doc_id,
-                db_dst='/invocationsparsed', parsers_config=parsers_config)
+                db_dst='/invocationsparsed', parse_version=v,
+                parsers_config=parsers_config,
+                parser_parsers_shared=app_config['parser_parsers_shared'])
 
         if faw_internal_util.dask_check_if_cancelled():
             return
@@ -336,15 +352,6 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
     """
 
     timeout = parser_cfg['timeout'] or timeout_default
-
-    if 'pipeline' in parser_cfg:
-        ok = parser_tool_version.startswith(parser_cfg['version'])
-    else:
-        ok = parser_tool_version == parser_cfg['version']
-
-    if not ok:
-        raise ValueError(f'Requested parse {parser_tool_version}; config version {parser_cfg["version"]}')
-
     doc = {
             'invoker': {'version': parser_tool_version, 'invName': parser_inv_name},
             'file': fpath_tool_name,

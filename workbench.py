@@ -81,7 +81,15 @@ def main():
             help="If specified, port on which to expose the mongo instance.")
     parser.add_argument('--copy-mongo-from', default=None, type=str,
             help="Replace the pdf-etl database used by the observatory with a "
-            "copy of an existing database. Format: localhost:27019/120pdfs")
+            "copy of an existing database. Format: localhost:27019/120pdfs.\n\n"
+            "May also restore from file: /abs/path. Such files should be "
+            "created with: mongodump --archive=output.file --uri='mongodb://path.to.faw:port/db'")
+    parser.add_argument('--copy-mongo-to', default=None, type=str,
+            help="Backup the pdf-etl database used by the observatory to a "
+            "given file. Format: /abs/path.\n\n"
+            "May be used with `--copy-mongo-from` to backup a different live "
+            "database. In that case, always happens AFTER the effect of "
+            "`--copy-mongo-from`, so this still overwrites the local database.")
     parser.add_argument('--production', action='store_true',
             help="Developer option on by default: mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
@@ -91,6 +99,7 @@ def main():
     port = args.port
     port_mongo = args.port_mongo
     copy_mongo_from = args.copy_mongo_from
+    copy_mongo_to = args.copy_mongo_to
     development = not args.production
 
     build_mode = (os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build')
@@ -193,10 +202,11 @@ def main():
     hash = hashlib.sha256(pdf_dir.encode('utf-8')).hexdigest()
     db_name = f'gfaw-{pdf_dir_name}-{hash[:8]}'
 
-    if copy_mongo_from is not None:
+    if copy_mongo_from is not None or copy_mongo_to is not None:
         # Auxiliary command for copying data from an existing mongo instance.
         # Used internally.
-        _mongo_copy(db_name=db_name, copy_mongo_from=copy_mongo_from)
+        _mongo_copy(db_name=db_name, copy_mongo_from=copy_mongo_from,
+                copy_mongo_to=copy_mongo_to)
         return
 
     extra_flags = []
@@ -328,6 +338,15 @@ def _check_config_file(config, build_dir):
     config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             'config.json5')))
 
+    # Keys which get merged
+    toplevel_config = [
+        'file_detail_views',
+        'decision_views',
+        'parsers',
+        'parser_parsers_shared',
+        'tasks',
+    ]
+
     # Before applying schema, merge in child configs. Do this in order of
     # increasing modification time. This is important so that developers
     # don't have to keep rebuilding unnecessary stages.
@@ -358,11 +377,7 @@ def _check_config_file(config, build_dir):
             for k, v in src.items():
                 ## Rewrite v
                 # Check executables; amend cwd so default matches plugin
-                if path and (
-                        'file_detail_views' == path[-1]
-                        or 'decision_views' == path[-1]
-                        or 'parsers' == path[-1]
-                        or 'tasks' == path[-1]):
+                if path and path[-1] in toplevel_config:
                     if 'cwd' in v:
                         if not v['cwd'].startswith('/'):
                             v['cwd'] = f'{child_folder.prod_path}/' + v['cwd']
@@ -396,12 +411,7 @@ def _check_config_file(config, build_dir):
                         k = f'{child_folder.name}_{k}'
 
                 # New entries only for these
-                if path in [
-                        ['pipelines'],
-                        ['file_detail_views'],
-                        ['decision_views'],
-                        ['parsers'],
-                        ]:
+                if len(path) == 1 and path[0] in toplevel_config:
                     # Amend these with the child's name, to allow for copying
                     k = f'{child_folder.name.replace("_", "-")}-{k}'
                     assert k not in dst, f'Cannot extend {path} {k}; must be new'
@@ -471,7 +481,14 @@ def _check_config_file(config, build_dir):
     sch = s.Schema({
         'name': s.And(str, s.Regex(r'^[a-zA-Z0-9-]+$')),
         # parsers validated by pdf-etl-parse
-        'parsers': etl_parse.schema_get(),
+        s.Optional('parsers', default={}): etl_parse.schema_get(),
+        s.Optional('parser_parsers_shared', default={}): s.Or({}, {
+                s.And(str, lambda x: '_' not in x): {
+                    s.Optional('cwd', default='/home/dist'): str,
+                    s.Optional('disabled', default=False): bool,
+                    'parse': etl_parse.schema_get_parser_parser(),
+                },
+        }),
         s.Optional('parserDefaultTimeout', default=30): s.Or(float, int),
         'decision_default': str,
         s.Optional('pipelines', default={}): s.Or({}, {
@@ -827,100 +844,157 @@ def _export_config_json(config_data):
     return config_json
 
 
-def _mongo_copy(db_name, copy_mongo_from):
-    # Only spin up mongo
-    dummy_mongo_port = 27015
+def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
+    # Only spin up mongo -- the only reason we make it externally connectible is
+    # to ensure that it's working OK. Otherwise, utilize services directly in
+    # the image.
 
     import asyncio
     import bson
     import motor.motor_asyncio
 
+    dummy_mongo_port = 27015
+
     async def run_and_dump():
+        print(f'Spinning up mongo inside FAW container...', file=sys.stderr)
+        container_name = 'faw-workbench-mongo-copy'
         p = await asyncio.create_subprocess_exec(
-                'docker', 'run', '-it', '--rm',
+                'docker', 'run', '--rm', # '-it',
+                '--name', container_name,
                 '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db',
                 '-p', f'{dummy_mongo_port}:27017',
                 '--entrypoint', 'mongod',
                 IMAGE_TAG + '-dev',
                 '--bind_ip_all',
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
         )
-        p_exit = p.wait()
-
-        # Wait for docker to spin up
-        async def test_connection():
-            try:
-                await asyncio.wait_for(asyncio.shield(p_exit), timeout=0.1)
-                raise ValueError('docker exited early')
-            except asyncio.TimeoutError:
-                # OK, docker hasn't exited
-                pass
-
-            client = motor.motor_asyncio.AsyncIOMotorClient(
-                    'mongodb://127.0.0.1:27015')
-            try:
-                await asyncio.wait_for(client.list_databases(),
-                        timeout=10)
-                # OK, got names, connected
-                return True
-            except asyncio.TimeoutError:
-                # Not yet.
-                return False
-        while not await test_connection():
-            pass
 
         try:
-            mongo_host, mongo_db = copy_mongo_from.split('/', 1)
-            client = motor.motor_asyncio.AsyncIOMotorClient(
-                    'mongodb://' + mongo_host)
-            assert '/' not in mongo_db
-            client_db = client[mongo_db]
+            # Wait for docker to spin up
+            async def test_connection():
+                p_exit = p.wait()
+                try:
+                    await asyncio.wait_for(asyncio.shield(p_exit), timeout=0.1)
+                    raise ValueError('docker exited early')
+                except asyncio.TimeoutError:
+                    # OK, docker hasn't exited
+                    pass
 
-            dest = motor.motor_asyncio.AsyncIOMotorClient(
-                    'mongodb://127.0.0.1:27015')
-            await dest.drop_database(db_name)
-            dest_db = dest[db_name]
+                client = motor.motor_asyncio.AsyncIOMotorClient(
+                        f'mongodb://127.0.0.1:{dummy_mongo_port}')
+                try:
+                    await asyncio.wait_for(client.list_databases(),
+                            timeout=10)
+                    # OK, got names, connected
+                    return True
+                except asyncio.TimeoutError:
+                    # Not yet.
+                    return False
+            while not await test_connection():
+                pass
 
-            cols = [c['name'] for c in await client_db.list_collections()]
-            for col in cols:
-                print(f'Copying {col}...')
-                client_col = client_db[col]
-                dest_col = dest_db[col]
+            print('Docker w/ mongo spun up and ready.', file=sys.stderr)
+            if copy_mongo_from is not None:
+                if os.path.isabs(copy_mongo_from):
+                    # Restore backup from file
+                    print('Restoring from file.', file=sys.stderr)
+                    pr = await asyncio.create_subprocess_exec(
+                            'docker', 'exec', '-i',
+                            container_name,
+                            'mongorestore', '--archive', '--drop', #'--oplogReplay',
+                            '--host', 'localhost', '--port', '27017',
+                            '--db', db_name,
+                            stdin=open(copy_mongo_from, 'rb'),
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE)
+                    stdout, stderr = await pr.communicate()
+                    r_code = await pr.wait()
+                    if r_code != 0:
+                        print('STDOUT', file=sys.stderr)
+                        print(stdout.decode(), file=sys.stderr)
+                        print('STDERR', file=sys.stderr)
+                        print(stderr.decode(), file=sys.stderr)
+                        raise ValueError('Mongorestore crashed')
+                else:
+                    print(f'Restoring from running mongod.', file=sys.stderr)
+                    raise NotImplementedError
+                    # Restore backup from remote source
+                    mongo_host, mongo_db = copy_mongo_from.split('/', 1)
+                    client = motor.motor_asyncio.AsyncIOMotorClient(
+                            'mongodb://' + mongo_host)
+                    assert '/' not in mongo_db
+                    client_db = client[mongo_db]
 
-                copied = [0]
-                batch = []
-                async def dump_batch():
-                    if not batch:
-                        return
+                    dest = motor.motor_asyncio.AsyncIOMotorClient(
+                            'mongodb://127.0.0.1:27015')
+                    await dest.drop_database(db_name)
+                    dest_db = dest[db_name]
 
-                    # Fix 2020-02-03: bson.errors.InvalidDocument: key 'Error opening PDF file.' must not contain '.'
-                    if col == 'invocationsparsed':
-                        for b in batch:
-                            to_fix = []
-                            for k in b['result'].keys():
-                                if '.' in k:
-                                    to_fix.append(k)
+                    cols = [c['name'] for c in await client_db.list_collections()]
+                    for col in cols:
+                        print(f'Copying {col}...')
+                        client_col = client_db[col]
+                        dest_col = dest_db[col]
 
-                            for k in to_fix:
-                                b['result'][k.replace('.', '')] = b['result'].pop(k)
+                        copied = [0]
+                        batch = []
+                        async def dump_batch():
+                            if not batch:
+                                return
 
-                    try:
-                        await dest_col.insert_many(batch)
-                    except bson.errors.InvalidDocument:
-                        #import pprint
-                        #pprint.pprint(batch)
-                        raise
-                    copied[0] += len(batch)
-                    batch.clear()
-                async for doc in client_col.find():
-                    batch.append(doc)
-                    if len(batch) >= 1024:
+                            # Fix 2020-02-03: bson.errors.InvalidDocument: key 'Error opening PDF file.' must not contain '.'
+                            if col == 'invocationsparsed':
+                                for b in batch:
+                                    to_fix = []
+                                    for k in b['result'].keys():
+                                        if '.' in k:
+                                            to_fix.append(k)
+
+                                    for k in to_fix:
+                                        b['result'][k.replace('.', '')] = b['result'].pop(k)
+
+                            try:
+                                await dest_col.insert_many(batch)
+                            except bson.errors.InvalidDocument:
+                                #import pprint
+                                #pprint.pprint(batch)
+                                raise
+                            copied[0] += len(batch)
+                            batch.clear()
+                        async for doc in client_col.find():
+                            batch.append(doc)
+                            if len(batch) >= 1024:
+                                await dump_batch()
                         await dump_batch()
-                await dump_batch()
-                print(f'...copied {copied[0]}')
+                        print(f'...copied {copied[0]}')
+            if copy_mongo_to is not None:
+                # Restore to file
+                print('Backing up database.', file=sys.stderr)
+                assert os.path.isabs(copy_mongo_to), copy_mongo_to
+                pr = await asyncio.create_subprocess_exec(
+                        'docker', 'exec', '-i',
+                        container_name,
+                        'mongodump', '--archive', #'--oplog',
+                        '--host', 'localhost', '--port', '27017',
+                        '--db', db_name,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=open(copy_mongo_to, 'wb'),
+                        stderr=asyncio.subprocess.PIPE)
+                _stdout, stderr = await pr.communicate()
+                r_code = await pr.wait()
+                if r_code != 0:
+                    print('STDERR', file=sys.stderr)
+                    print(stderr.decode(), file=sys.stderr)
+                    raise ValueError('Mongodump crashed')
             print('All done - OK')
         finally:
-            # Kill docker
-            p.kill()
+            # Stop docker
+            # Kill stops the interface, but the container keeps going.
+            # Instead, use terminate.
+            p.terminate()
+            await p.wait()
     asyncio.run(run_and_dump())
 
 

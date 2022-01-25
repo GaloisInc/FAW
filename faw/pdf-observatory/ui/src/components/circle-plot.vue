@@ -53,8 +53,8 @@ const max_nodes = 750;
 export default Vue.extend({
   name: "CirclePlot",
   props: {
-    pdfs: Object as () => PdfDecision[],
-    pdfsReference: Object as () => PdfDecision[],
+    pdfs: Array as () => PdfDecision[],
+    pdfsReference: Array as () => PdfDecision[],
     pdfsSearched: Object,
     decisionDefinition: Object,
     decisionAspectSelected: String,
