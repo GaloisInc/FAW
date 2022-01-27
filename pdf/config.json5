@@ -18,9 +18,8 @@
     // The name of the docker image to be produced.
     name: 'galois-workbench-pdf',
 
-    // Seconds in which each parser must finish executing. Defaults to 30
-    // seconds per parser.
-    parserDefaultTimeout: 600,
+    // Seconds, per parser, in which each parser must finish executing.
+    parserDefaultTimeout: 60,
     parsers: {
         // Example of running the unix command 'file' on each file to gather
         // information.

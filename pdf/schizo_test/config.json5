@@ -9,7 +9,7 @@
   parsers: {
     'schizo-test': {
       exec: ['./main.py', '<inputFile>'],
-      timeout: 1200,
+      timeout: 120,
       version: 'schizo-test71',
       parse: {
         type: 'regex-counter',
