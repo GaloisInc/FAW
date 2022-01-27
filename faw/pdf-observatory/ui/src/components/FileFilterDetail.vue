@@ -39,7 +39,7 @@
                     v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
 
     .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
-      div(style="display: flex; flex-direction: row; align-items: center; margin-top: -1em; margin-bottom: -2em")
+      div(style="display: flex; flex-direction: row; align-items: center; margin-top: -1em; margin-bottom: -1.5em")
         span (
         v-checkbox(v-model="fileStatsAsOnly" label="only show features included in current analysis set")
         span )
