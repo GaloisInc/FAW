@@ -215,6 +215,13 @@ def main():
     if port_mongo:
         extra_flags.extend(['-p', f'{port_mongo}:27017'])
 
+    docker_bin_path = os.path.join(faw_dir, 'faw', 'docker-bin')
+    if os.path.lexists(docker_bin_path):
+        # Mount utilities for restarting the FAW.. can be handy.
+        for f in os.listdir(docker_bin_path):
+            ff = os.path.join(docker_bin_path, f)
+            extra_flags.extend(['-v', f'{ff}:/usr/bin/{f}:ro'])
+
     if not development:
         extra_flags.append(IMAGE_TAG)
     else:
@@ -225,11 +232,6 @@ def main():
         # Mount distribution code
         extra_flags.extend(['-v', f'{ALL_FOLDER}:/home/all'])
         extra_flags.extend(['-v', f'{os.path.abspath(CONFIG_FOLDER)}:/home/dist'])
-
-        # Mount utilities for restarting the FAW.. can be handy.
-        for f in os.listdir(os.path.join(faw_dir, 'faw', 'docker-bin')):
-            ff = os.path.join(faw_dir, 'faw', 'docker-bin', f)
-            extra_flags.extend(['-v', f'{ff}:/usr/bin/{f}:ro'])
 
         # Allow profiling via e.g. py-spy
         extra_flags.extend(['--cap-add', 'sys_ptrace'])
