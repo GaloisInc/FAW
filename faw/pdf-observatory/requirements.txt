@@ -1,6 +1,6 @@
 bokeh
 cachetools
-dask[complete] >= 2021.09.0
+dask[complete] >= 2022.1.1
 jupyter-server-proxy
 motor
 psutil
