@@ -107,7 +107,11 @@ absolute path.
   if the server itself ever needs to be rebooted, there is a `faw-restart.sh`
   executable in the PATH which can help do this correctly.
 
-3. Additional documentation is in the [docs](docs) directory.
+3. The FAW docker image contains a binary which can be used to view all logs,
+  restart the FAW process, or inspect the database in a REPL. For these functions,
+  run e.g. `docker exec -it <CONTAINER> faw-cli.py`.
+
+4. Additional documentation is in the [docs](docs) directory.
 
 ## Acknowledgements
 
