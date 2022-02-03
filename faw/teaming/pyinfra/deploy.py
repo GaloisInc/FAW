@@ -96,16 +96,7 @@ chmod a+x /etc/services.d/dask-worker/run
     ])
     docker_flags_cmd.extend(['-c', '/home/host.sh'])
 else:
-    # Worker FAW instancea
-    api_info = {
-            'hostname': webhost,
-            'hostport': config.port,
-            'dask': f'{webhost}:{config.port_dask}',
-            'mongo': f'{webhost}:{config.port_mongo}/{user}-faw-db',
-            'pdfdir': '/home/pdf-files',
-    }
-    # Happens inside a single quote, so be sure to account for that in shlex
-    api_info_shell = shlex.quote("'" + json.dumps(api_info) + "'")[1:-1]
+    # Worker FAW instance
     worker_script = rf'''
 #! /bin/bash
 set -e

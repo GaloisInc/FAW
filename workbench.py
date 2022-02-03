@@ -482,6 +482,10 @@ def _check_config_file(config, build_dir):
     # as pdf-etl-parse.
     sch = s.Schema({
         'name': s.And(str, s.Regex(r'^[a-zA-Z0-9-]+$')),
+        s.Optional('file_transform', default=None): s.Or(None, {
+            'version': str,
+            'exec': [str],
+        }),
         # parsers validated by pdf-etl-parse
         s.Optional('parsers', default={}): etl_parse.schema_get(),
         s.Optional('parser_parsers_shared', default={}): s.Or({}, {

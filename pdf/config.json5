@@ -18,6 +18,15 @@
     // The name of the docker image to be produced.
     name: 'galois-workbench-pdf',
 
+    // If needbe, a program may be specified here. The given program can take
+    // only '<inputFile>' as a special argument, and is expected to output (to
+    // stdout) a transformed version of the input file, which is the content
+    // that will actually be inspected by the FAW.
+    file_transform: null, /*{
+      version: '1',
+      exec: ['echo', '<inputFile>'],
+    },*/
+
     // Seconds, per parser, in which each parser must finish executing.
     parserDefaultTimeout: 60,
     parsers: {

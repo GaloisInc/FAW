@@ -115,6 +115,10 @@ def _aset_parser_versions_calculate_list(db, app_config, parser_list):
 
         tool = {'': tool_version}
         parse = {'': p_cfg['parse']['version'], **parser_parsers}
+
+        if app_config['file_transform'] is not None:
+            tool['file_transform'] = app_config['file_transform']['version']
+
         r[p_name] = [tool, parse]
     return r
 

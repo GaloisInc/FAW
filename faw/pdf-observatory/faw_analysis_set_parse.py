@@ -299,8 +299,6 @@ def _dask_as_parse_file(app_config, api_info, doc):
         # We need the file for these
         api = faw_pipelines_util.Api(api_info)
         with api.file_fetch(doc_id) as fpath:
-            # SDF TODO -- replace fpath.... no, api.file_fetch() should do the
-            # transformation
             for k, v in parsers_to_run_tool.items():
                 tool_doc = _as_run_tool(db['rawinvocations'],
                         fpath, doc_invname,

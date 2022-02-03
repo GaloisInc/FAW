@@ -16,6 +16,7 @@ import functools
 import importlib.util
 import ujson as json
 import math
+import mimetypes
 import motor.motor_asyncio
 import os
 import pickle
@@ -123,9 +124,40 @@ def config_web(app, pdf_dir):
     """Add an endpoint for direct downloading of files.
     """
     app.router.add_routes([
-            web.static('/file_download', pdf_dir),
+            web.get('/file_download/{file:.+}', _config_web_file_download_handler),
             web.get('/file_list', _config_web_file_list_handler),
     ])
+
+
+@contextlib.asynccontextmanager
+async def _file_fetch(fname):
+    """Due to the addition of the `file_transform` key at the root of config,
+    we now route all files through the API. This utility method helps with that.
+    """
+    api_info = _get_api_info()
+    def run_one():
+        api = faw_pipelines_util.Api(api_info, app_mongodb_conn.delegate)
+        ctx = api.file_fetch(fname)
+        return ctx, ctx.__enter__()
+    def run_two(ctx):
+        ctx.__exit__(None, None, None)
+    loop = asyncio.get_running_loop()
+    res_ctx, res_path = await loop.run_in_executor(None, run_one)
+    try:
+        yield res_path
+    finally:
+        await loop.run_in_executor(None, run_two, res_ctx)
+
+
+async def _config_web_file_download_handler(req):
+    fname = req.match_info['file']
+    async with _file_fetch(fname) as fpath:
+        loop = asyncio.get_running_loop()
+        def get_bytes():
+            with open(fpath, 'rb') as ff:
+                return ff.read()
+        res = await loop.run_in_executor(None, get_bytes)
+    return web.Response(body=res, content_type=mimetypes.guess_type(fname)[0])
 
 
 async def _config_web_file_list_handler(req):
@@ -226,8 +258,8 @@ async def _app_parser_stats():
     return parsers
 
 def _get_api_info(extra_info={}):
-    """NOTE: Updates here must also affect `faw/teaming/pyinfra/deploy.py`,
-    where the worker script gets written. look for "--api-info" in that file.
+    """NOTE: Updates here *used* to need to be mirrored at `faw/teaming/pyinfra/deploy.py`.
+    However, we now rely on dask to distribute API information.
     """
     r = {
         'hostname': app_hostname,
@@ -235,6 +267,7 @@ def _get_api_info(extra_info={}):
         'dask': f'{app_hostname}:8786',
         'mongo': app_mongodb,
         'pdfdir': app_pdf_dir,
+        'pdftransform': app_config['file_transform'],
     }
     r.update(extra_info)
     return r
@@ -483,52 +516,49 @@ class Client(vuespa.Client):
         plugin_def, extra_api_info = _plugin_key_process('file_detail_views',
                 plugin_key)
 
-        if plugin_def['type'] == 'program_to_html':
-            assert isinstance(input_spec, str), input_spec
-            prefix = '/home/pdf-files/'
-            input_spec = prefix + input_spec
-            assert os.path.lexists(input_spec), input_spec
+        assert isinstance(input_spec, str), input_spec
+        async with _file_fetch(input_spec) as input_path:
+            if plugin_def['type'] == 'program_to_html':
+                cmd = plugin_def.get('exec')
+                assert cmd is not None, cmd
 
-            cmd = plugin_def.get('exec')
-            assert cmd is not None, cmd
+                file_out = None
+                def get_output_html():
+                    nonlocal file_out
+                    assert file_out is None, 'Cannot use <outputHtml> twice'
+                    file_out = tempfile.NamedTemporaryFile(delete=False,
+                            suffix='.html')
+                    file_out.close()
+                    return file_out.name
+                async with self._cmd_plugin_template_replace(cmd, vuespa_url, {
+                        '<inputFile>': lambda: input_path,
+                        '<jsonArguments>': lambda: json.dumps(json_args),
+                        '<outputHtml>': get_output_html,
+                }, extra_api_info=extra_api_info) as cmd:
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                                *cmd,
+                                cwd=plugin_def['cwd'],
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                        )
+                        stdout, stderr = await proc.communicate()
+                        if await proc.wait() != 0:
+                            raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
 
-            file_out = None
-            def get_output_html():
-                nonlocal file_out
-                assert file_out is None, 'Cannot use <outputHtml> twice'
-                file_out = tempfile.NamedTemporaryFile(delete=False,
-                        suffix='.html')
-                file_out.close()
-                return file_out.name
-            async with self._cmd_plugin_template_replace(cmd, vuespa_url, {
-                    '<inputFile>': lambda: input_spec,
-                    '<jsonArguments>': lambda: json.dumps(json_args),
-                    '<outputHtml>': get_output_html,
-            }, extra_api_info=extra_api_info) as cmd:
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                            *cmd,
-                            cwd=plugin_def['cwd'],
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                    )
-                    stdout, stderr = await proc.communicate()
-                    if await proc.wait() != 0:
-                        raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
+                        r = {'mimetype': plugin_def['outputMimeType']}
+                        if file_out is None:
+                            r['result'] = stdout.decode('latin1')
+                        else:
+                            with open(file_out.name, 'rb') as f:
+                                r['result'] = f.read().decode('latin1')
 
-                    r = {'mimetype': plugin_def['outputMimeType']}
-                    if file_out is None:
-                        r['result'] = stdout.decode('latin1')
-                    else:
-                        with open(file_out.name, 'rb') as f:
-                            r['result'] = f.read().decode('latin1')
-
-                    return r
-                finally:
-                    if file_out is not None:
-                        os.unlink(file_out.name)
-        else:
-            raise NotImplementedError(plugin_def['type'])
+                        return r
+                    finally:
+                        if file_out is not None:
+                            os.unlink(file_out.name)
+            else:
+                raise NotImplementedError(plugin_def['type'])
 
 
     async def api_config_plugin_dec_run(self, plugin_key, api_url, json_args,

@@ -11,6 +11,7 @@ import json
 import motor.motor_asyncio as motor_asyncio
 import os
 import pymongo
+import subprocess
 import tempfile
 import urllib.request
 
@@ -346,15 +347,35 @@ class ApiSync(ApiBase):
         if not hasattr(self, '_is_main_node'):
             self._is_main_node = (not os.path.lexists('/home/worker.sh'))
 
+        # Always want this to exist
+        os.makedirs('/tmp/pdf-files', exist_ok=True)
+
+        api_info = self._api_info
         if self._is_main_node:
-            yield os.path.join(self._api_info['pdfdir'], filename)
+            fpath = os.path.join(api_info['pdfdir'], filename)
+            if api_info['pdftransform'] is None:
+                # Use the real file's path
+                yield fpath
+            else:
+                args = [
+                        {'<inputFile>': fpath}.get(k, k)
+                        for k in api_info['pdftransform']['exec']]
+                with tempfile.NamedTemporaryFile(
+                        prefix='/tmp/pdf-files/',
+                        suffix=os.path.basename(filename),
+                        mode='w+b') as f:
+                    subprocess.check_call(args, stdout=f,
+                            cwd='/home/dist')
+                    f.flush()
+                    yield f.name
         else:
-            api_info = self._api_info
             host = api_info['hostname']
             port = api_info['hostport']
             url = f'http://{host}:{port}/file_download/' + filename
             data = urllib.request.urlopen(url).read()
-            with tempfile.NamedTemporaryFile(suffix=os.path.basename(filename),
+            with tempfile.NamedTemporaryFile(
+                    prefix='/tmp/pdf-files/',  # Trailing slash important
+                    suffix=os.path.basename(filename),
                     mode='w+b') as f:
                 f.write(data)
                 f.flush()
