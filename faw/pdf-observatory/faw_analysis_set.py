@@ -382,6 +382,15 @@ def _as_populate(as_name, mongo_info, app_config):
     if as_doc['status'] == AsStatus.REBUILD_IDS.value:
         with dask.distributed.worker_client():  # Secede from dask for long op
             as_create_id_collection(db, app_config, as_name, col_ids.name)
+            # MUST also clear out `parser_versions_done`! Otherwise, we may have
+            # a new batch of files which are not guaranteed to be at the latest
+            # version, and we may end up displaying old data.
+            if as_doc.get('parser_versions_done'):
+                r = col_as_metadata.update_one({'_id': as_name},
+                        {'$set': {'parser_versions_done.1': {}}})
+                if r.modified_count == 0:
+                    raise ValueError(f'Unmodified? {as_name}')
+                as_doc['parser_versions_done'][1] = {}
         if not update_status(AsStatus.REBUILD_DATA.value):
             return
 
