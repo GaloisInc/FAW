@@ -421,9 +421,15 @@ def _check_config_file(config, build_dir):
                 ## Check for merge type
                 # Check if new -- if so, assign and be done
                 if k not in dst:
-                    # Non-existent key; add it to the dictionary
-                    dst[k] = v
-                    continue
+                    if isinstance(v, dict):
+                        # Must merge, otherwise key rewriting (the above code
+                        # that inserts folder names) won't work for features
+                        # in an extension that weren't in the base config.
+                        dst[k] = {}
+                    else:
+                        # Non-existent key; add it to the dictionary
+                        dst[k] = v
+                        continue
 
                 # Do merge
                 if isinstance(v, dict):
