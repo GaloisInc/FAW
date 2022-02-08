@@ -444,6 +444,9 @@ def _check_config_file(config, build_dir):
 
                     # Add to end.
                     dst[k].extend(v)
+                elif v is None or isinstance(v, (int, float, str)):
+                    # Scalar overwrite
+                    dst[k] = v
                 else:
                     raise ValueError(f'May not extend {path} {k}: base config type {dst[k]}')
 
