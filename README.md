@@ -8,10 +8,10 @@ formats which naturally emerge from open standards.
 ## Example Screenshots
 
 Main overview of decisions
-![Main overview](./common/readme/screenshot-main.png)
+![Main overview](./docs/readme/screenshot-main.png)
 
 Decision DSL excerpt
-![DSL excerpt](./common/readme/screenshot-dsl.png)
+![DSL excerpt](./docs/readme/screenshot-dsl.png)
 
 ## Getting Started
 
