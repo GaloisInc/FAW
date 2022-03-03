@@ -600,7 +600,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
         # in the same image. So, clone the latest mongodb from the official
         # image.
         'obs__mongo': {
-            'from': 'mongo:latest',
+            'from': 'mongo:4.4.12',
             'copy_output': {
                 '/var/log/mongodb': True,
                 #'/var/lib/dpkg/info': True,
