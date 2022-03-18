@@ -148,6 +148,7 @@ class ApiBase(metaclass=ABCMeta):
     def file_fetch(self, filename):
         """Returns locally-accessible, absolute path to `filename`.
 
+        `basename <inputFile>` must always return same basename. However...
         MAY BE DIFFERENT FROM ABSOLUTE PATH SHOWN BY THE FAW!!!
 
         Will potentially be deleted when the context manager expires.
@@ -330,6 +331,7 @@ class ApiSync(ApiBase):
     def file_fetch(self, filename):
         """Returns locally-accessible, absolute path to `filename`.
 
+        `basename <inputFile>` must always return same basename. However...
         MAY BE DIFFERENT FROM ABSOLUTE PATH SHOWN BY THE FAW!!!
 
         Will potentially be deleted when the context manager expires.
@@ -349,6 +351,7 @@ class ApiSync(ApiBase):
 
         # Always want this to exist
         os.makedirs('/tmp/pdf-files', exist_ok=True)
+        basename = os.path.basename(filename)
 
         api_info = self._api_info
         if self._is_main_node:
@@ -360,26 +363,21 @@ class ApiSync(ApiBase):
                 args = [
                         {'<inputFile>': fpath}.get(k, k)
                         for k in api_info['pdftransform']['exec']]
-                with tempfile.NamedTemporaryFile(
-                        prefix='/tmp/pdf-files/',
-                        suffix=os.path.basename(filename),
-                        mode='w+b') as f:
-                    subprocess.check_call(args, stdout=f,
-                            cwd='/home/dist')
-                    f.flush()
-                    yield f.name
+                with tempfile.TemporaryDirectory(prefix='/tmp/pdf-files/') as d:
+                    dfpath = os.path.join(d, basename)
+                    with open(dfpath, 'wb') as f:
+                        subprocess.check_call(args, stdout=f, cwd='/home/dist')
+                    yield dfpath
         else:
             host = api_info['hostname']
             port = api_info['hostport']
             url = f'http://{host}:{port}/file_download/' + filename
             data = urllib.request.urlopen(url).read()
-            with tempfile.NamedTemporaryFile(
-                    prefix='/tmp/pdf-files/',  # Trailing slash important
-                    suffix=os.path.basename(filename),
-                    mode='w+b') as f:
-                f.write(data)
-                f.flush()
-                yield f.name
+            with tempfile.TemporaryDirectory(prefix='/tmp/pdf-files/') as d:
+                dfpath = os.path.join(d, basename)
+                with open(dfpath, 'wb') as f:
+                    f.write(data)
+                yield dfpath
 
     def file_list(self):
         """Retrieve a listing of all files available to the FAW. Suitable for
