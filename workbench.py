@@ -614,7 +614,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 # COPY --from=mongo /.dockerenv /
                 # COPY --from=mongo /docker-entrypoint-initdb.d /
                 '/etc/apt/sources.list.d/mongodb-org.list': True,
-                '/etc/apt/trusted.gpg.d/mongodb.gpg': True,
+                #'/etc/apt/trusted.gpg.d/mongodb.gpg': True,
                 '/etc/mongod.conf.orig': True,
             },
         },
