@@ -64,7 +64,7 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
 
         changes = {}
         # Check for old format of data -- parser_versions not a list
-        if not isinstance(doc.get('parser_versions', []), list):
+        if not isinstance(doc.get('parser_versions'), list):
             changes['parser_versions'] = [None, None]
             changes['parser_versions_done'] = [None, None]
         else:
