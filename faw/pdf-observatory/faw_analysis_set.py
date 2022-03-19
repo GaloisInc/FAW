@@ -74,12 +74,16 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
                 if parser_set is None:
                     continue
                 for k, v in parser_set.items():
-                    if not isinstance(v[0], dict):
-                        v_new = {'': v[0]}
-                        changes[f'parser_versions.{i}.{k}.0'] = v_new
-                    if not isinstance(v[1], dict):
-                        v_new = {'': v[1]}
-                        changes[f'parser_versions.{i}.{k}.1'] = v_new
+                    if v is None:
+                        # Happens when e.g. a parser is disabled. It's fine.
+                        pass
+                    else:
+                        if not isinstance(v[0], dict):
+                            v_new = {'': v[0]}
+                            changes[f'parser_versions.{i}.{k}.0'] = v_new
+                        if not isinstance(v[1], dict):
+                            v_new = {'': v[1]}
+                            changes[f'parser_versions.{i}.{k}.1'] = v_new
         if changes:
             # Old data format, time for a new one
             app_mongodb_conn[coll].update_one({'_id': doc['_id']},
