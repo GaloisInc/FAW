@@ -1140,6 +1140,8 @@ export default Vue.extend({
       const o = Object.assign({}, this.config[key]);
       for (const aset of this.asData.asets) {
         for (const [pk] of Object.entries(aset.pipelines)) {
+          // Renamed / deleted
+          if (!this.config.pipelines[pk]) continue;
           for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][key])) {
             const pluginKey = `${aset.id}!${pk}!${ppk}`;
             const ok: any = o[pluginKey] = Object.assign({}, ppv);

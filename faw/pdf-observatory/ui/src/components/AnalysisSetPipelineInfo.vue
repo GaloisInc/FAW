@@ -8,7 +8,7 @@ v-expansion-panel
         v-icon(v-if="asetData === undefined") mdi-cancel
         v-icon(v-else-if="asetData.done") mdi-check-outline
         v-icon(v-else) mdi-progress-clock
-      span {{pipeline}}
+      span {{cfg.label || pipeline}}
   v-expansion-panel-content
     v-btn(@click="pipelineToggleClick")
       span(v-if="asetData !== undefined")

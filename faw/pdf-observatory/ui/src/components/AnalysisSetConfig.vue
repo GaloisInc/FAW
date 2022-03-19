@@ -94,6 +94,15 @@
             :aset-data="currentAsPipelines[k]"
             :cfg="v"
             @update="update()")
+        //- Show expired / renamed pipelines so users can fix from UI
+        AnalysisSetPipelineInfo(v-for="[k, v] of Object.entries(currentAsPipelines || {})"
+            v-if="!pipeCfg[k] || pipeCfg[k].disabled"
+            :key="currentId + '-' + k"
+            :pipeline="k"
+            :aset="currentId"
+            :aset-data="currentAsPipelines[k]"
+            :cfg="{label: '<<renamed or disabled? ' + k + '>>', disabled: false, tasks: {}}"
+            @update="update()")
 </template>
 
 <style scope lang="scss">
