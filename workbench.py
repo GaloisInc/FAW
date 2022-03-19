@@ -346,8 +346,11 @@ def _check_config_file(config, build_dir):
         'decision_views',
         'parsers',
         'parser_parsers_shared',
+        'pipelines',
         'tasks',
     ]
+    # Use this instead of None for validation purposes
+    default_cwd = '/home/dist'
 
     # Before applying schema, merge in child configs. Do this in order of
     # increasing modification time. This is important so that developers
@@ -385,6 +388,10 @@ def _check_config_file(config, build_dir):
                             v['cwd'] = f'{child_folder.prod_path}/' + v['cwd']
                     else:
                         v['cwd'] = child_folder.prod_path
+
+                    # Note that, since config merge is recursive, changes to
+                    # `cwd` are automatically propagated to lower-level
+                    # `toplevel_config` keys. This primarily affects pipelines.
 
                 # Docker build stage patch
                 if path == ['build', 'stages']:
@@ -468,7 +475,7 @@ def _check_config_file(config, build_dir):
                             '<filesPath>', '<apiInfo>', '<jsonArguments>', '<mongo>', '<outputHtml>',
                             '<workbenchApiUrl>']),
                         )],
-                    s.Optional('cwd', default='/home/dist'): str,
+                    s.Optional('cwd', default=default_cwd): str,
                     'execStdin': s.And(str, lambda x: all([
                         y.group(0) in ['<referenceDecisions>', '<statsbyfile>']
                         for y in re.finditer('<[^>]*>', x)]),
@@ -481,7 +488,7 @@ def _check_config_file(config, build_dir):
                     'label': str,
                     'type': 'program_to_html',
                     'exec': [str],
-                    s.Optional('cwd', default='/home/dist'): str,
+                    s.Optional('cwd', default=default_cwd): str,
                     s.Optional('outputMimeType', default='text/html'): str,
                 },
             }),
@@ -499,7 +506,7 @@ def _check_config_file(config, build_dir):
         s.Optional('parsers', default={}): etl_parse.schema_get(),
         s.Optional('parser_parsers_shared', default={}): s.Or({}, {
                 s.And(str, lambda x: '_' not in x): {
-                    s.Optional('cwd', default='/home/dist'): str,
+                    s.Optional('cwd', default=default_cwd): str,
                     s.Optional('disabled', default=False): bool,
                     'parse': etl_parse.schema_get_parser_parser(),
                 },
@@ -510,6 +517,8 @@ def _check_config_file(config, build_dir):
             s.And(str, lambda x: '_' not in x and '.' not in x,
                     error='Must not have underscore or dot'): {
                 s.Optional('label'): str,
+                # ['pipelines']['cwd'] should not be used directly!
+                s.Optional('cwd', default=default_cwd): str,
                 s.Optional('disabled', default=False): s.Or(True, False),
                 s.Optional('tasks', default={}): s.Or({},
                     s.And(
@@ -519,7 +528,7 @@ def _check_config_file(config, build_dir):
                                 s.Optional('disabled', default=False): s.Or(True, False),
                                 'version': str,
                                 'exec': [str],
-                                s.Optional('cwd', default='/home/dist'): str,
+                                s.Optional('cwd', default=default_cwd): str,
                                 s.Optional('dependsOn', default=[]): [str],
                             },
                         },
