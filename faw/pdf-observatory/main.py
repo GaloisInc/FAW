@@ -411,17 +411,27 @@ async def _init_check_pdfs():
         })
         # For subsequent runs in development mode
         n_inserted = 0
-    for ff in _walk_pdf_files():
+
+    print(f'Scanning for new files...')
+    tlast = time.monotonic()
+    for ff_i, ff in enumerate(_walk_pdf_files()):
         if loader_proc.aborted:
-            # User re-triggered this step, so stop processing.
+            # User re-triggered this step, so stop processing in this loop
+            # immediately.
             return
 
         batch.add(asyncio.create_task(insert_or_ignore(ff)))
         if len(batch) > batch_max:
             _, batch = await asyncio.wait(batch,
                     return_when=asyncio.FIRST_COMPLETED)
+
+        tnew = time.monotonic()
+        if tnew - tlast > 30.:
+            print(f'...scanned {ff_i} files')
+            tlast = tnew
     if batch:
         await asyncio.wait(batch)
+    print(f'...scan complete, found {ff_i+1} files')
     await kick_asets_if_inserted()
 
     # For development mode -- use watchgod to live-reload files. Don't do this
