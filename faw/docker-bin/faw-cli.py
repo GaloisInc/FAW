@@ -14,6 +14,7 @@ def main():
                 'View /var/log/dask-scheduler',
                 'View /var/log/dask-worker',
                 'Database REPL',
+                'Bash shell',
                 'Restart FAW service',
         ]
         print('')  # Clear ctrl+C
@@ -31,16 +32,22 @@ def main():
             except KeyboardInterrupt:
                 pass
         elif log_types[li].startswith('Database'):
-            # Must ignore CTRL+C since used by REPL
-            old = signal.signal(signal.SIGINT, lambda signum, frame: None)
-            try:
-                subprocess.call(['faw-db-console.py'])
-            finally:
-                signal.signal(signal.SIGINT, old)
+            _wrapped_call(['faw-db-console.py'])
+        elif log_types[li].startswith('Bash shell'):
+            _wrapped_call(['/usr/bin/bash'])
         elif log_types[li].startswith('Restart'):
             subprocess.call(['faw-restart.sh'])
         else:
             raise NotImplementedError(log_types[li])
+
+
+def _wrapped_call(cmd):
+    # Must ignore CTRL+C since used by REPL
+    old = signal.signal(signal.SIGINT, lambda signum, frame: None)
+    try:
+        subprocess.call(cmd)
+    finally:
+        signal.signal(signal.SIGINT, old)
 
 
 if __name__ == '__main__':
