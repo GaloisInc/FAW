@@ -371,7 +371,7 @@ def _as_populate(as_name, mongo_info, app_config):
         ostatus = as_doc['status']
         r = col_as_metadata.update_one({'_id': as_name, 'status': ostatus},
                 {'$set': update})
-        if r.modified_count == 0:
+        if r.matched_count == 0:
             # No document modified; status changed?
             return False
 
@@ -392,7 +392,10 @@ def _as_populate(as_name, mongo_info, app_config):
             if as_doc.get('parser_versions_done'):
                 r = col_as_metadata.update_one({'_id': as_name},
                         {'$set': {'parser_versions_done.1': {}}})
-                if r.modified_count == 0:
+                # Note -- matched_count is important here. If we try to replace
+                # an empty dict with an empty dict, newer mongo versions do not
+                # count that as a modification.
+                if r.matched_count == 0:
                     raise ValueError(f'Unmodified? {as_name}')
                 as_doc['parser_versions_done'][1] = {}
         if not update_status(AsStatus.REBUILD_DATA.value):
