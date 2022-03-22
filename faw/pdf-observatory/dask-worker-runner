@@ -27,8 +27,8 @@ def main():
     cpus = cpus_available * overload
 
     procs = []
-    port_docker = args.first_port
-    port_ext = args.contact_first_port
+    port_docker = int(args.first_port)
+    port_ext = int(args.contact_first_port)
     while nprocs > 0:
         pcpu = int(math.ceil(cpus / nprocs))
         cpus -= pcpu
