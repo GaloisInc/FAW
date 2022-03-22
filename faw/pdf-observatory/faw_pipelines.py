@@ -18,23 +18,32 @@ import subprocess
 import time
 import traceback
 
-def pipeline_admin(app_config, api_info, aset_id):
+async def pipeline_admin(app_config, api_info, aset_id):
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _pipeline_admin, app_config, api_info, aset_id)
+
+def _pipeline_admin(app_config, api_info, aset_id):
     """Manages the pipelines for a given aset. Loops forever at low yield, so
     removes itself from dask queue.
 
     api_info: Generic, does not have `aset` set.
     """
     client = dask.distributed.get_client()
-    dask.distributed.secede()
+    # issues/5975
+    #dask.distributed.secede()
 
     db = mongo_api_info_to_db_conn(api_info['mongo'])
     app_config_pipelines = app_config['pipelines']
     tasks_running = {}
 
-    while not dask_check_if_cancelled():
+    # issues/5975
+    while True:  # not dask_check_if_cancelled():
         adoc = db['as_metadata'].find_one({'_id': aset_id})
         if adoc is None:
             tasks_running.clear()
+            # issues/5975
+            return
         else:
             # Scan through, see active / inactive pipelines. For active
             # pipelines, run outstanding tasks. For inactive, delete the db.

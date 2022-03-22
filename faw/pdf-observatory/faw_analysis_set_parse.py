@@ -32,7 +32,16 @@ pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
 COL_NAME = 'as_parse'
 
-def as_parse_main(app_config, api_info):
+async def as_parse_main(app_config, api_info):
+    """This is a workaround for https://github.com/dask/distributed/issues/5975.
+    Basically, by using an async task, we spawn directly on the worker's thread,
+    so we can use our own management to keep the actor going.
+    """
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _as_parse_main, app_config, api_info)
+
+def _as_parse_main(app_config, api_info):
     """Continuously goes through `COL_NAME` to find documents which need to be
     parsed; distributes files to workers by batch.
     """
@@ -45,15 +54,18 @@ def as_parse_main(app_config, api_info):
     col.create_index([('priority_order', 1)])
     col_obs.create_index([('idle_complete', 1)])
 
-    with dask.distributed.worker_client() as client:
+    #with dask.distributed.worker_client() as client:
+    # For the occupancy bug
+    client = dask.distributed.get_client()
+    if True:
+        [app_config_future] = client.scatter([app_config], broadcast=True)
+
         # We have to track everything here, rather than relying on `pure=True`.
         # This is a result of
         # So, track outstanding ids for e.g. transient errors.
         outstanding_docs = []  # (doc, future)
         outstanding = dask.distributed.as_completed(with_results=True,
                 raise_errors=False)
-
-        [app_config_future] = client.scatter([app_config], broadcast=True)
 
         work_max = 0
         last_update = 0.
@@ -88,7 +100,9 @@ def as_parse_main(app_config, api_info):
             for doc in data:
                 num_added += 1
                 future = client.submit(_dask_as_parse_file,
-                        app_config_future, api_info, doc, pure=False)
+                        app_config_future, api_info, doc,
+                        resources={'faw_parse': 1.},
+                        pure=False)
                 outstanding_docs.append((doc, future))
                 outstanding.add(future)
 

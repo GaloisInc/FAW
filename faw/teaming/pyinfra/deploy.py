@@ -81,7 +81,7 @@ if 'web_host' in host.groups:
 set -e
 echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
 chmod a+x /etc/services.d/observatory/run
-echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} --dashboard-address {config.port_dask_worker_dashboard} localhost:8786 2>&1' > /etc/services.d/dask-worker/run
+echo -e '#! /bin/bash\ncd /home/dist\n/home/pdf-observatory/dask-worker-runner --contact-host "{host.name}" --contact-first-port {config.port_dask_worker} localhost:8786 2>&1' > /etc/services.d/dask-worker/run
 chmod a+x /etc/services.d/dask-worker/run
 # Now, launch as normal
 /init
@@ -104,7 +104,7 @@ set -e
 rm -rf /etc/services.d/observatory
 # Fix up dask -- disable scheduler, change worker to connect to global scheduler
 rm -rf /etc/services.d/dask-scheduler
-echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --listen-address tcp://:8788 --contact-address tcp://{host.name}:{config.port_dask_worker} --dashboard-address {config.port_dask_worker_dashboard} {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
+echo -e '#! /bin/bash\ncd /home/dist\n/home/pdf-observatory/dask-worker-runner --contact-host "{host.name}" --contact-first-port {config.port_dask_worker} {webhost}:{config.port_dask} 2>&1' > /etc/services.d/dask-worker/run
 chmod a+x /etc/services.d/dask-worker/run
 # Disable mongo
 rm -rf /etc/services.d/mongod
@@ -120,9 +120,8 @@ rm -rf /etc/services.d/mongod
             '--entrypoint', '/bin/bash',
     ])
     docker_flags_cmd.extend(['-c', '/home/worker.sh'])
-docker_flags.extend(['-p', f'{config.port_dask_worker}:8788'])
-# Dask doesn't seem to have separate contact address for dashboard.
-docker_flags.extend(['-p', f'{config.port_dask_worker_dashboard}:{config.port_dask_worker_dashboard}'])
+# Forward both worker ports and dashboard
+docker_flags.extend(['-p', f'{config.port_dask_worker}-{config.port_dask_worker+100}:8788-8888'])
 docker_flags.append(docker_image_name)
 docker_flags.extend(docker_flags_cmd)
 server.shell(name="Kill old docker container, launch new",

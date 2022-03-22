@@ -814,7 +814,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
                 mkdir -p /etc/cont-init.d \
                 && echo -e '#! /bin/sh\nmkdir -p /var/log/dask-worker\nchown -R nobody:nogroup /var/log/dask-worker' > /etc/cont-init.d/dask-worker \
                 && mkdir /etc/services.d/dask-worker \
-                    && echo -e '#! /bin/bash\ncd /home/dist\ndask-worker --local-directory /tmp --nprocs auto localhost:8786 2>&1' >> /etc/services.d/dask-worker/run \
+                    && echo -e '#! /bin/bash\ncd /home/dist\n/home/pdf-observatory/dask-worker-runner localhost:8786 2>&1' >> /etc/services.d/dask-worker/run \
                     && chmod a+x /etc/services.d/dask-worker/run \
                 && mkdir /etc/services.d/dask-worker/log \
                     && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-worker' > /etc/services.d/dask-worker/log/run \

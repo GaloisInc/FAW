@@ -113,6 +113,18 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
             # Ensure we have a task that's kicking off parses
             parse_task = client_tasks.get('as_parse')
             if parse_task is not None:
+                parse_done, parse_pending = await asyncio.wait([parse_task],
+                        timeout=1e-3)
+                if parse_pending:
+                    new_tasks['as_parse'] = parse_task
+            else:
+                # Until https://github.com/dask/distributed/issues/5975 is fixed,
+                # run this locally.
+                # When fixed, be sure to check for `issues/5975` elsewhere in code
+                new_tasks['as_parse'] = asyncio.create_task(
+                        faw_analysis_set_parse.as_parse_main(_app_config, api_info))
+            '''
+            if parse_task is not None:
                 try:
                     await parse_task.result(timeout=0.5)
                 except dask.distributed.TimeoutError:
@@ -128,6 +140,7 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
                             pure=False)
             else:
                 new_tasks['as_parse'] = parse_task
+            '''
 
             # For each analysis set, spin up a management task and wait for
             # completion.
@@ -312,8 +325,22 @@ async def _as_manage_pipelines(aset, api_info, client, client_tasks):
     that pipelines running under this analysis set get ran; it has nothing to
     do with the parsers.
     """
+    # Also waiting on https://github.com/dask/distributed/issues/5975.
+
     name = aset['_id'] + '!__pipelines'
     old_task_info = client_tasks.get(name)
+    task = None
+    if old_task_info is not None:
+        done, pending = await asyncio.wait([old_task_info], timeout=1e-2)
+        if pending:
+            task = old_task_info
+
+    if task is None:
+        import faw_pipelines
+        task = asyncio.create_task(faw_pipelines.pipeline_admin(_app_config,
+                api_info, aset['_id']))
+    return {name: task}
+
     missing = {}
     old_task_result = missing
     if old_task_info is not None:
