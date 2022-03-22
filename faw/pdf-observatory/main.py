@@ -25,6 +25,7 @@ import pymongo
 import pympler.asizeof as asizeof
 import re
 import shlex
+import shutil
 import strictyaml
 import sys
 import tempfile
@@ -770,6 +771,17 @@ class Client(vuespa.Client):
                     temp.close()
                     files_to_delete.append(temp.name)
                     r.append(temp.name)
+                elif c.startswith('<tempPrefix'):
+                    suffix = c[11:-1]
+                    if suffix:
+                        assert suffix[0] == ' ', suffix
+                        suffix = suffix[1:]
+                        assert ' ' not in suffix, suffix
+                        assert '"' not in suffix, suffix
+                    temp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+                    temp.close()
+                    files_to_delete.append([temp.name])
+                    r.append(temp.name)
                 elif c.startswith('<'):
                     rr = template_vals.get(c)
                     if rr is None:
@@ -781,7 +793,19 @@ class Client(vuespa.Client):
             yield r
         finally:
             for f in files_to_delete:
-                os.unlink(f)
+                if isinstance(f, list):
+                    fdir = os.path.dirname(f[0])
+                    fbase = os.path.basename(f[0])
+                    for ff in os.listdir(fdir):
+                        if not ff.startswith(fbase):
+                            continue
+                        ff = os.path.join(fdir, ff)
+                        if os.path.isdir(ff):
+                            shutil.rmtree(ff)
+                        else:
+                            os.unlink(ff)
+                else:
+                    os.unlink(f)
 
 
     async def _statsbyfile_cursor(self, options, match_id=None):

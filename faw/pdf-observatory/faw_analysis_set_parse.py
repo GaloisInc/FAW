@@ -12,6 +12,7 @@ import os
 import psutil
 import pymongo
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -32,16 +33,17 @@ pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
 COL_NAME = 'as_parse'
 
-async def as_parse_main(app_config, api_info):
+# `exit_flag` is issues/5975
+async def as_parse_main(exit_flag, app_config, api_info):
     """This is a workaround for https://github.com/dask/distributed/issues/5975.
     Basically, by using an async task, we spawn directly on the worker's thread,
     so we can use our own management to keep the actor going.
     """
     import asyncio
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _as_parse_main, app_config, api_info)
+    await loop.run_in_executor(None, _as_parse_main, exit_flag, app_config, api_info)
 
-def _as_parse_main(app_config, api_info):
+def _as_parse_main(exit_flag, app_config, api_info):
     """Continuously goes through `COL_NAME` to find documents which need to be
     parsed; distributes files to workers by batch.
     """
@@ -54,6 +56,7 @@ def _as_parse_main(app_config, api_info):
     col.create_index([('priority_order', 1)])
     col_obs.create_index([('idle_complete', 1)])
 
+    # issues/5975
     #with dask.distributed.worker_client() as client:
     # For the occupancy bug
     client = dask.distributed.get_client()
@@ -151,13 +154,15 @@ def _as_parse_main(app_config, api_info):
             # load
             next_work(from_idle=True)
 
-        while True:
+        # was while True before issues/5975
+        while not exit_flag[0]:
             # Initial load
             next_work()
 
             # Iterator will keep us from maxing out CPU
             for f, f_result in outstanding:
-                if faw_internal_util.dask_check_if_cancelled():
+                # issues/5975
+                if exit_flag[0]:#faw_internal_util.dask_check_if_cancelled():
                     return
 
                 # Clean up list
@@ -399,6 +404,16 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                 temps.append(tempfile.NamedTemporaryFile(suffix=suffix, delete=False))
                 temps[-1].close()
                 args.append(temps[-1].name)
+            elif e.startswith('<tempPrefix'):
+                suffix = e[11:-1]
+                if suffix:
+                    assert suffix[0] == ' ', suffix
+                    assert ' ' not in suffix[1:], suffix
+                    suffix = suffix[1:]
+                    assert '"' not in suffix, suffix
+                temps.append([tempfile.NamedTemporaryFile(suffix=suffix, delete=False)])
+                temps[-1][0].close()
+                args.append(temps[-1][0].name)
             else:
                 args.append(e)
 
@@ -487,13 +502,28 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         doc['result']['cpuSystem'] = sum(p.system for p in psutil_cpu.values())
         doc['result']['cpuIowait'] = sum(p.iowait for p in psutil_cpu.values())
         doc['result']['exitcode'] = p.wait()
-        paths = [(t.name, '<tempFile>') for t in temps] + [(fpath, '<inputFile>')]
+        paths = (
+                [(t.name if not isinstance(t, list) else t[0].name, '<tempFile>')
+                    for t in temps]
+                + [(fpath, '<inputFile>')])
         doc['result']['stdoutRes'] = _trim_program_output(buf_out.getvalue(), paths)
         doc['result']['stderrRes'] = _trim_program_output(buf_err.getvalue(), paths)
         doc['result']['_cons'] = 'Timeout' if timed_out else 'GoodResult'
     finally:
         for t in temps:
-            os.unlink(t.name)
+            if isinstance(t, list):
+                tdir = os.path.dirname(t[0].name)
+                tbase = os.path.basename(t[0].name)
+                for f in os.listdir(tdir):
+                    if not f.startswith(tbase):
+                        continue
+                    f = os.path.join(tdir, f)
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.unlink(f)
+            else:
+                os.unlink(t.name)
 
     exit_code = doc['result']['exitcode']
     if parser_cfg.get('mustSucceed') and exit_code != 0:

@@ -34,7 +34,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['/opt/xpdf/bin64/pdftoppm', '<inputFile>', '<tempFile>'],
+            exec: ['/opt/xpdf/bin64/pdftoppm', '<inputFile>', '<tempPrefix>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',

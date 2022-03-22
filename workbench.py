@@ -683,6 +683,7 @@ def _check_image(development, config_data, build_dir, build_faw_dir):
             COPY {build_faw_dir}/faw/pdf-etl-parse /home/pdf-etl-parse
             COPY {build_faw_dir}/faw/pdf-observatory/*.py /home/pdf-observatory/
             COPY {build_faw_dir}/faw/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
+            COPY {build_faw_dir}/faw/docker-bin/* /usr/bin/
             COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
 
             # Copy shared plugins

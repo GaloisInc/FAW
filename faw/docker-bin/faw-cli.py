@@ -26,6 +26,9 @@ def main():
         except ValueError:
             continue
 
+        if li < 0 or li >= len(log_types):
+            continue
+
         if log_types[li].startswith('View'):
             try:
                 subprocess.call(['s6-logwatch', log_types[li][5:]])

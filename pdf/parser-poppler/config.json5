@@ -199,7 +199,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['pdftoppm', '<inputFile>', '<tempFile>'],
+            exec: ['pdftoppm', '<inputFile>', '<tempPrefix>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',
