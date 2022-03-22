@@ -232,6 +232,21 @@ def _dask_as_parse_file(app_config, api_info, doc):
             raise ValueError("Could not find idle?")
         doc['parsers'].update(idle_parsers_doc['parser_versions'][1])
 
+    def get_cfg(k):
+        """Given a parser name `k`, resolve to relevant app_config"""
+        parser_pipeline_name = faw_analysis_set_util.deconstruct_pipeline_parser_name(k)
+        if parser_pipeline_name is None:
+            parser_config = app_config['parsers'][k]
+        else:
+            parser_config = (app_config['pipelines']
+                    [parser_pipeline_name.pipe]
+                    ['parsers']
+                    [parser_pipeline_name.parser])
+            parser_config = parser_config.copy()
+            parser_config['aset'] = parser_pipeline_name.aset
+            parser_config['pipeline'] = parser_pipeline_name.pipe
+        return parser_config
+
     parser_set = list(doc.get('parsers', {}).keys())
     if parser_set:
         # Collect rawinvocations and invocationsparsed versions, if any
@@ -278,6 +293,13 @@ def _dask_as_parse_file(app_config, api_info, doc):
             ver_db = ver_db_info[0]
             ver_cfg = doc['parsers'][k]
 
+            cfg = get_cfg(k)
+            if cfg.get('disabled'):
+                # We *do* want to unset based on version. A different version
+                # may not be disabled.
+                parsers_done[k] = ver_cfg
+                continue
+
             if ver_db[0] != ver_cfg[0]:
                 parsers_to_run_tool[k] = ver_cfg[0]
                 parsers_to_run_parser[k] = ver_cfg[1]
@@ -294,21 +316,6 @@ def _dask_as_parse_file(app_config, api_info, doc):
 
             # Regardless, need to set this as done when we've run everything
             parsers_done[k] = ver_cfg
-
-    def get_cfg(k):
-        """Given a parser name `k`, resolve to relevant app_config"""
-        parser_pipeline_name = faw_analysis_set_util.deconstruct_pipeline_parser_name(k)
-        if parser_pipeline_name is None:
-            parser_config = app_config['parsers'][k]
-        else:
-            parser_config = (app_config['pipelines']
-                    [parser_pipeline_name.pipe]
-                    ['parsers']
-                    [parser_pipeline_name.parser])
-            parser_config = parser_config.copy()
-            parser_config['aset'] = parser_pipeline_name.aset
-            parser_config['pipeline'] = parser_pipeline_name.pipe
-        return parser_config
 
     if faw_internal_util.dask_check_if_cancelled():
         return
