@@ -63,6 +63,11 @@ def _as_parse_main(exit_flag, app_config, api_info):
     if True:
         [app_config_future] = client.scatter([app_config], broadcast=True)
 
+        # Begin by cleaning up the idle definition; otherwise, might start
+        # running idle parsers pre-maturely, or they might be requested to run
+        # at the wrong version.
+        _as_parse_ensure_idle_versions(app_config, db)
+
         # We have to track everything here, rather than relying on `pure=True`.
         # This is a result of
         # So, track outstanding ids for e.g. transient errors.
@@ -116,16 +121,7 @@ def _as_parse_main(exit_flag, app_config, api_info):
 
         def idle_work():
             # First, see if we have new versions of the idle parsers
-            versions_id, versions_data = faw_analysis_set_util.aset_parser_versions_calculate_idle(app_config)
-            versions = [versions_id, versions_data]
-            doc = db['misc'].find_one({'_id': 'as_idle'})
-            if doc is None or doc['parser_versions'] != versions:
-                # Reset all idle_complete
-                col_obs.update_many({}, {'$unset': {'idle_complete': True}})
-                # Flag as the version we'll be running
-                db['misc'].update_one({'_id': 'as_idle'},
-                        {'$set': {'parser_versions': versions}},
-                        upsert=True)
+            _as_parse_ensure_idle_versions(app_config, db)
 
             data = col_obs.aggregate([
                     {'$match': {'idle_complete': {'$exists': False}}},
@@ -202,6 +198,21 @@ def _as_parse_main(exit_flag, app_config, api_info):
             # Done with all work; sleep awhile and see if there's more (already
             # seceded, so don't worry about that)
             time.sleep(2)
+
+
+def _as_parse_ensure_idle_versions(app_config, db):
+    """Ensure that any idle parsing catches all version changes.
+    """
+    versions_id, versions_data = faw_analysis_set_util.aset_parser_versions_calculate_idle(app_config)
+    versions = [versions_id, versions_data]
+    doc = db['misc'].find_one({'_id': 'as_idle'})
+    if doc is None or doc['parser_versions'] != versions:
+        # Reset all idle_complete
+        db['observatory'].update_many({}, {'$unset': {'idle_complete': True}})
+        # Flag as the version we'll be running
+        db['misc'].update_one({'_id': 'as_idle'},
+                {'$set': {'parser_versions': versions}},
+                upsert=True)
 
 
 def _dask_as_parse_file(app_config, api_info, doc):
