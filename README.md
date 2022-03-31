@@ -1,9 +1,13 @@
 # Format Analysis Workbench (FAW)
 
+<img src="./docs/logo/original.png" width="300px" align="right"/>
+
 The Format Analysis Workbench (FAW) is a platform for running and analyzing the
 output from any number of parsers dealing with a single file format. It is meant
 to be a workbench for developing tools which aid in understanding the de facto
 formats which naturally emerge from open standards.
+
+<br clear="right" />
 
 ## Example Screenshots
 
