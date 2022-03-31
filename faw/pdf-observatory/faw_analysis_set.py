@@ -185,8 +185,8 @@ async def as_list():
         col = _app_mongodb_conn[colname]
         stats = await _app_mongodb_conn.command('collstats', colname)
 
-        adoc = dict(id=a['_id'], size_docs=await col.estimated_document_count(),
-                size_disk=stats['storageSize'],
+        adoc = dict(id=a['_id'], size_docs=stats['count'],  # await col.estimated_document_count(),
+                size_disk=stats['size'],  # stats['storageSize'],
                 status=a['status'], status_done_time=a.get('status_done_time'),
                 definition=a['definition'], pipelines=a.get('pipelines', {}))
 
