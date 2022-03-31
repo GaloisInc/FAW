@@ -184,7 +184,7 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parse_version,
                             break
                         else:
                             placeholder = f'<<workbench: unhandled {sname}>> '
-                            placeholder += re.sub('[0-9]', '', line.strip())
+                            placeholder += re.sub('[0-9]+', '<INT>', line.strip())
                             parse_fts[placeholder] = (
                                     parse_fts.get(placeholder, 0) + 1)
             elif parse_cfg['type'] == 'program-stdin':
@@ -221,6 +221,9 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parse_version,
             if parser_name:
                 prefix = f'{parser_name}_'
             for k, v in parse_fts.items():
+                if len(k) > 1024:
+                    # This is just too long of a feature. Truncate
+                    k = k[:1024] + '<<workbench: truncated>>'
                 parse_fts_all[f'{prefix}{k}'] = v
 
         # Cast back to smaller name

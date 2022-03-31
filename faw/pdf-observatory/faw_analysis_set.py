@@ -656,8 +656,8 @@ def _as_populate_gather(exit_flag, as_doc, col_ids, col_dst):
                     fk = fkv['k']
                     fv = fkv['v']
 
-                    if fk.startswith('<<workbench: Exit code'):
-                        # Parser included, include this
+                    if fk.startswith('<<workbench: Exit '):
+                        # Parser included, include exit code information
                         pout[fk] = fv
                         continue
 
