@@ -137,6 +137,7 @@ def _as_parse_main(exit_flag, app_config, api_info):
                     {'$project': {'col_parse': 0}},
                     {'$limit': work_max - outstanding.count()},
             ])
+            data_seen = 0
             for doc_obs in data:
                 # Cast from 'observatory' to 'as_parse'-typed document
                 r = col.update_one({'_id': doc_obs['_id']},
@@ -145,6 +146,32 @@ def _as_parse_main(exit_flag, app_config, api_info):
                             '$min': {'priority_order': 1e30},
                         },
                         upsert=True)
+                data_seen += 1
+
+            if (data_seen == 0
+                    and col_obs.find_one({'idle_complete': {'$exists': False}}
+                        ) is None):
+                # All idle processing is complete. Update parser_versions_done
+                # so we can skip this step in subsequent analysis set
+                # compilations.
+                doc = db['misc'].find_one({'_id': 'as_idle'})
+                if doc is not None:
+                    # This is safe only because this is the only spot
+                    # parser_versions_done is set on the idle analysis set.
+                    changed = False
+                    doc_done = doc.get('parser_versions_done', [{}, {}])
+                    for k, v in doc['parser_versions'][1].items():
+                        if (
+                                # Not disabled
+                                v is not None
+                                # Wrong version
+                                and doc_done[1].get(k) != v):
+                            doc_done[1][k] = v
+                            changed = True
+                    if changed:
+                        db['misc'].update_one(
+                                {'_id': 'as_idle', 'parser_versions': doc['parser_versions']},
+                                {'$set': {'parser_versions_done': doc_done}})
 
             # Now that documents are in col_parse (maybe), initiate a standard
             # load

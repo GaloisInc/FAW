@@ -469,8 +469,10 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
         # Issues/5975
         #with dask.distributed.worker_client():
         if True:
+            idle_aset = db['misc'].find_one({'_id': 'as_idle'})
+            assert idle_aset is not None
             if not _as_populate_parsers(exit_flag, app_config, pv_data, pv_data_done,
-                    col_ids, col_parse):
+                    idle_aset, col_ids, col_parse):
                 # Failure -- abort without updating anything
                 return
         # On completion, assign `parser_versions_done` so we don't re-run
@@ -499,7 +501,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
 
 # issues/5975
 def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions_done,
-        col_ids, col_parse):
+        idle_aset, col_ids, col_parse):
     """Scan through documents which require additional parsing. Use the version
     that was specified when the ids were populated so that we have a nice,
     uniform parse across all files.
@@ -526,7 +528,11 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
     new_parsers = {}
     for k, v in parser_versions.items():
         if parser_versions_done.get(k) != v and v is not None:
-            new_parsers[k] = v
+            # If idle processing is done, we do not need to run this parser,
+            # as it is guaranteed complete.
+            idle_version = idle_aset.get('parser_versions_done', [{}, {}])[1].get(k)
+            if idle_version != v:
+                new_parsers[k] = v
 
     if not new_parsers:
         # Nothing to do
@@ -751,8 +757,10 @@ def as_create_id_collection(exit_flag, db, app_config, aset_id, col_name, *,
 
         # At this point, it's a pseudo-analysis set.
         col_parse = db[faw_analysis_set_parse.COL_NAME]
+        idle_aset = db['misc'].find_one({'_id': 'as_idle'})
+        assert idle_aset is not None
         if not _as_populate_parsers(app_config, parsers_id, parsers_id_done,
-                tmp_id_col, col_parse):
+                idle_aset, tmp_id_col, col_parse):
             raise ValueError('_as_populate_parsers failed; reference lost?')
 
         # Finally, delete temporary, then set done
