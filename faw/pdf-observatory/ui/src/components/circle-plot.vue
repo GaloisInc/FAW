@@ -1,17 +1,14 @@
 <template>
-  <div class="svg-container"></div>
+  <div class="svg-container" />
 </template>
 
 <script lang="ts">
 import Vue from "vue";
-import Vuetify from "vuetify";
 import { PdfDecision } from "./common";
 import * as d3 from "d3";
 import { DslResult } from "../dsl";
 
 type StatusId = number;
-type Status = string;
-type Aspect = string;
 
 interface Statuses {
   [aspect: string]: Map<any, number> | undefined;
@@ -41,6 +38,11 @@ interface Node {
   y: number;
   id: number;
 }
+interface NodeCollection {
+  statuses: NodeStatuses;
+  ref_statuses: NodeStatuses;
+  nodes: Node[];
+}
 
 const dotWidth = 5
 const width = 1500;
@@ -50,13 +52,13 @@ const max_nodes = 750;
 
 export default Vue.extend({
   name: "CirclePlot",
-  props: [
-    "pdfs",
-    "pdfsReference",
-    "pdfsSearched",
-    "decisionDefinition",
-    "decisionAspectSelected"
-  ],
+  props: {
+    pdfs: Array as () => PdfDecision[],
+    pdfsReference: Array as () => PdfDecision[],
+    pdfsSearched: Object,
+    decisionDefinition: Object,
+    decisionAspectSelected: String,
+  },
   data() {
     return {
       centers: {} as Centers,
@@ -75,10 +77,10 @@ export default Vue.extend({
       simulation: null as any,
       statuses: {} as Statuses,
       node: {
-        statuses: {} as NodeStatuses,
-        ref_statuses: {} as NodeStatuses,
-        nodes: [] as Node[]
-      }
+        statuses: {},
+        ref_statuses: {},
+        nodes: [],
+      } as NodeCollection,
     };
   },
   model: {
@@ -238,7 +240,7 @@ export default Vue.extend({
       if (ss === undefined) return [];
 
       const points = Array.from(ss.entries()).map(e => {
-        const [status, statusId] = e;
+        const [, statusId] = e;
         return nodes
           .filter(
             (d: any) => this.node.statuses[d.testfile]?.[aspect] === statusId
@@ -367,7 +369,7 @@ export default Vue.extend({
       }
       return centers[status_id] || 0.;
     },
-    nodeInit(statuses: Statuses) {
+    nodeInit(statuses: Statuses): NodeCollection {
       let node_statuses: NodeStatuses = {};
       const nodes: Node[] = [];
       let i = 0;

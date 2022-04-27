@@ -73,7 +73,7 @@ function parse (data, sortObjects, maxArrayDisplay, depth = 0, last = true, key 
 }
 
 export default {
-  name: 'json-tree',
+  name: 'JsonTree',
 
   props: {
     level: {

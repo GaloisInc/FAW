@@ -55,45 +55,71 @@ def _aset_parser_versions_calculate_list(db, app_config, parser_list):
 
     Returns:
         {parser_name: Union[None, [parser_tool_version, parser_parser_version]]}
+
+    Where:
+        parser_tool_version = {processor name or '': str}
+        parser_parser_version = {processor name or '': str}
+
+    The `processor name` field helps with e.g. data transformation pipelines or
+    additional, global parser-parsers that run on all program output. E.g.,
+    `parser_parsers_shared`.
     """
 
     aset_cache = {}
 
+    parser_parsers = {}
+    for ppk, ppv in app_config['parser_parsers_shared'].items():
+        if ppv['disabled']:
+            parser_parsers[ppk] = None
+            continue
+        ppv_v = ppv['parse']['version']
+        parser_parsers[ppk] = ppv_v
+
     r = {}
     for p_name in parser_list:
         pipe = deconstruct_pipeline_parser_name(p_name)
+        p_cfg = None
+        tool_version = None
         if pipe is None:
             # Standard parser
             p_cfg = app_config['parsers'].get(p_name, {'disabled': True})
             if p_cfg['disabled']:
                 r[p_name] = None
-            else:
-                r[p_name] = [p_cfg['version'], p_cfg['parse']['version']]
-            continue
+                continue
 
-        # Pipeline
-        pipe_cfg = app_config['pipelines'].get(pipe.pipe, {'disabled': True})
-        if pipe_cfg['disabled']:
-            r[p_name] = None
-            continue
+            tool_version = p_cfg['version']
+        else:
+            # Pipeline
+            pipe_cfg = app_config['pipelines'].get(pipe.pipe, {'disabled': True})
+            if pipe_cfg['disabled']:
+                r[p_name] = None
+                continue
 
-        p_cfg = pipe_cfg['parsers'][pipe.parser]
-        if p_cfg['disabled']:
-            r[p_name] = None
-            continue
+            p_cfg = pipe_cfg['parsers'][pipe.parser]
+            if p_cfg['disabled']:
+                r[p_name] = None
+                continue
 
-        # Fetch document; see if it has completed execution
-        if pipe.aset not in aset_cache:
-            aset_cache[pipe.aset] = db['as_metadata'].find_one({
-                    '_id': pipe.aset})
-        paset = aset_cache[pipe.aset] or {}
-        p_done = paset.get('pipelines', {}).get(pipe.pipe, {}).get('done')
+            # Fetch document; see if it has completed execution
+            if pipe.aset not in aset_cache:
+                aset_cache[pipe.aset] = db['as_metadata'].find_one({
+                        '_id': pipe.aset})
+            paset = aset_cache[pipe.aset] or {}
+            p_done = paset.get('pipelines', {}).get(pipe.pipe, {}).get('done')
 
-        if p_done is None:
-            r[p_name] = None
-            continue
+            if p_done is None:
+                r[p_name] = None
+                continue
 
-        r[p_name] = [f'{p_cfg["version"]}-~-{p_done}', p_cfg['parse']['version']]
+            tool_version = f'{p_cfg["version"]}-~-{p_done}'
+
+        tool = {'': tool_version}
+        parse = {'': p_cfg['parse']['version'], **parser_parsers}
+
+        if app_config['file_transform'] is not None:
+            tool['file_transform'] = app_config['file_transform']['version']
+
+        r[p_name] = [tool, parse]
     return r
 
 

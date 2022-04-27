@@ -69,7 +69,7 @@
                   iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
                 details(v-show="pluginDecIframeSrc != null")
                   summary Debugging stats
-                  json-tree(:data="pluginDecDebug" :level="2")
+                  JsonTree(:data="pluginDecDebug" :level="2")
 
           v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
             div(v-if="fileFilters.length")
@@ -105,7 +105,8 @@
               @filter-file-list="fileFilterAdd($event.name, new Set($event.files))"
               :pdfs="pdfs"
               :pdfsReference="pdfsReference"
-              :decisionAspectSelected="decisionAspectSelected")
+              :decisionAspectSelected="decisionAspectSelected"
+              :decisionAspectSelectedName="decisionAspectSelected === 'filter-faw-custom' ? 'Search: ' + decisionSearchCustom : decisionAspectSelected")
 
             //- Global listing of reasons files failed
             v-expansion-panels(:value="0" :popout="true" v-if="decisionAspectSelected.startsWith('filter-')")
@@ -160,7 +161,7 @@
           .file-lists
             v-list(dense)
               v-subheader
-                span(style="white-space: pre-wrap") Current decisions (top {{pdfsToShowMax}}) -!{' '}
+                span(style="white-space: pre-wrap") Current decisions -!{' '}
                 Stats(:pdfs="pdfs" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
               v-list-item-group(mandatory)
                 v-list-item(
@@ -223,7 +224,11 @@
 
           //- Big margin-bottom to prevent scroll-back when changing file selection
           v-sheet(:elevation="3" style="margin-top: 1em; padding: 1em; margin-bottom: 50vh")
-            v-subheader Results for {{decisionSelected.testfile}}
+            v-subheader
+              span Results for {{decisionSelected.testfile}}
+              span(v-if="decisionSelected.testfile")
+                span &nbsp;
+                a(:href="'/file_download/' + decisionSelected.testfile") (download)
             v-tabs(v-model="dbView" grow)
               v-tab(:key="DbView.Decision") Decision
               v-tab(:key="DbView.Tools") Output - Tools
@@ -371,6 +376,7 @@
 //import HelloWorld from '@/components/HelloWorld.vue'
 
 import bus from '@/bus';
+import {regexEscape} from '@/util';
 
 // Editor-related includes
 import AceEditorComponent from 'vue2-ace-editor';
@@ -386,7 +392,7 @@ import {DslExpression, DslResult, dslParser, dslDefault} from '@/dsl';
 import {AsData} from '@/interface/aset';
 
 import AnalysisSetConfigComponent from '@/components/AnalysisSetConfig.vue';
-import CheckmarkComponent from '@/components/Checkmark.vue';
+import CheckmarkComponent from '@/components/CheckmarkComponent.vue';
 import CirclePlotComponent from '@/components/circle-plot.vue';
 import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
 import StatsComponent from '@/components/HomeStats.vue';
@@ -413,7 +419,7 @@ export class LoadingStatus {
 }
 
 export default Vue.extend({
-  name: 'home',
+  name: 'HomeView',
   components: {
     AceEditor: AceEditorComponent,
     AnalysisSetConfig: AnalysisSetConfigComponent,
@@ -726,7 +732,7 @@ export default Vue.extend({
         await fn();
       }
       catch (e) {
-        bus.error(e);
+        bus.error!(e);
         throw e;
       }
     },
@@ -1035,7 +1041,7 @@ export default Vue.extend({
           let refDecs = null;
           let pluginDef: any = null;
           if (pluginKey.indexOf('!') !== -1) {
-            const [aset, pipeline, plugin] = pluginKey.split('!');
+            const [, pipeline, plugin] = pluginKey.split('!');
             pluginDef = this.config['pipelines'][pipeline]['decision_views'][plugin];
           }
           else {
@@ -1133,7 +1139,9 @@ export default Vue.extend({
       if (!this.config) return {};
       const o = Object.assign({}, this.config[key]);
       for (const aset of this.asData.asets) {
-        for (const [pk, pv] of Object.entries(aset.pipelines)) {
+        for (const [pk] of Object.entries(aset.pipelines)) {
+          // Renamed / deleted
+          if (!this.config.pipelines[pk]) continue;
           for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][key])) {
             const pluginKey = `${aset.id}!${pk}!${ppk}`;
             const ok: any = o[pluginKey] = Object.assign({}, ppv);
@@ -1144,7 +1152,7 @@ export default Vue.extend({
       return o;
     },
     regexEscape(v: string): string {
-      return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      return regexEscape(v);
     },
     async reprocess() {
       /** Re-calculate decisions based on DSL */
@@ -1214,7 +1222,7 @@ export default Vue.extend({
       // Build file list
       const newPdfs = [];
       const pdfMap = new Map<number, PdfDecision>();
-      for (const [k, files] of Object.entries(groups)) {
+      for (const [, files] of Object.entries(groups)) {
         for (const f of files) {
           if (pdfMap.has(f[0])) continue;
           const dec = {

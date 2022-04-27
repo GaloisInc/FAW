@@ -191,8 +191,94 @@
                 },
             },
         },
-    },
 
+        'mutool-draw-txt': {
+            exec: ['mutool', 'draw', '-F', 'txt', '-o', '<tempFile>', '<inputFile>'],
+            version: 'mupdf-1.16',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {},
+                stderr: {
+                    '^\\s*(error: cannot create appearance stream).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(error: unknown colorspace).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(error: zlib error: invalid).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: cannot create ToUnicode mapping).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: ignoring one to many mapping in cmap).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: non-embedded font using identity encoding).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: non-page object in page tree).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+
+        'mutool-draw-ppm': {
+            exec: ['mutool', 'draw', '-o', '<tempFile>', '<inputFile>'],
+            version: 'mupdf-1.16',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {},
+                stderr: {
+                    '^\\s*(error: cannot create appearance stream).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(error: unknown colorspace).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(error: zlib error: invalid).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: cannot create ToUnicode mapping).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: ignoring one to many mapping in cmap).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: non-embedded font using identity encoding).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^\\s*(warning: non-page object in page tree).*$': {
+                        nameGroup: 1
+                    },
+
+                    '^.*$': {
+                        nameReplace: {'[0-9]': ''},
+                    },
+                },
+            },
+        },
+    },
+    
     build: {
        stages: {
             mupdf: {

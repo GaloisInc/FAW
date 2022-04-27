@@ -1,0 +1,67 @@
+#! /usr/bin/env python3
+
+# Base script for running 1 or more dask-worker processes.
+
+import argparse
+import atexit
+import math
+import os
+import subprocess
+import time
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--contact-host', default='localhost')
+    ap.add_argument('--contact-first-port', default=8788)
+    ap.add_argument('--first-port', default=8788)
+    ap.add_argument('scheduler')
+    args = ap.parse_args()
+
+    cpus_available = len(os.sched_getaffinity(0))
+    # Another issues/5975 thing. Since we're usually running on single machines
+    # for the time being, we get better utilization out of a single process.
+    nprocs = 1# max(1, int(math.floor(cpus_available / 4)))
+
+    # Until https://github.com/dask/distributed/issues/5975 is fixed, MUST
+    # only have one worker or else
+
+    overload = 1.1
+    cpus = cpus_available * overload
+
+    procs = []
+    port_docker = int(args.first_port)
+    port_ext = int(args.contact_first_port)
+    while nprocs > 0:
+        pcpu = int(math.ceil(cpus / nprocs))
+        cpus -= pcpu
+        nprocs -= 1
+
+        cmd = [
+                'dask-worker',
+                '--local-directory', '/tmp',
+                '--listen-address', f'tcp://:{port_docker}',
+                '--contact-address', f'tcp://{args.contact_host}:{port_ext}',
+                '--dashboard-address', f'{port_docker+1}',
+                '--nthreads', f'{pcpu}',
+                '--resources', f'faw_parse={pcpu}',
+                args.scheduler,
+        ]
+        procs.append([subprocess.Popen(cmd), cmd])
+        port_docker += 2
+        port_ext += 2
+
+    def close_all():
+        for p, _ in procs:
+            p.kill()
+    atexit.register(close_all)
+
+    while True:
+        time.sleep(1.)
+        for p in procs:
+            if p[0].poll() is not None:
+                p[0] = subprocess.Popen(p[1])
+
+
+if __name__ == '__main__':
+    main()
+

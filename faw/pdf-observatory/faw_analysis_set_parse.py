@@ -12,6 +12,7 @@ import os
 import psutil
 import pymongo
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -32,7 +33,17 @@ pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
 COL_NAME = 'as_parse'
 
-def as_parse_main(app_config, api_info):
+# `exit_flag` is issues/5975
+async def as_parse_main(exit_flag, app_config, api_info):
+    """This is a workaround for https://github.com/dask/distributed/issues/5975.
+    Basically, by using an async task, we spawn directly on the worker's thread,
+    so we can use our own management to keep the actor going.
+    """
+    import asyncio
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _as_parse_main, exit_flag, app_config, api_info)
+
+def _as_parse_main(exit_flag, app_config, api_info):
     """Continuously goes through `COL_NAME` to find documents which need to be
     parsed; distributes files to workers by batch.
     """
@@ -45,15 +56,24 @@ def as_parse_main(app_config, api_info):
     col.create_index([('priority_order', 1)])
     col_obs.create_index([('idle_complete', 1)])
 
-    with dask.distributed.worker_client() as client:
+    # issues/5975
+    #with dask.distributed.worker_client() as client:
+    # For the occupancy bug
+    client = dask.distributed.get_client()
+    if True:
+        [app_config_future] = client.scatter([app_config], broadcast=True)
+
+        # Begin by cleaning up the idle definition; otherwise, might start
+        # running idle parsers pre-maturely, or they might be requested to run
+        # at the wrong version.
+        _as_parse_ensure_idle_versions(app_config, db)
+
         # We have to track everything here, rather than relying on `pure=True`.
         # This is a result of
         # So, track outstanding ids for e.g. transient errors.
         outstanding_docs = []  # (doc, future)
         outstanding = dask.distributed.as_completed(with_results=True,
                 raise_errors=False)
-
-        [app_config_future] = client.scatter([app_config], broadcast=True)
 
         work_max = 0
         last_update = 0.
@@ -88,7 +108,9 @@ def as_parse_main(app_config, api_info):
             for doc in data:
                 num_added += 1
                 future = client.submit(_dask_as_parse_file,
-                        app_config_future, api_info, doc, pure=False)
+                        app_config_future, api_info, doc,
+                        resources={'faw_parse': 1.},
+                        pure=False)
                 outstanding_docs.append((doc, future))
                 outstanding.add(future)
 
@@ -99,16 +121,7 @@ def as_parse_main(app_config, api_info):
 
         def idle_work():
             # First, see if we have new versions of the idle parsers
-            versions_id, versions_data = faw_analysis_set_util.aset_parser_versions_calculate_idle(app_config)
-            versions = [versions_id, versions_data]
-            doc = db['misc'].find_one({'_id': 'as_idle'})
-            if doc is None or doc['parser_versions'] != versions:
-                # Reset all idle_complete
-                col_obs.update_many({}, {'$unset': {'idle_complete': True}})
-                # Flag as the version we'll be running
-                db['misc'].update_one({'_id': 'as_idle'},
-                        {'$set': {'parser_versions': versions}},
-                        upsert=True)
+            _as_parse_ensure_idle_versions(app_config, db)
 
             data = col_obs.aggregate([
                     {'$match': {'idle_complete': {'$exists': False}}},
@@ -124,6 +137,7 @@ def as_parse_main(app_config, api_info):
                     {'$project': {'col_parse': 0}},
                     {'$limit': work_max - outstanding.count()},
             ])
+            data_seen = 0
             for doc_obs in data:
                 # Cast from 'observatory' to 'as_parse'-typed document
                 r = col.update_one({'_id': doc_obs['_id']},
@@ -132,18 +146,46 @@ def as_parse_main(app_config, api_info):
                             '$min': {'priority_order': 1e30},
                         },
                         upsert=True)
+                data_seen += 1
+
+            if (data_seen == 0
+                    and col_obs.find_one({'idle_complete': {'$exists': False}}
+                        ) is None):
+                # All idle processing is complete. Update parser_versions_done
+                # so we can skip this step in subsequent analysis set
+                # compilations.
+                doc = db['misc'].find_one({'_id': 'as_idle'})
+                if doc is not None:
+                    # This is safe only because this is the only spot
+                    # parser_versions_done is set on the idle analysis set.
+                    changed = False
+                    doc_done = doc.get('parser_versions_done', [{}, {}])
+                    for k, v in doc['parser_versions'][1].items():
+                        if (
+                                # Not disabled
+                                v is not None
+                                # Wrong version
+                                and doc_done[1].get(k) != v):
+                            doc_done[1][k] = v
+                            changed = True
+                    if changed:
+                        db['misc'].update_one(
+                                {'_id': 'as_idle', 'parser_versions': doc['parser_versions']},
+                                {'$set': {'parser_versions_done': doc_done}})
 
             # Now that documents are in col_parse (maybe), initiate a standard
             # load
             next_work(from_idle=True)
 
-        while True:
+        # was while True before issues/5975
+        while not exit_flag[0]:
             # Initial load
             next_work()
 
             # Iterator will keep us from maxing out CPU
             for f, f_result in outstanding:
-                if faw_internal_util.dask_check_if_cancelled():
+                # issues/5975
+                if exit_flag[0]:#faw_internal_util.dask_check_if_cancelled():
                     return
 
                 # Clean up list
@@ -185,6 +227,21 @@ def as_parse_main(app_config, api_info):
             time.sleep(2)
 
 
+def _as_parse_ensure_idle_versions(app_config, db):
+    """Ensure that any idle parsing catches all version changes.
+    """
+    versions_id, versions_data = faw_analysis_set_util.aset_parser_versions_calculate_idle(app_config)
+    versions = [versions_id, versions_data]
+    doc = db['misc'].find_one({'_id': 'as_idle'})
+    if doc is None or doc['parser_versions'] != versions:
+        # Reset all idle_complete
+        db['observatory'].update_many({}, {'$unset': {'idle_complete': True}})
+        # Flag as the version we'll be running
+        db['misc'].update_one({'_id': 'as_idle'},
+                {'$set': {'parser_versions': versions}},
+                upsert=True)
+
+
 def _dask_as_parse_file(app_config, api_info, doc):
     """Fetch the given file with API, and run required parser(s) on it.
 
@@ -208,10 +265,25 @@ def _dask_as_parse_file(app_config, api_info, doc):
 
         # Modify doc['parsers'] s.t. all parsers are represented and will be ran
         # on this file.
-        for pk, pv in app_config['parsers'].items():
-            if pv.get('disabled'):
-                continue
-            doc['parsers'][pk] = (pv['version'], pv['parse']['version'])
+        idle_parsers_doc = db['misc'].find_one({'_id': 'as_idle'})
+        if idle_parsers_doc is None:
+            raise ValueError("Could not find idle?")
+        doc['parsers'].update(idle_parsers_doc['parser_versions'][1])
+
+    def get_cfg(k):
+        """Given a parser name `k`, resolve to relevant app_config"""
+        parser_pipeline_name = faw_analysis_set_util.deconstruct_pipeline_parser_name(k)
+        if parser_pipeline_name is None:
+            parser_config = app_config['parsers'][k]
+        else:
+            parser_config = (app_config['pipelines']
+                    [parser_pipeline_name.pipe]
+                    ['parsers']
+                    [parser_pipeline_name.parser])
+            parser_config = parser_config.copy()
+            parser_config['aset'] = parser_pipeline_name.aset
+            parser_config['pipeline'] = parser_pipeline_name.pipe
+        return parser_config
 
     parser_set = list(doc.get('parsers', {}).keys())
     if parser_set:
@@ -224,6 +296,11 @@ def _dask_as_parse_file(app_config, api_info, doc):
                 {'parser': True, 'version_tool': True, 'version_parse': True}))
         versions_keyed = {}
         for v in rawinv:
+            # Convert from old style to new style versions
+            if not isinstance(v['invoker']['version'], dict):
+                v['invoker']['version'] = {'': v['invoker']['version']}
+
+            # Find version information, log this mongo document
             vv = versions_keyed.setdefault(v['invoker']['invName'],
                     [[v['invoker']['version'], None], [], []])
             # Should only be one, never know. Better to have self-healing db
@@ -232,6 +309,12 @@ def _dask_as_parse_file(app_config, api_info, doc):
                 # Want to re-run this one
                 vv[0][0] = None
         for v in invpar:
+            # Convert from old style to new style versions
+            if not isinstance(v['version_tool'], dict):
+                v['version_tool'] = {'': v['version_tool']}
+            if not isinstance(v['version_parse'], dict):
+                v['version_parse'] = {'': v['version_parse']}
+
             # Note that we want to delete parser if it doesn't match tool
             # version
             vv = versions_keyed.setdefault(v['parser'],
@@ -247,6 +330,14 @@ def _dask_as_parse_file(app_config, api_info, doc):
             ver_db_info = versions_keyed.get(k, [[None, None], [], []])
             ver_db = ver_db_info[0]
             ver_cfg = doc['parsers'][k]
+
+            cfg = get_cfg(k)
+            if cfg.get('disabled'):
+                # We *do* want to unset based on version. A different version
+                # may not be disabled.
+                parsers_done[k] = ver_cfg
+                continue
+
             if ver_db[0] != ver_cfg[0]:
                 parsers_to_run_tool[k] = ver_cfg[0]
                 parsers_to_run_parser[k] = ver_cfg[1]
@@ -263,21 +354,6 @@ def _dask_as_parse_file(app_config, api_info, doc):
 
             # Regardless, need to set this as done when we've run everything
             parsers_done[k] = ver_cfg
-
-    def get_cfg(k):
-        """Given a parser name `k`, resolve to relevant app_config"""
-        parser_pipeline_name = faw_analysis_set_util.deconstruct_pipeline_parser_name(k)
-        if parser_pipeline_name is None:
-            parser_config = app_config['parsers'][k]
-        else:
-            parser_config = (app_config['pipelines']
-                    [parser_pipeline_name.pipe]
-                    ['parsers']
-                    [parser_pipeline_name.parser])
-            parser_config = parser_config.copy()
-            parser_config['aset'] = parser_pipeline_name.aset
-            parser_config['pipeline'] = parser_pipeline_name.pipe
-        return parser_config
 
     if faw_internal_util.dask_check_if_cancelled():
         return
@@ -312,7 +388,9 @@ def _dask_as_parse_file(app_config, api_info, doc):
             return db[name]
         parsers_config = {k: get_cfg(k)}
         pdf_etl_parse.handle_doc(tool_doc, coll_resolver, fname_rewrite=doc_id,
-                db_dst='/invocationsparsed', parsers_config=parsers_config)
+                db_dst='/invocationsparsed', parse_version=v,
+                parsers_config=parsers_config,
+                parser_parsers_shared=app_config['parser_parsers_shared'])
 
         if faw_internal_util.dask_check_if_cancelled():
             return
@@ -336,15 +414,6 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
     """
 
     timeout = parser_cfg['timeout'] or timeout_default
-
-    if 'pipeline' in parser_cfg:
-        ok = parser_tool_version.startswith(parser_cfg['version'])
-    else:
-        ok = parser_tool_version == parser_cfg['version']
-
-    if not ok:
-        raise ValueError(f'Requested parse {parser_tool_version}; config version {parser_cfg["version"]}')
-
     doc = {
             'invoker': {'version': parser_tool_version, 'invName': parser_inv_name},
             'file': fpath_tool_name,
@@ -380,6 +449,16 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                 temps.append(tempfile.NamedTemporaryFile(suffix=suffix, delete=False))
                 temps[-1].close()
                 args.append(temps[-1].name)
+            elif e.startswith('<tempPrefix'):
+                suffix = e[11:-1]
+                if suffix:
+                    assert suffix[0] == ' ', suffix
+                    assert ' ' not in suffix[1:], suffix
+                    suffix = suffix[1:]
+                    assert '"' not in suffix, suffix
+                temps.append([tempfile.NamedTemporaryFile(suffix=suffix, delete=False)])
+                temps[-1][0].close()
+                args.append(temps[-1][0].name)
             else:
                 args.append(e)
 
@@ -468,13 +547,28 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         doc['result']['cpuSystem'] = sum(p.system for p in psutil_cpu.values())
         doc['result']['cpuIowait'] = sum(p.iowait for p in psutil_cpu.values())
         doc['result']['exitcode'] = p.wait()
-        paths = [(t.name, '<tempFile>') for t in temps] + [(fpath, '<inputFile>')]
+        paths = (
+                [(t.name if not isinstance(t, list) else t[0].name, '<tempFile>')
+                    for t in temps]
+                + [(fpath, '<inputFile>')])
         doc['result']['stdoutRes'] = _trim_program_output(buf_out.getvalue(), paths)
         doc['result']['stderrRes'] = _trim_program_output(buf_err.getvalue(), paths)
         doc['result']['_cons'] = 'Timeout' if timed_out else 'GoodResult'
     finally:
         for t in temps:
-            os.unlink(t.name)
+            if isinstance(t, list):
+                tdir = os.path.dirname(t[0].name)
+                tbase = os.path.basename(t[0].name)
+                for f in os.listdir(tdir):
+                    if not f.startswith(tbase):
+                        continue
+                    f = os.path.join(tdir, f)
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.unlink(f)
+            else:
+                os.unlink(t.name)
 
     exit_code = doc['result']['exitcode']
     if parser_cfg.get('mustSucceed') and exit_code != 0:

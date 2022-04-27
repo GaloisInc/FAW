@@ -20,6 +20,8 @@ import traceback
 
 _app_config = None
 _app_config_version = 0
+_app_force_stale = {}  # {'aset': True} for asets which have been modified in such
+                       # a way that their current processing should be aborted.
 
 class AsStatus(enum.Enum):
     UP_TO_DATE = ''
@@ -30,6 +32,7 @@ class AsStatus(enum.Enum):
                                # analysis set's document collection.
     COMPILING = 'compiling'
     DELETE = 'delete'
+
 
 def config_update(app_config):
     """Update app config; will trigger
@@ -50,9 +53,47 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
     # Launch other management tasks both as asynchronous threads and via dask
     api_info = get_api_info()
 
+    # Porting old version of DB (pre-parser_parsers_shared) to new version
+    asets = [('as_metadata', d)
+            async for d in app_mongodb_conn['as_metadata'].find()]
+    asets.append(('misc', await app_mongodb_conn['misc'].find_one({'_id': 'as_idle'})))
+    for coll, doc in asets:
+        if doc is None:
+            # misc guard
+            continue
+
+        changes = {}
+        # Check for old format of data -- parser_versions not a list
+        if not isinstance(doc.get('parser_versions'), list):
+            changes['parser_versions'] = [None, None]
+            changes['parser_versions_done'] = [None, None]
+        else:
+            # Check if parser versions are a single string instead of a dict of
+            # versions
+            for i, parser_set in enumerate(doc['parser_versions']):
+                if parser_set is None:
+                    continue
+                for k, v in parser_set.items():
+                    if v is None:
+                        # Happens when e.g. a parser is disabled. It's fine.
+                        pass
+                    else:
+                        if not isinstance(v[0], dict):
+                            v_new = {'': v[0]}
+                            changes[f'parser_versions.{i}.{k}.0'] = v_new
+                        if not isinstance(v[1], dict):
+                            v_new = {'': v[1]}
+                            changes[f'parser_versions.{i}.{k}.1'] = v_new
+        if changes:
+            # Old data format, time for a new one
+            app_mongodb_conn[coll].update_one({'_id': doc['_id']},
+                    {'$set': changes})
+
     client = None
     client_tasks = {}
     client_version = _app_config_version
+    # issues/5975
+    parse_exit = [False]
     while True:
         try:
             if client is None:
@@ -68,11 +109,27 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
             if client_version != _app_config_version:
                 client_version = _app_config_version
                 client_tasks = new_tasks
+                # issues/5975
+                parse_exit[0] = True
+                parse_exit = [False]
                 await asyncio.sleep(1.)
                 continue
 
             # Ensure we have a task that's kicking off parses
             parse_task = client_tasks.get('as_parse')
+            if parse_task is not None:
+                parse_done, parse_pending = await asyncio.wait([parse_task],
+                        timeout=1e-3)
+                if parse_pending:
+                    new_tasks['as_parse'] = parse_task
+            else:
+                # Until https://github.com/dask/distributed/issues/5975 is fixed,
+                # run this locally.
+                # When fixed, be sure to check for `issues/5975` elsewhere in code
+                new_tasks['as_parse'] = asyncio.create_task(
+                        faw_analysis_set_parse.as_parse_main(parse_exit,
+                            _app_config, api_info))
+            '''
             if parse_task is not None:
                 try:
                     await parse_task.result(timeout=0.5)
@@ -85,17 +142,19 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
                 # Spin up
                 new_tasks['as_parse'] = client.submit(
                             faw_analysis_set_parse.as_parse_main,
-                            _app_config, api_info,
+                            _app_config, api_info, priority=10000,
                             pure=False)
             else:
                 new_tasks['as_parse'] = parse_task
+            '''
 
             # For each analysis set, spin up a management task and wait for
             # completion.
             promises = []
             async for aset in _app_mongodb_conn['as_metadata'].find():
-                promises.append(_as_manage(aset, api_info, client, client_tasks))
-                promises.append(_as_manage_pipelines(aset, api_info, client,
+                promises.append(_as_manage(parse_exit, aset, api_info, client, client_tasks))
+                # issues/5975
+                promises.append(_as_manage_pipelines(parse_exit, aset, api_info, client,
                         client_tasks))
             if promises:
                 task_objs = await asyncio.gather(*promises)
@@ -126,8 +185,8 @@ async def as_list():
         col = _app_mongodb_conn[colname]
         stats = await _app_mongodb_conn.command('collstats', colname)
 
-        adoc = dict(id=a['_id'], size_docs=await col.estimated_document_count(),
-                size_disk=stats['storageSize'],
+        adoc = dict(id=a['_id'], size_docs=stats['count'],  # await col.estimated_document_count(),
+                size_disk=stats['size'],  # stats['storageSize'],
                 status=a['status'], status_done_time=a.get('status_done_time'),
                 definition=a['definition'], pipelines=a.get('pipelines', {}))
 
@@ -153,6 +212,7 @@ async def as_update(id, definition):
             'definition': definition,
             'status': AsStatus.REBUILD_IDS.value
     }}, upsert=True)
+    _app_force_stale[id] = True
 
 
 ########################################################
@@ -168,23 +228,36 @@ Index collection: _id of files included in set.
 Stats collection: old statsbyfile, but new schema.
 '''
 
-async def _as_manage(aset, api_info, client, client_tasks):
+async def _as_manage(exit_flag, aset, api_info, client, client_tasks):
     name = aset['_id']
     mongo_info = api_info['mongo']
+
+    # Forced staleness due to external modification
+    if _app_force_stale.pop(name, False):
+        return
 
     # Check old task status -- see if it finished
     old_task_info = client_tasks.get(name)
     missing = {}
     old_task_result = missing
     if old_task_info is not None:
-        try:
-            old_task_result = await old_task_info.result(timeout=0.5)
-        except dask.distributed.TimeoutError:
-            pass
-        except:
-            # Another exception -- still pass, but unset the old task
-            traceback.print_exc()
-            old_task_info = None
+        # issues/5975
+        done, pending = await asyncio.wait([old_task_info], timeout=1e-2)
+        if done:
+            try:
+                old_task_result = await old_task_info
+            except:
+                traceback.print_exc()
+                old_task_info = None
+
+        #try:
+        #    old_task_result = await old_task_info.result(timeout=0.5)
+        #except dask.distributed.TimeoutError:
+        #    pass
+        #except:
+        #    # Another exception -- still pass, but unset the old task
+        #    traceback.print_exc()
+        #    old_task_info = None
 
     # See if stale -- standard parsing queues. An analysis set is stale if
     # its parser versions are out of date. In that case, we want to
@@ -195,12 +268,6 @@ async def _as_manage(aset, api_info, client, client_tasks):
     versions_id, versions_data = await loop.run_in_executor(None,
             faw_analysis_set_util.aset_parser_versions_calculate, _app_config,
                 _app_mongodb_conn.delegate, aset)
-
-    # Check for old format of data
-    if not isinstance(aset.get('parser_versions', []), list):
-        await _app_mongodb_conn['as_metadata'].update_one({'_id': aset['_id']},
-                {'$unset': {'parser_versions': True, 'parser_versions_done': True}})
-        return
 
     # Check for staleness -- old versions
     stale = False
@@ -264,18 +331,41 @@ async def _as_manage(aset, api_info, client, client_tasks):
         return {name: old_task_info}
 
     # Launch a new task
-    future = client.submit(_as_populate, name, mongo_info, _app_config,
-            pure=False)
+    # issues/5975
+    #future = client.submit(_as_populate, name, mongo_info, _app_config,
+    #        priority=10000, pure=False)
+    future = asyncio.create_task(_run_in_exec(_as_populate, exit_flag, name,
+            mongo_info, _app_config))
     return {name: future}
 
 
-async def _as_manage_pipelines(aset, api_info, client, client_tasks):
+async def _run_in_exec(*args):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, *args)
+
+
+async def _as_manage_pipelines(exit_flag, aset, api_info, client, client_tasks):
     """Spawn / ensure pipeline manager for this analysis set. This only ensures
     that pipelines running under this analysis set get ran; it has nothing to
     do with the parsers.
     """
+    # Also waiting on https://github.com/dask/distributed/issues/5975.
+
     name = aset['_id'] + '!__pipelines'
     old_task_info = client_tasks.get(name)
+    task = None
+    if old_task_info is not None:
+        done, pending = await asyncio.wait([old_task_info], timeout=1e-2)
+        if pending:
+            task = old_task_info
+
+    if task is None:
+        import faw_pipelines
+        # issues/5975
+        task = asyncio.create_task(faw_pipelines.pipeline_admin(exit_flag, _app_config,
+                api_info, aset['_id']))
+    return {name: task}
+
     missing = {}
     old_task_result = missing
     if old_task_info is not None:
@@ -295,11 +385,11 @@ async def _as_manage_pipelines(aset, api_info, client, client_tasks):
     # Import here to break cyclical dependency
     import faw_pipelines
     future = client.submit(faw_pipelines.pipeline_admin, _app_config,
-            api_info, aset['_id'], pure=False)
+            api_info, aset['_id'], priority=10000, pure=False)
     return {name: future}
 
 
-def _as_populate(as_name, mongo_info, app_config):
+def _as_populate(exit_flag, as_name, mongo_info, app_config):
     """Does all steps of rebuilding process, using 'status' to track where we're
     at.
 
@@ -307,6 +397,8 @@ def _as_populate(as_name, mongo_info, app_config):
         REBUILD_IDS -> REBUILD_DATA -> REBUILDING -> COMPILING -> UP_TO_DATE.
 
     Must be re-entrant.
+
+    # issues/5975 -- dask_check_if_cancelled
     """
     # Convergent
     db = faw_internal_util.mongo_api_info_to_db_conn(mongo_info)
@@ -323,7 +415,7 @@ def _as_populate(as_name, mongo_info, app_config):
         Returns False when computation should abort.
         """
         assert isinstance(status, str), status
-        if faw_internal_util.dask_check_if_cancelled():
+        if exit_flag[0]: # faw_internal_util.dask_check_if_cancelled():
             return False
 
         update = {'status': status}
@@ -333,7 +425,7 @@ def _as_populate(as_name, mongo_info, app_config):
         ostatus = as_doc['status']
         r = col_as_metadata.update_one({'_id': as_name, 'status': ostatus},
                 {'$set': update})
-        if r.modified_count == 0:
+        if r.matched_count == 0:
             # No document modified; status changed?
             return False
 
@@ -346,8 +438,21 @@ def _as_populate(as_name, mongo_info, app_config):
     # user downtime.
 
     if as_doc['status'] == AsStatus.REBUILD_IDS.value:
-        with dask.distributed.worker_client():  # Secede from dask for long op
-            as_create_id_collection(db, app_config, as_name, col_ids.name)
+        # issues/5975
+        if True: #with dask.distributed.worker_client():  # Secede from dask for long op
+            as_create_id_collection(exit_flag, db, app_config, as_name, col_ids.name)
+            # MUST also clear out `parser_versions_done`! Otherwise, we may have
+            # a new batch of files which are not guaranteed to be at the latest
+            # version, and we may end up displaying old data.
+            if as_doc.get('parser_versions_done'):
+                r = col_as_metadata.update_one({'_id': as_name},
+                        {'$set': {'parser_versions_done.1': {}}})
+                # Note -- matched_count is important here. If we try to replace
+                # an empty dict with an empty dict, newer mongo versions do not
+                # count that as a modification.
+                if r.matched_count == 0:
+                    raise ValueError(f'Unmodified? {as_name}')
+                as_doc['parser_versions_done'][1] = {}
         if not update_status(AsStatus.REBUILD_DATA.value):
             return
 
@@ -361,9 +466,13 @@ def _as_populate(as_name, mongo_info, app_config):
         # Stage 1 -- run pipeline parsers on files as needed
         _, pv_data = as_doc['parser_versions']
         _, pv_data_done = as_doc.get('parser_versions_done', [{}, {}])
-        with dask.distributed.worker_client():
-            if not _as_populate_parsers(app_config, pv_data, pv_data_done,
-                    col_ids, col_parse):
+        # Issues/5975
+        #with dask.distributed.worker_client():
+        if True:
+            idle_aset = db['misc'].find_one({'_id': 'as_idle'})
+            assert idle_aset is not None
+            if not _as_populate_parsers(exit_flag, app_config, pv_data, pv_data_done,
+                    idle_aset, col_ids, col_parse):
                 # Failure -- abort without updating anything
                 return
         # On completion, assign `parser_versions_done` so we don't re-run
@@ -371,7 +480,7 @@ def _as_populate(as_name, mongo_info, app_config):
         col_as_metadata.update_one({'_id': as_doc['_id']},
                 {'$set': {'parser_versions_done': as_doc['parser_versions']}})
 
-        if faw_internal_util.dask_check_if_cancelled():
+        if exit_flag[0]: #faw_internal_util.dask_check_if_cancelled():
             # One final check before purging previous data
             return
 
@@ -383,15 +492,16 @@ def _as_populate(as_name, mongo_info, app_config):
 
     # Finally, compiling
     # Collect parser information
-    _as_populate_gather(as_doc, col_ids, col_dst)
+    _as_populate_gather(exit_flag, as_doc, col_ids, col_dst)
 
     # Declare done
     if not update_status(AsStatus.UP_TO_DATE.value):
         return
 
 
-def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
-        col_ids, col_parse):
+# issues/5975
+def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions_done,
+        idle_aset, col_ids, col_parse):
     """Scan through documents which require additional parsing. Use the version
     that was specified when the ids were populated so that we have a nice,
     uniform parse across all files.
@@ -418,7 +528,11 @@ def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
     new_parsers = {}
     for k, v in parser_versions.items():
         if parser_versions_done.get(k) != v and v is not None:
-            new_parsers[k] = v
+            # If idle processing is done, we do not need to run this parser,
+            # as it is guaranteed complete.
+            idle_version = idle_aset.get('parser_versions_done', [{}, {}])[1].get(k)
+            if idle_version != v:
+                new_parsers[k] = v
 
     if not new_parsers:
         # Nothing to do
@@ -430,7 +544,7 @@ def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
             * len(new_parsers))
 
     while True:
-        if faw_internal_util.dask_check_if_cancelled():
+        if exit_flag[0]: # faw_internal_util.dask_check_if_cancelled():
             # Abort
             return
         ids = [d['_id'] for d in col_ids.find({'done_parse': False}, {})
@@ -461,7 +575,7 @@ def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
 
     # Stage 2 -- wait for all documents to complete all needed parsers
     while True:
-        if faw_internal_util.dask_check_if_cancelled():
+        if exit_flag[0]: # faw_internal_util.dask_check_if_cancelled():
             # Abort
             return
         ids = [d['_id'] for d in col_ids.find({'done_parse': 'maybe'}, {})
@@ -492,12 +606,12 @@ def _as_populate_parsers(app_config, parser_versions, parser_versions_done,
     return True
 
 
-def _as_populate_gather(as_doc, col_ids, col_dst):
+def _as_populate_gather(exit_flag, as_doc, col_ids, col_dst):
     """Gather all parser information specified in as_doc into `col_dst` from
     `col_ids`. Must be re-entrant.
     """
     while True:
-        if faw_internal_util.dask_check_if_cancelled():
+        if exit_flag[0]:#faw_internal_util.dask_check_if_cancelled():
             break
 
         # Sample a batch to be done
@@ -548,8 +662,8 @@ def _as_populate_gather(as_doc, col_ids, col_dst):
                     fk = fkv['k']
                     fv = fkv['v']
 
-                    if fk.startswith('<<workbench: Exit code'):
-                        # Parser included, include this
+                    if fk.startswith('<<workbench: Exit '):
+                        # Parser included, include exit code information
                         pout[fk] = fv
                         continue
 
@@ -586,7 +700,8 @@ def _as_populate_ids_setup_col(col_ids):
     col_ids.update_many({}, {'$set': {'done': False, 'done_parse': False}})
 
 
-def as_create_id_collection(db, app_config, aset_id, col_name, *,
+# issues/5975
+def as_create_id_collection(exit_flag, db, app_config, aset_id, col_name, *,
         disable_sampling=False):
     """Create a brand new ID table named `col_name`. If it exists, delete it and
     re-populate. This table will contains documents with only an ``_id`` field
@@ -595,6 +710,9 @@ def as_create_id_collection(db, app_config, aset_id, col_name, *,
     IMPORTANT: this may take an extraordinarily long time! If the analysis set
     has feature dependencies, then those parsers must be run on 100% of files in
     the database before this set can proceed.
+
+    MAY call `faw_internal.dask_check_if_cancelled()` and return `None` for
+    early exits. In this case, `col_name` will not exist.
 
     THEREFORE: SHOULD BE CALLED OUTSIDE OF DASK CONTEXT!
 
@@ -639,14 +757,16 @@ def as_create_id_collection(db, app_config, aset_id, col_name, *,
 
         # At this point, it's a pseudo-analysis set.
         col_parse = db[faw_analysis_set_parse.COL_NAME]
+        idle_aset = db['misc'].find_one({'_id': 'as_idle'})
+        assert idle_aset is not None
         if not _as_populate_parsers(app_config, parsers_id, parsers_id_done,
-                tmp_id_col, col_parse):
+                idle_aset, tmp_id_col, col_parse):
             raise ValueError('_as_populate_parsers failed; reference lost?')
 
         # Finally, delete temporary, then set done
         tmp_id_col.drop()
         db['as_metadata'].update_one({'_id': aset['_id']},
-                {'$set': {'parser_versions_done': [parsers_id, parsers_data_done]}})
+                {'$set': {'parser_versions_done.0': parsers_id}})
 
     cursor = None  # Iterator for documents with only '_id' field
     count_map = []

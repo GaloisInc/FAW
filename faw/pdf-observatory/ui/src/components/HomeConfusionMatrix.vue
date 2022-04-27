@@ -65,6 +65,7 @@ import { PdfDecision } from "./common";
 export default Vue.extend({
   props: {
     decisionAspectSelected: String,
+    decisionAspectSelectedName: String,
     pdfs: Array as () => Array<PdfDecision>,
     pdfsReference: Array as () => Array<PdfDecision>,
   },
@@ -95,7 +96,7 @@ export default Vue.extend({
   methods: {
     fileFilterListName(di: number, ri: number): string {
       const r = [
-        this.decisionAspectSelected,
+        this.decisionAspectSelectedName,
         ' == ',
         this.decisions[di] === undefined ? 'undefined' : this.decisions[di],
         ' (',

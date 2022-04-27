@@ -6,10 +6,10 @@
       .decision-info {{decisionSelected.info}}
 
     div Current decision
-      json-tree(:data="decisionSelected" :level="2")
+      JsonTree(:data="decisionSelected" :level="2")
 
     div Reference decision
-      json-tree(:data="decisionReference" :level="2")
+      JsonTree(:data="decisionReference" :level="2")
 
     div(style="font-weight: bold; border-top: solid 1px #000") In-Tool Decision Details
     .decision-overview
@@ -39,7 +39,14 @@
                     v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
 
     .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
-      v-virtual-scroll(:items="fileStats.get('other')" item-height="25" height="750" bench="2")
+      div(style="display: flex; flex-direction: row; align-items: center; margin-top: -1em; margin-bottom: -1.5em")
+        span (
+        v-checkbox(v-model="fileStatsAsOnly" label="only show features included in current analysis set")
+        span )
+      div(style="display: flex; flex-direction: row; align-items: center")
+        v-text-field(label="Search regex" v-model="fileStatsSearch")
+        v-checkbox(v-model="fileStatsSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
+      v-virtual-scroll(:items="fileStatsSearchCache" item-height="25" height="750" bench="2")
         template(v-slot:default="{item}")
           div(:key="item[0]")
             v-menu(offset-y max-width="400")
@@ -60,9 +67,10 @@
 <script lang="ts">
 import Vue from 'vue';
 
-import CheckmarkComponent from '@/components/Checkmark.vue';
+import CheckmarkComponent from '@/components/CheckmarkComponent.vue';
 import {PdfDecision, sortByReject} from '@/components/common';
 import {DslResult} from '@/dsl';
+import {regexEscape} from '@/util';
 
 export default Vue.extend({
   components: {
@@ -78,25 +86,44 @@ export default Vue.extend({
   data() {
     return {
       fileStats: new Map<string, Array<[string, string]>>(),
+      fileStatsAsOnly: false,
+      fileStatsSearch: '',
+      fileStatsSearchCache: new Array<[string, string]>(),
+      fileStatsSearchInsensitive: true,
+      fileStatsSearchTimer: null as any,
     };
   },
   watch: {
     decisionSelectedDsl() {
       this.updateDecisionReasons();
     },
+    fileStatsAsOnly() {
+      this.updateDecisionReasons();
+    },
+    fileStatsSearch() {
+      if (this.fileStatsSearchTimer) clearTimeout(this.fileStatsSearchTimer);
+      this.fileStatsSearchTimer = setTimeout(() => this.fileStatsSearchUpdate(), 250);
+    },
   },
   methods: {
+    fileStatsSearchUpdate() {
+      const re = new RegExp(this.fileStatsSearch,
+          this.fileStatsSearchInsensitive ? 'i' : '');
+      this.fileStatsSearchCache = this.fileStats.get('other')!.filter(
+          x => re.test(x[0]));
+    },
     regexEscape(v: string): string {
-      return v.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+      return regexEscape(v);
     },
     async updateDecisionReasons() {
       this.fileStats.clear();
       this.fileStats.set('other', []);
+      this.fileStatsSearchUpdate();
 
       const tf = this.decisionSelectedDsl.testfile;
       if (tf) {
         const data = await this.$vuespa.call('load_db', tf, 'statsbyfile',
-            this.asOptions);
+            this.asOptions, {as_only: this.fileStatsAsOnly});
         // Prevent duplicates by re-setting the array whenever we get data
         this.fileStats.clear();
         this.fileStats.set('other', []);
@@ -106,7 +133,7 @@ export default Vue.extend({
             continue;
           }
           const info = this.decisionSelectedDsl.info;
-          const dRe = new RegExp(`^'([^']*)' (rejected|accepted) '${RegExp.escape(d)}'$`, 'gm');
+          const dRe = new RegExp(`^'([^']*)' (rejected|accepted) '${regexEscape(d)}'$`, 'gm');
           const dMatches = new Array<RegExpExecArray|null>();
           let dMatch;
           for (const line of info) {
@@ -153,6 +180,7 @@ export default Vue.extend({
         // Vue doesn't track reactivity on Map objects.  So, re-assign with
         // copy.
         Vue.set(this, 'fileStats', new Map(this.fileStats));
+        this.fileStatsSearchUpdate();
       }
     },
   },

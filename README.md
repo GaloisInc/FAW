@@ -1,17 +1,21 @@
 # Format Analysis Workbench (FAW)
 
+<img src="./docs/logo/original.png" width="300px" align="right"/>
+
 The Format Analysis Workbench (FAW) is a platform for running and analyzing the
 output from any number of parsers dealing with a single file format. It is meant
 to be a workbench for developing tools which aid in understanding the de facto
 formats which naturally emerge from open standards.
 
+<br clear="right" />
+
 ## Example Screenshots
 
 Main overview of decisions
-![Main overview](./common/readme/screenshot-main.png)
+![Main overview](./docs/readme/screenshot-main.png)
 
 Decision DSL excerpt
-![DSL excerpt](./common/readme/screenshot-dsl.png)
+![DSL excerpt](./docs/readme/screenshot-dsl.png)
 
 ## Getting Started
 
@@ -86,6 +90,14 @@ To build a standalone workbench in `build/label`, run:
 See `common/README-dist.md` for additional information on running the workbench
 docker image in a standalone fashion; that file is packaged with any builds.
 
+## Database backup
+
+Running `./workbench.py <DIST> <FOLDER> --copy-mongo-to <FILE>` will create a
+backup of the current database for `<DIST>` and `<FOLDER>` at `<FILE>`, which
+must be specified as an absolute path. This backup may be restored by running
+`./workbench.py <DIST> <FOLDER> --copy-mongo-from <FILE>`, again using an
+absolute path.
+
 ## Troubleshooting
 
 1. Should the web interface fail to start, try deleting
@@ -99,7 +111,11 @@ docker image in a standalone fashion; that file is packaged with any builds.
   if the server itself ever needs to be rebooted, there is a `faw-restart.sh`
   executable in the PATH which can help do this correctly.
 
-3. Additional documentation is in the [docs](docs) directory.
+3. The FAW docker image contains a binary which can be used to view all logs,
+  restart the FAW process, or inspect the database in a REPL. For these functions,
+  run e.g. `docker exec -it <CONTAINER> faw-cli.py`.
+
+4. Additional documentation is in the [docs](docs) directory.
 
 ## Acknowledgements
 
