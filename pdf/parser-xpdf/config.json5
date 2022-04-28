@@ -256,11 +256,11 @@
                 commands: [
                     'RUN mkdir -p /opt/xpdf \
                         && cd /opt/xpdf \
-                        && wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
-                        && tar xf xpdf-tools-linux-4.03.tar.gz \
-                        && rm xpdf-tools-linux-4.03.tar.gz \
+                        && wget https://dl.xpdfreader.com/xpdf-tools-linux-4.04.tar.gz \
+                        && tar xf xpdf-tools-linux-4.04.tar.gz \
+                        && rm xpdf-tools-linux-4.04.tar.gz \
                         && mv */* ./ \
-                        && rm -rf xpdf-tools-linux-4.03 \
+                        && rm -rf xpdf-tools-linux-4.04 \
                         ',
                 ],
            },
