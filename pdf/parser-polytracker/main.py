@@ -1,34 +1,31 @@
 import os
+from pathlib import Path
 import sys
 import subprocess
 from tempfile import NamedTemporaryFile
 from typing import Optional
 
-from polytracker import PolyTrackerTrace
-from polytracker.mapping import InputOutputMapping
+from dumptdag import cavity_detection
 
 
 def process_pdf(path: str, timeout: Optional[float] = None):
-    with NamedTemporaryFile("wb", delete=False) as tmpfile, NamedTemporaryFile("wb", delete=False) as pngfile:
+    with NamedTemporaryFile("wb", delete=False) as tmpfile, NamedTemporaryFile("wb", delete=False) as psfile:
         try:
             db_path = tmpfile.name
-            png_path = pngfile.name
+            ps_path = psfile.name
             tmpfile.close()
-            pngfile.close()
-            subprocess.check_call(["/usr/bin/mutool_track_no_control_flow", "draw", "-o", png_path, path], env={
-                "POLYPATH": path,
+            psfile.close()
+            subprocess.check_call(["/usr/bin/mutool_track_no_control_flow", "draw", "-o", ps_path, path], env={
                 "POLYDB": db_path
             }, timeout=timeout)
-            trace = PolyTrackerTrace.load(db_path)
-            for cavity in InputOutputMapping(trace).file_cavities():
-                print(f"{cavity.source.path}\t{cavity.offset}\t{cavity.offset + cavity.length - 1}")
+            cavity_detection(Path(db_path), Path(path))
         except TimeoutError:
             sys.stderr.write(f"`mutool draw` timed out after {timeout} seconds")
         except subprocess.CalledProcessError as e:
             sys.stderr.write(f"`mutool draw` exited with code {e.returncode}")
         finally:
             os.unlink(tmpfile.name)
-            os.unlink(pngfile.name)
+            os.unlink(psfile.name)
 
 
 if __name__ == "__main__":
