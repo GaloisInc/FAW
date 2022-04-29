@@ -251,17 +251,35 @@
        stages: {
            poppler: {
                 copy_output: {
-                  '/opt/xpdf': true,
+                  '/opt/xpdf/xpdf-4.02/build/xpdf': '/opt/xpdf/bin64',
                 },
                 commands: [
+                    // NOTE: Database version 4.02 may actually be 4.03.
+
+                    // XPDF takes down old binaries periodically; however, they
+                    // maintain archives of old source. For parity with Safedocs
+                    // program, build from source.
+                    'RUN apt-get update && apt-get install -y qt5-default',
                     'RUN mkdir -p /opt/xpdf \
                         && cd /opt/xpdf \
-                        && wget https://dl.xpdfreader.com/xpdf-tools-linux-4.04.tar.gz \
-                        && tar xf xpdf-tools-linux-4.04.tar.gz \
-                        && rm xpdf-tools-linux-4.04.tar.gz \
-                        && mv */* ./ \
-                        && rm -rf xpdf-tools-linux-4.04 \
+                        && wget https://dl.xpdfreader.com/old/xpdf-4.02.tar.gz \
+                        && tar xf xpdf-4.02.tar.gz \
+                        && cd xpdf-4.02 \
+                        && mkdir build \
+                        && cd build \
+                        && cmake -DCMAKE_BUILD_TYPE=Release .. \
+                        && make -j4 \
                         ',
+
+                    // Old method using their pre-compiled binaries:
+                    // 'RUN mkdir -p /opt/xpdf \
+                    //     && cd /opt/xpdf \
+                    //     && wget https://dl.xpdfreader.com/xpdf-tools-linux-4.03.tar.gz \
+                    //     && tar xf xpdf-tools-linux-4.03.tar.gz \
+                    //     && rm xpdf-tools-linux-4.03.tar.gz \
+                    //     && mv */* ./ \
+                    //     && rm -rf xpdf-tools-linux-4.03 \
+                    //     ',
                 ],
            },
        },
