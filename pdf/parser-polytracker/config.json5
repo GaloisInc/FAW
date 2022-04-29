@@ -17,7 +17,7 @@
   build: {
     stages: {
       mupdf: {
-        from: 'trailofbits/polytracker:latest',
+        from: 'trailofbits/polytracker:faw-2022-04-29',
         copy_output: {
           '/tmp/mupdf/build/release/mutool_track_no_control_flow': '/usr/bin/',
           '/lib/x86_64-linux-gnu/libtinfo.so': '/lib/x86_64-linux-gnu/'
