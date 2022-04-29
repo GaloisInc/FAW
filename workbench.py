@@ -12,6 +12,7 @@ import dataclasses
 import hashlib
 import io
 import os
+import pathlib
 import re
 import shlex
 import shutil
@@ -512,7 +513,13 @@ def _check_config_file(config, build_dir):
                 },
         }),
         s.Optional('parserDefaultTimeout', default=30): s.Or(float, int),
-        'decision_default': str,
+        'decision_default': s.Or(
+            str,
+            s.And(
+                {'file': str},
+                s.Use(lambda x: pathlib.Path(os.path.join(CONFIG_FOLDER, x['file'])).read_text())
+            )
+        ),
         s.Optional('pipelines', default={}): s.Or({}, {
             s.And(str, lambda x: '_' not in x and '.' not in x,
                     error='Must not have underscore or dot'): {
