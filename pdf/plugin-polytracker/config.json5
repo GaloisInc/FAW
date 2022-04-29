@@ -10,7 +10,7 @@
   build: {
     stages: {
       mupdf: {
-        from: 'trailofbits/polytracker:latest',
+        from: 'trailofbits/polytracker:3.1.0',
         copy_output: {
           '/tmp/mupdf/build/debug/mutool_track': '/usr/bin/',
           '/lib/x86_64-linux-gnu/libtinfo.so': '/lib/x86_64-linux-gnu/'
@@ -29,7 +29,7 @@
       },
       final: {
         commands: [
-          'RUN pip3 install "polytracker >= 3.0.1"',
+          'RUN pip3 install "polytracker >= 3.1.0"',
         ],
       }
     },

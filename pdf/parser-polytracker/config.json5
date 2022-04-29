@@ -1,0 +1,44 @@
+{
+  parsers: {
+    "file-cavities": {
+      version: 'polytracker-v1.2',
+      exec: ['python3', 'main.py', '<inputFile>'],
+      timeout: 60,
+      parse: {
+        type: 'regex-counter',
+        version: '1.1',
+        stdstar: {
+          '^.*$': {
+            nameReplace: {'[0-9]+': '<INT>'},
+          }
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      mupdf: {
+        from: 'trailofbits/polytracker:faw-2022-04-29',
+        copy_output: {
+          '/tmp/mupdf/build/release/mutool_track_no_control_flow': '/usr/bin/',
+          '/lib/x86_64-linux-gnu/libtinfo.so': '/lib/x86_64-linux-gnu/'
+        },
+        commands: [
+          'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
+          cd /tmp && git clone --recursive git://git.ghostscript.com/mupdf.git && cd mupdf && \
+          git submodule update --init && git checkout d00de0e96a4a5ec90ffc30837d40cd624a6a89e0',
+          'WORKDIR /tmp/mupdf',
+          'RUN make -j$((`nproc`+1)) HAVE_X11=no HAVE_GLUT=no prefix=/usr/local build=release install',
+          'WORKDIR /tmp/mupdf/build/release',
+          'RUN get-bc -b mutool && /polytracker/build/bin/polybuild_script \
+               --lower-bitcode --no-control-flow-tracking -i mutool.bc -o mutool_track_no_control_flow \
+               --libs libmupdf.a m pthread'
+        ],
+      },
+      final: {
+        commands: [
+        ],
+      }
+    },
+  }
+}
