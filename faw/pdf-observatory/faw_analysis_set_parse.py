@@ -13,6 +13,7 @@ import psutil
 import pymongo
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -494,6 +495,19 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                 psutil_cpu[p.pid] = p_cpu
 
             psutil_mem = max(psutil_mem, mem)
+        def psutil_kill():
+            # Kill whole process tree; important if child spawns something.
+            try:
+                s = psutil_proc.children(recursive=True)
+            except psutil.NoSuchProcess:
+                return
+
+            s.append(psutil_proc)
+            for p in s:
+                try:
+                    p.send_signal(signal.SIGTERM)
+                except psutil.NoSuchProcess:
+                    continue
 
         finished = False
         timed_out = False
@@ -531,7 +545,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
 
         if not finished or timed_out:
             # Early stop -- kill, abort
-            p.kill()
+            psutil_kill()
             p.wait()
 
         while reader_out.is_alive() or reader_err.is_alive():
