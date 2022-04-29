@@ -307,11 +307,59 @@ def marker_to_ranges(m: bytearray) -> List[Tuple[int, int]]:
     return ranges
 
 
+def bytes_to_ascii(b: bytes) -> str:
+    ret = []
+    for i in b:
+        if i == ord("\\"):
+            ret.append("\\\\")
+        elif i == ord('"'):
+            ret.append('\\"')
+        elif ord(" ") <= i <= ord("~"):
+            ret.append(chr(i))
+        elif i == 0:
+            ret.append("\\0")
+        elif i == ord("\n"):
+            ret.append("\\n")
+        elif i == ord("\t"):
+            ret.append("\\t")
+        elif i == ord("\r"):
+            ret.append("\\r")
+        elif i < 10:
+            ret.append(f"\\{i}")
+        else:
+            ret.append(f"\\x{i:x}")
+    return "".join(ret)
+
+
 def cavity_detection(tdag: Path, sourcefile: Path):
     m = gen_source_taint_used(tdag, sourcefile)
-    src = sourcefile
-    for r in marker_to_ranges(m):
-        print(f"{src.name},{r[0]},{r[1]-1}")
+    print("context before, cavity bytes, context after")
+    with open(sourcefile, "rb") as src:
+        for r in marker_to_ranges(m):
+            if r[0] < 16:
+                bytes_before = r[0]
+            else:
+                bytes_before = 16
+            cavity_bytes = max(r[1] - r[0], 0)
+            if cavity_bytes <= 0:
+                continue
+            context_before = b""
+            cavity = b""
+            context_after = b""
+            if bytes_before:
+                try:
+                    src.seek(r[0] - bytes_before)
+                    context_before = src.read(bytes_before)
+                except IOError:
+                    pass
+            try:
+                cavity = src.read(cavity_bytes)
+                context_after = src.read(16)
+            except IOError:
+                pass
+            print(f"\"{bytes_to_ascii(context_before)}\","
+                  f"\"{bytes_to_ascii(cavity)}\","
+                  f"\"{bytes_to_ascii(context_after)}\"")
 
 
 if __name__ == "__main__":
