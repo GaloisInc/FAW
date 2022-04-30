@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import signal
 import sys
 import subprocess
 from tempfile import NamedTemporaryFile
@@ -9,6 +10,11 @@ from dumptdag import cavity_detection
 
 
 def process_pdf(path: str, timeout: Optional[float] = None):
+    # Prevent SIGTERM from having us not clean up our files
+    def sigterm_handler(_signo, _sf):
+        sys.exit(-1)
+    signal.signal(signal.SIGTERM, sigterm_handler)
+
     with NamedTemporaryFile("wb", delete=False) as tmpfile, NamedTemporaryFile("wb", delete=False) as psfile:
         try:
             db_path = tmpfile.name
