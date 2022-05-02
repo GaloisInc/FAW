@@ -60,13 +60,6 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                     for ki in range(prefix_skip, min(prefix_skip * (1+prefix_max), len(sfx) + prefix_skip), prefix_skip):
                         kk_fts.add(f'{pfx}_{sfx[:ki]}')
 
-                # HACK FIXME TODO
-                # CSV infix
-                if kk.startswith('parser-polytracker-file-cavities_'):
-                    infix = re.search(r'","(([^"\\]|\\.)*)","', sfx)
-                    if infix is not None:
-                        kk_fts.add(f'{pfx}_INFIX: {infix.group(1)}')
-
             for k in kk_fts:
                 ft_c = ft_count.get(k)
                 if ft_c is None:
