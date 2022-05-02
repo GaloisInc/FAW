@@ -1,6 +1,7 @@
 import base64
 import ujson as json
 import numpy as np
+import re
 import scipy.sparse
 from sklearn.cluster import AgglomerativeClustering
 import sys
@@ -15,7 +16,9 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     debug_str = ''
     dec_args.setdefault('dependent', True)
     dec_args.setdefault('linkage', 'complete')
-    dec_args.setdefault('min_samples', 2)
+    dec_args.setdefault('min_samples', '')
+    dec_args.setdefault('prefix_skip', '')
+    dec_args.setdefault('prefix_max', '')
     dec_args.setdefault('feature', '')
     dec_args.setdefault('feature_search', '')
 
@@ -24,6 +27,17 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     except ValueError:
         min_samples = 2
         dec_args['min_samples'] = min_samples
+
+    try:
+        prefix_skip = int(dec_args['prefix_skip'])
+    except ValueError:
+        prefix_skip = 1
+        dec_args['prefix_skip'] = prefix_skip
+    try:
+        prefix_max = int(dec_args['prefix_max'])
+    except ValueError:
+        prefix_max = 0
+        dec_args['prefix_max'] = prefix_max
 
     # Compute sparse features
     file_to_idx = {}
@@ -38,14 +52,29 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         file_idx = len(file_to_idx)
         file_to_idx[file_name] = file_idx
 
-        for k, v in obj.items():
-            ft_c = ft_count.get(k)
-            if ft_c is None:
-                ft_count[k] = set([file_idx])
-            else:
-                ft_c.add(file_idx)
+        for kk, v in obj.items():
+            kk_fts = set([kk])
+            if '_' in kk:
+                pfx, sfx = kk.split('_', 1)
+                if prefix_max > 0:
+                    for ki in range(prefix_skip, min(prefix_skip * (1+prefix_max), len(sfx) + prefix_skip), prefix_skip):
+                        kk_fts.add(f'{pfx}_{sfx[:ki]}')
 
-    # Throw out featuers with fewer than min_samples or more than N - min_samples.
+                # HACK FIXME TODO
+                # CSV infix
+                if kk.startswith('parser-polytracker-file-cavities_'):
+                    infix = re.search(r'","(([^"\\]|\\.)*)","', sfx)
+                    if infix is not None:
+                        kk_fts.add(f'{pfx}_INFIX: {infix.group(1)}')
+
+            for k in kk_fts:
+                ft_c = ft_count.get(k)
+                if ft_c is None:
+                    ft_count[k] = set([file_idx])
+                else:
+                    ft_c.add(file_idx)
+
+    # Throw out features with fewer than min_samples or more than N - min_samples.
     # This ensures that probabilities are calculated with sufficient granularity
     # to reduce false correlates.
     file_ft = []
@@ -223,6 +252,13 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 .dendrogram .collapsible {
                     cursor: pointer;
                 }
+                .pw {
+                    white-space: pre-wrap;
+                }
+                input[type=button], summary {
+                    cursor: pointer;
+                }
+                li.grid:nth-child(odd) {background-color: #eee;}
                 </style>''')
         f.write('<script>')
         data = {
@@ -231,6 +267,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 #'linkage': linkage_matrix.tolist(),
                 'labels': labels,
                 'label_counts': label_counts.tolist(),
+                'file_count': len(file_to_idx),
                 'api_url': workbench_api_url,
                 'dec_args': dec_args,
         }
@@ -339,7 +376,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             return r;
                         },
                         getLabelFor(i) {
-                            return `[${this.labelCounts[i]}] - ${this.labels[i]}`;
+                            return `[${this.labelCounts[i]}] ${this.labels[i]}`;
                         },
                     },
                 });
@@ -347,37 +384,64 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 Vue.component('vue-header', {
                     template: `<div class="header">
                         <div v-if="debugStr.length">DEBUG: {{debugStr}}</div>
-                        <div>Similarities shown are absolute attributable risk; using '{{decArgs.dependent ? 'IMPLIES' : 'AND'}}' relationships with '{{decArgs.linkage}}' linkage</div>
-                        <div><input type="button" :value="'Switch to ' + (decArgs.dependent ? 'AND' : 'IMPLIES')" @click="callRedecide({dependent: !decArgs.dependent})" /></div>
-                        <div><input type="button" :value="'Switch to ' + (decArgs.linkage === 'single' ? 'complete' : 'single') + ' linkage'" @click="callRedecide({linkage: decArgs.linkage === 'single' ? 'complete' : 'single'})" /></div>
                     </div>`,
                     props: {
                         debugStr: String,
-                        decArgs: Object,
                     },
                 });
 
                 // Direct version, not going through cluster
                 Vue.component('similarity-search-direct', {
                     template: `<div class="similarity-search">
+                        <div>Similarities shown are absolute attributable risk; using '{{decArgs.dependent ? 'IMPLIES' : 'AND'}}' relationships with '{{decArgs.linkage}}' linkage</div>
+                        <div><input type="button" :value="'Switch to ' + (decArgs.dependent ? 'AND' : 'IMPLIES')" @click="featureChange(null, {dependent: !decArgs.dependent})" /></div>
+                        <div><input type="button" :value="'Switch to ' + (decArgs.linkage === 'single' ? 'complete' : 'single') + ' linkage'" @click="featureChange(null, {linkage: decArgs.linkage === 'single' ? 'complete' : 'single'})" /></div>
                         <div>
                             Search phrase (as regex): <input v-model="search" type="text" /> <input v-model="searchCaseSensitive" type="checkbox" /> Case sensitive
                         </div>
                         <div>
                             Min samples for feature: <input v-model="minSamples" type="text" />
                         </div>
+                        <div>
+                            Prefix search: every <input v-model="prefixSkip" type="text" /> chars, max of <input v-model="prefixMax" type="text" /> copies
+                        </div>
+                        <div><input type="button" value="Re-apply above settings" @click="featureChange(null)" /></div>
+                        <div>
+                            Current settings yielded {{labels.length}} features from {{fileCount}} files
+                        </div>
                         <ul class="search-results">
-                            <li v-for="v of searchList" @click="featureChange(v)">
-                                <span v-if="v !== -1">[{{labelCounts[v]}}] {{labels[v]}} </span>
-                                <span v-else>(truncated)</span>
-                            </li>
-                        </ul>
-                        <p>Related features
-                            <ul v-if="searchActual >= 0" class="similar-results">
-                                <li v-for="v of results">
-                                    <span @click="featureChange(v)">{{searchDistance(v).toFixed(3)}} [{{labelCounts[v]}}] {{labels[v]}}</span>
+                            <template v-for="v of searchList">
+                                <li class="grid" v-if="v !== -1">
+                                    <input type="button" value="Focus" @click="featureChange(v)" />
+                                    <span class="pw">{{getLabelFor(v)}}</span>
                                 </li>
-                                <li>
+                                <li class="grid" v-else>
+                                    <input type="button" value="More" @click="searchAddNext()" />
+                                </li>
+                            </template>
+                        </ul>
+                        <h3 class="pw">{{getLabelFor(searchActual)}}</h3>
+                        <details>
+                            <summary>Related features, top N by parser; worst matches first</summary>
+                            <ul v-if="searchActual >= 0" class="similar-results">
+                                <li v-for="[klist, k] of resultsByParserSorted">
+                                    {{k}}
+                                    <ul>
+                                        <li class="grid" v-for="v of klist">
+                                            <input type="button" value="Focus" @click="featureChange(v)" />
+                                            <span class="pw">{{searchDistance(v).toFixed(3)}} {{getLabelFor(v)}}</span>
+                                        </li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </details>
+                        <p>Related features, all
+                            <ul v-if="searchActual >= 0" class="similar-results">
+                                <li class="grid" v-for="v of results">
+                                    <input type="button" value="Focus" @click="featureChange(v)" />
+                                    <span class="pw">{{searchDistance(v).toFixed(3)}} {{getLabelFor(v)}}</span>
+                                </li>
+                                <li class="grid">
                                     <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
                                 </li>
                             </ul>
@@ -385,17 +449,25 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                     </div>
                     `,
                     props: {
+                        decArgs: Object,
                         distances: Object,
                         feature: String,
                         featureSearchInit: String,
+                        fileCount: Number,
                         labels: Object,
                         labelCounts: Object,
                         minSamplesInit: String,
+                        prefixSkipInit: String,
+                        prefixMaxInit: String,
                     },
                     data() {
                         return {
+                            labelIndicesPresorted: [],
                             minSamples: this.minSamplesInit,
+                            prefixSkip: this.prefixSkipInit,
+                            prefixMax: this.prefixMaxInit,
                             results: [],
+                            resultsByParser: {},
                             search: this.featureSearchInit,
                             searchActual: -1,
                             searchCaseSensitive: false,
@@ -404,6 +476,21 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             searchNext: null,
                             searchTimeout: null,
                         };
+                    },
+                    computed: {
+                        resultsByParserSorted() {
+                            const arr = Object.entries(this.resultsByParser);
+                            // Individual entries are already sorted by
+                            // descending.
+
+                            // Invert to match default Vue ordering.
+                            return (
+                                    arr.sort((a, b) =>
+                                        Math.abs(this.distances[0][a[1][0]])
+                                        - Math.abs(this.distances[0][b[1][0]]))
+                                    .map((v) => [v[1], v[0]])
+                            );
+                        },
                     },
                     watch: {
                         search() {
@@ -416,6 +503,16 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         },
                     },
                     mounted() {
+                        // Populate pre-sorted labels s.t. most interesting
+                        // features show at top of search.
+                        const vHalf = this.fileCount * 0.5;
+                        const ordering = Array.from({length: this.labels.length},
+                                (_, i) => i);
+                        ordering.sort((a, b) =>
+                                Math.abs(vHalf - this.labelCounts[a])
+                                - Math.abs(vHalf - this.labelCounts[b]));
+                        this.labelIndicesPresorted = ordering;
+
                         this.searchUpdate();
 
                         if (this.feature.length === 0) return;
@@ -427,13 +524,27 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 .map((x, idx) => [-Math.abs(x), idx])
                                 .sort((a, b) => a[0] - b[0])
                                 .map(x => x[1]));
+                        this.resultSetup();
                         this.resultAddNext();
                     },
                     methods: {
-                        featureChange(v) {
-                            callRedecide({feature: this.labels[v],
+                        featureChange(v, args) {
+                            const update = {
                                     feature_search: this.search,
-                                    min_samples: this.minSamples});
+                                    min_samples: this.minSamples,
+                                    prefix_skip: this.prefixSkip,
+                                    prefix_max: this.prefixMax,
+                            };
+                            if (v) update['feature'] = this.labels[v];
+                            if (args) Object.assign(update, args);
+                            callRedecide(update);
+                        },
+                        getLabelFor(i) {
+                            return `[+${this.labelCounts[i]} / -${this.fileCount - this.labelCounts[i]}] ${this.labels[i]}`;
+                        },
+                        searchAddNext() {
+                            this.searchListMax += 20;
+                            this.searchUpdate();
                         },
                         searchDistance(i) {
                             return this.distances[0][i];
@@ -442,7 +553,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             this.searchList = [];
                             const flags = (this.searchCaseSensitive ? '' : 'i');
                             const re = new RegExp(this.search, flags);
-                            for (let i = 0, m = this.labels.length; i < m; i++) {
+                            for (const i of this.labelIndicesPresorted) {
                                 if (!re.test(this.labels[i])) continue;
 
                                 this.searchList.push(i);
@@ -456,6 +567,24 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             let i = Math.min(this.searchNext.length, 50);
                             this.results.push.apply(this.results, this.searchNext.splice(0, i));
                         },
+                        resultSetup() {
+                            const nPerParser = 3;
+                            const byParser = {};
+                            this.resultsByParser = {};
+                            for (let i = 0, m = this.searchNext.length; i < m; i++) {
+                                const vi = this.searchNext[i];
+                                const vv = this.labels[vi];
+                                const vParser = vv.split('_', 1)[0];
+                                const vOld = byParser[vParser] || 0;
+                                if (vOld < nPerParser) {
+                                    byParser[vParser] = vOld + 1;
+                                    if (vOld === 0) {
+                                        this.resultsByParser[vParser] = [];
+                                    }
+                                    this.resultsByParser[vParser].push(vi);
+                                }
+                            }
+                        },
                     },
                 });
         ''')
@@ -466,12 +595,16 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         f.write('<div id="app">If you see this, Vue is loading or broken</div>')
         f.write(r'''<script>let app = new Vue({el: '#app', data: Object.freeze(window.data),
                 template: `<div>
-                    <vue-header :dec-args="data.dec_args" :debug-str="debug_str" />
+                    <vue-header :debug-str="debug_str" />
                     <!-- <similarity-search :linkage="linkage" :labels="labels" :label-counts="label_counts" /> -->
-                    <similarity-search-direct :feature="data.dec_args.feature"
+                    <similarity-search-direct
+                            :dec-args="data.dec_args"
+                            :feature="data.dec_args.feature"
                             :feature-search-init="data.dec_args.feature_search"
                             :min-samples-init="data.dec_args.min_samples"
-                            :distances="distance_matrix" :labels="labels" :label-counts="label_counts" />
+                            :prefix-skip-init="data.dec_args.prefix_skip"
+                            :prefix-max-init="data.dec_args.prefix_max"
+                            :distances="distance_matrix" :labels="labels" :label-counts="label_counts" :file-count="file_count" />
                     <!-- <dendrogram :id="labels.length + linkage.length - 1" :linkage="linkage" :labels="labels" :label-counts="label_counts" :start-uncollapsed="true" /> -->
                 </div>`})</script>''')
         f.write('</body>')
