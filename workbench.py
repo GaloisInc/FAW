@@ -366,7 +366,7 @@ def _check_config_file(config, build_dir):
             continue
 
         child_config = pyjson5.load(open(child_config_path))
-        if child_config.get('disabled'):
+        if child_config.pop('disabled', None):
             # Do not integrate this child config
             continue
 
