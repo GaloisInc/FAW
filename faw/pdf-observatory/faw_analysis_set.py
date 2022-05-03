@@ -759,7 +759,8 @@ def as_create_id_collection(exit_flag, db, app_config, aset_id, col_name, *,
         col_parse = db[faw_analysis_set_parse.COL_NAME]
         idle_aset = db['misc'].find_one({'_id': 'as_idle'})
         assert idle_aset is not None
-        if not _as_populate_parsers(app_config, parsers_id, parsers_id_done,
+        # Issues/5975
+        if not _as_populate_parsers(exit_flag, app_config, parsers_id, parsers_id_done,
                 idle_aset, tmp_id_col, col_parse):
             raise ValueError('_as_populate_parsers failed; reference lost?')
 
