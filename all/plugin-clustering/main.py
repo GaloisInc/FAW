@@ -16,6 +16,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     debug_str = ''
     dec_args.setdefault('dependent', True)
     dec_args.setdefault('linkage', 'complete')
+    dec_args.setdefault('local_filter', '')
+    dec_args.setdefault('local_filter_case_sensitive', False)
     dec_args.setdefault('min_samples', '')
     dec_args.setdefault('prefix_skip', '')
     dec_args.setdefault('prefix_max', '')
@@ -414,6 +416,13 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             </template>
                         </ul>
                         <h3 class="pw">{{getLabelFor(searchActual)}}</h3>
+                        <div>
+                            <div style="display: flex; flex-direction: row;">
+                                Only show matching regex:&nbsp;
+                                <input type="text" v-model="localFilter" />
+                                <input type="checkbox" v-model="localFilterCaseSensitive" /> Case sensitive
+                            </div>
+                        </div>
                         <details>
                             <summary>Related features, top N by parser; worst matches first</summary>
                             <ul v-if="searchActual >= 0" class="similar-results">
@@ -428,14 +437,14 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 </li>
                             </ul>
                         </details>
-                        <p>Related features, all
+                        <p>Related features, all {{results.length + searchNext.length}} matching
                             <ul v-if="searchActual >= 0" class="similar-results">
                                 <li class="grid" v-for="v of results">
                                     <input type="button" value="Focus" @click="featureChange(v)" />
                                     <span class="pw">{{searchDistance(v).toFixed(3)}} {{getLabelFor(v)}}</span>
                                 </li>
                                 <li class="grid">
-                                    <input v-if="searchNext" type="button" value="More" @click="resultAddNext()" />
+                                    <input v-if="searchNext.length" type="button" value="More" @click="resultAddNext()" />
                                 </li>
                             </ul>
                         </p>
@@ -456,6 +465,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                     data() {
                         return {
                             labelIndicesPresorted: [],
+                            localFilter: '',
+                            localFilterCaseSensitive: false,
                             minSamples: this.minSamplesInit,
                             prefixSkip: this.prefixSkipInit,
                             prefixMax: this.prefixMaxInit,
@@ -466,7 +477,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             searchCaseSensitive: false,
                             searchList: [],
                             searchListMax: 10,
-                            searchNext: null,
+                            searchNext: [],
                             searchTimeout: null,
                         };
                     },
@@ -486,6 +497,14 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         },
                     },
                     watch: {
+                        localFilter() {
+                            this.localFilterTimeout !== null && clearTimeout(this.localFilterTimeout);
+                            this.localFilterTimeout = setTimeout(() => this.localFilterUpdate(), 300);
+                        },
+                        localFilterCaseSensitive() {
+                            this.localFilterTimeout !== null && clearTimeout(this.localFilterTimeout);
+                            this.localFilterTimeout = setTimeout(() => this.localFilterUpdate(), 300);
+                        },
                         search() {
                             this.searchTimeout !== null && clearTimeout(this.searchTimeout);
                             this.searchTimeout = setTimeout(() => this.searchUpdate(), 300);
@@ -496,34 +515,14 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         },
                     },
                     mounted() {
-                        // Populate pre-sorted labels s.t. most interesting
-                        // features show at top of search.
-                        const vHalf = this.fileCount * 0.5;
-                        const ordering = Array.from({length: this.labels.length},
-                                (_, i) => i);
-                        ordering.sort((a, b) =>
-                                Math.abs(vHalf - this.labelCounts[a])
-                                - Math.abs(vHalf - this.labelCounts[b]));
-                        this.labelIndicesPresorted = ordering;
-
-                        this.searchUpdate();
-
-                        if (this.feature.length === 0) return;
-
-                        this.searchActual = this.labels.indexOf(this.feature);
-
-                        // Compute searchNext
-                        this.searchNext = (this.distances[0]
-                                .map((x, idx) => [-Math.abs(x), idx])
-                                .sort((a, b) => a[0] - b[0])
-                                .map(x => x[1]));
-                        this.resultSetup();
-                        this.resultAddNext();
+                        this.resultsRerun();
                     },
                     methods: {
                         featureChange(v, args) {
                             const update = {
                                     feature_search: this.search,
+                                    local_filter: this.localFilter,
+                                    local_filter_case_sensitive: this.localFilterCaseSensitive,
                                     min_samples: this.minSamples,
                                     prefix_skip: this.prefixSkip,
                                     prefix_max: this.prefixMax,
@@ -534,6 +533,44 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         },
                         getLabelFor(i) {
                             return `[+${this.labelCounts[i]} / -${this.fileCount - this.labelCounts[i]}] ${this.labels[i]}`;
+                        },
+                        localFilterUpdate() {
+                            this.resultsRerun();
+                        },
+                        resultsRerun() {
+                            // Populate pre-sorted labels s.t. most interesting
+                            // features show at top of search.
+                            const vHalf = this.fileCount * 0.5;
+                            const ordering = Array.from({length: this.labels.length},
+                                    (_, i) => i);
+                            ordering.sort((a, b) =>
+                                    Math.abs(vHalf - this.labelCounts[a])
+                                    - Math.abs(vHalf - this.labelCounts[b]));
+                            this.labelIndicesPresorted = ordering;
+
+                            this.searchUpdate();
+
+                            this.results.length = 0;
+                            if (this.feature.length === 0) return;
+
+                            this.searchActual = this.labels.indexOf(this.feature);
+                            let filterFn = () => true;
+                            if (this.localFilter.length) {
+                                const fr = new RegExp(this.localFilter,
+                                        this.localFilterCaseSensitive ? '' : 'i');
+                                filterFn = (x) => (
+                                        fr.test(this.labels[x[1]])
+                                        || x[1] === this.searchActual);
+                            }
+
+                            // Compute searchNext
+                            this.searchNext = (this.distances[0]
+                                    .map((x, idx) => [-Math.abs(x), idx])
+                                    .filter(filterFn)
+                                    .sort((a, b) => a[0] - b[0])
+                                    .map(x => x[1]));
+                            this.resultSetup();
+                            this.resultAddNext();
                         },
                         searchAddNext() {
                             this.searchListMax += 20;
@@ -594,6 +631,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             :dec-args="data.dec_args"
                             :feature="data.dec_args.feature"
                             :feature-search-init="data.dec_args.feature_search"
+                            :local-filter="data.dec_args.local_filter"
+                            :local-filter-case-sensitive="data.dec_args.local_filter_case_sensitive"
                             :min-samples-init="data.dec_args.min_samples"
                             :prefix-skip-init="data.dec_args.prefix_skip"
                             :prefix-max-init="data.dec_args.prefix_max"
