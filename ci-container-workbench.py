@@ -23,6 +23,7 @@ import tarfile
 import textwrap
 import threading
 import time
+import tempfile
 import traceback
 import webbrowser
 
@@ -262,11 +263,13 @@ def main():
 
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
-        def watch_for_config_changes():
+        def watch_for_config_changes(development=development, config_dir=config,
+            build_dir=build_dir, build_faw_dir=build_faw_dir, docker_id=docker_id):
             # Where, in the docker container, to dump the new config
             cfg_dst = '/home/config.json'
 
             last_ts = None
+            last_config = _check_config_file(config, build_dir)
             while True:
                 try:
                     new_ts = {}
@@ -283,16 +286,27 @@ def main():
                         last_ts = new_ts
 
                         print('workbench: Updating /home/config.json')
-                        new_config = _export_config_json(_check_config_file(
-                                None, build_dir)).encode('utf-8')
+                        new_config = _check_config_file(config, build_dir)
+                        new_config_file = _export_config_json(new_config).encode('utf-8')
+
+                        # Check if build stages have changed and handle if necessary
+                        _check_build_stage_change_and_update(
+                            new_config=new_config, old_config=last_config,
+                            development=development, config_dir=config_dir,
+                            build_dir=build_dir, build_faw_dir=build_faw_dir,
+                            current_docker_id=docker_id
+                        )
+
+                        last_config = new_config
+
                         # Docker cp is weird... if stdin, it's a tarred
                         # directory
                         buf = io.BytesIO()
                         with tarfile.TarFile(fileobj=buf, mode='w') as tf:
                             finfo = tarfile.TarInfo(os.path.basename(cfg_dst))
-                            finfo.size = len(new_config)
+                            finfo.size = len(new_config_file)
                             finfo.mtime = time.time()
-                            tf.addfile(finfo, io.BytesIO(new_config))
+                            tf.addfile(finfo, io.BytesIO(new_config_file))
                         buf.seek(0)
                         p_ts = subprocess.Popen(['docker', 'cp', '-',
                             f'{docker_id}:{os.path.dirname(cfg_dst)}'],
@@ -343,8 +357,7 @@ def _check_config_file(config, build_dir):
         # CONFIG_FOLDER = config
     # else:
         # assert config is None
-    assert config is not None
-
+    
     import pyjson5, schema as s
     # config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             # 'config.json5')))
@@ -878,6 +891,10 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
 
+    # Return the tag for the build
+    # TODO: Consider taking the image tag/name as input?
+    return IMAGE_TAG + suffix
+
 
 def _export_config_json(config_data):
     import json
@@ -1040,6 +1057,64 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
             await p.wait()
     asyncio.run(run_and_dump())
 
+
+def _check_build_stage_change_and_update(
+    *, new_config, old_config, development, config_dir, build_dir, build_faw_dir, current_docker_id
+):
+    # We really shouldn't be calling this without something having changed,
+    assert new_config != old_config
+
+    # Check if any build stages in the new_config has changed, though we only
+    # care about stages that specify things that can be copied
+    updated_stages = {}
+    for stage_name, stage_data in new_config['build']['stages'].items():
+        if 'copy_output' not in stage_data:
+            continue
+
+        old_stage_data = old_config['build']['stages'].get(stage_name)
+        if old_stage_data is None or old_stage_data != stage_data:
+            updated_stages[stage_name] = stage_data
+
+    # If there are any updated stages, build them
+    if not updated_stages:
+        return
+
+    # Build a new image
+    # NOTE: Currently we are using the image that is currently running in FAW
+    image_tag = _check_image(
+        development=development, config=config_dir, config_data=new_config,
+        build_dir=build_dir, build_faw_dir=build_faw_dir
+    )
+    
+    print("Completed Rebuild")
+
+    # Create a container with this image and copy files appropriately
+    new_container_id = f"{image_tag}-rebuild"
+
+    try:
+        subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
+        print("Completed Container Creation - {new_container_id}")
+
+        # Copy all the required files
+        with tempfile.TemporaryDirectory() as tmp:
+            for stage_name, stage_data in updated_stages.items():
+                for src, dest in stage_data['copy_output'].items():
+                    # Remember that the build process will copy everything to the final
+                    # destination before we do our copying. So our source file is the
+                    # destination of the `copy_output`. It is also the destination 
+                    # filename in the running container
+                    file_name = src if dest == True else dest
+                    print("Copying file -", file_name)
+
+                    tmp_dest_name = os.path.join(tmp, 'tmp')
+                    subprocess.check_call(['docker', 'cp', f"{new_container_id}:{file_name}", tmp_dest_name])
+                    subprocess.check_call(['docker', 'cp', tmp_dest_name, f"{current_docker_id}:{file_name}"])
+                    
+                    os.unlink(tmp_dest_name)
+                    print("Finished Copying file")
+    finally:
+        subprocess.run(['docker', 'rm', new_container_id])
+        print("Removed Container - {new_container_id}")
 
 @dataclasses.dataclass
 class _PluginFolderDesc:
