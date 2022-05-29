@@ -8,6 +8,7 @@ running end-user copies of the Galois Format Analysis Workbench.
 # downstream users. Other imports are allowed in functions not used by the
 # version published as part of a build.
 import argparse
+import atexit
 import dataclasses
 import hashlib
 import io
@@ -330,7 +331,22 @@ def main():
     open_browser_thread = threading.Thread(target=open_browser)
     open_browser_thread.daemon = True
     open_browser_thread.start()
-    subprocess.check_call(['docker', 'run', '-it', '--rm',
+
+    # To ensure that we kill the FAW container (which we are just
+    # about to start) on exiting, including during abnormal exits,
+    # we will register ourselves an atexit listener
+    def on_exit(faw_docker_id=docker_id):
+        # Because we are in an exit handler, let us not throw an exception
+        r = subprocess.run(f"docker ps -a | grep {faw_docker_id}", shell=True)
+        if r.returncode == 0:
+            # We can just stop the container and it should be removed
+            # since we will have started it with a "--rm"
+            subprocess.run(['docker', 'stop', faw_docker_id])
+
+    atexit.register(on_exit)
+
+    # Run the FAW container non-interactively
+    subprocess.check_call(['docker', 'run', '--rm', '--detach',
             '--log-driver', 'none',
             '--name', docker_id,
             '-v', f'{pdf_dir}:/home/pdf-files',
@@ -338,6 +354,11 @@ def main():
             '-e', f'DB={db_name}',
             '-p', f'{port}:8123',
             ] + extra_flags)
+
+    # Run the FAW cli
+    # TODO: Not sure this would return a "good" exit code on Ctrl+C. Figure that out.
+    # So currently we just don't check the exit status!
+    subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])
 
 
 def _check_config_file(config, build_dir):
