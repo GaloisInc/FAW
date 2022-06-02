@@ -60,6 +60,7 @@ def main():
     subprocess.check_call(
         ['docker', 'run']
         + mount_paths_as_args
+        + ['-p', f"{args.port_ci}:9001"]
         + ['-it', '--rm', cname]
         + command_line
     )
@@ -91,6 +92,8 @@ def parse_args():
             help="If specified, port on which to expose the dask dashboard.")
     parser.add_argument('--port-mongo', default=None, type=int,
             help="If specified, port on which to expose the mongo instance.")
+    parser.add_argument('--port-ci', default=9001, type=int,
+            help="If specified, port on which to expose the CI endpoints.")
     parser.add_argument('--copy-mongo-from', default=None, type=str,
             help="Replace the pdf-etl database used by the observatory with a "
             "copy of an existing database. Format: localhost:27019/120pdfs.\n\n"

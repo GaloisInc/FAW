@@ -8,6 +8,7 @@ running end-user copies of the Galois Format Analysis Workbench.
 # downstream users. Other imports are allowed in functions not used by the
 # version published as part of a build.
 import argparse
+import asyncio
 import atexit
 import dataclasses
 import hashlib
@@ -27,6 +28,8 @@ import time
 import tempfile
 import traceback
 import webbrowser
+
+from aiohttp import web
 
 # These variables are used throughout the script. So we keep them for now
 # TODO: Remove them and pass as parameters
@@ -332,16 +335,23 @@ def main():
     open_browser_thread.daemon = True
     open_browser_thread.start()
 
+    # Start the webserver for the endpoint
+    server_thread = start_server(config)
+
     # To ensure that we kill the FAW container (which we are just
     # about to start) on exiting, including during abnormal exits,
     # we will register ourselves an atexit listener
-    def on_exit(faw_docker_id=docker_id):
+    def on_exit(faw_docker_id=docker_id, server_thread=server_thread):
         # Because we are in an exit handler, let us not throw an exception
         r = subprocess.run(f"docker ps -a | grep {faw_docker_id}", shell=True)
         if r.returncode == 0:
             # We can just stop the container and it should be removed
             # since we will have started it with a "--rm"
             subprocess.run(['docker', 'stop', faw_docker_id])
+
+        # Kill the webserver gracefully
+        server_thread.stop_server()
+        server_thread.join(3)
 
     atexit.register(on_exit)
 
@@ -1101,7 +1111,8 @@ def _check_build_stage_change_and_update(
         return
 
     # Build a new image
-    # NOTE: Currently we are using the image that is currently running in FAW
+    # NOTE: Currently we are using the same image tag that is currently 
+    # running in FAW.
     image_tag = _check_image(
         development=development, config=config_dir, config_data=new_config,
         build_dir=build_dir, build_faw_dir=build_faw_dir
@@ -1114,7 +1125,7 @@ def _check_build_stage_change_and_update(
 
     try:
         subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
-        print("Completed Container Creation - {new_container_id}")
+        print(f"Completed Container Creation - {new_container_id}")
 
         # Copy all the required files
         with tempfile.TemporaryDirectory() as tmp:
@@ -1130,12 +1141,68 @@ def _check_build_stage_change_and_update(
                     tmp_dest_name = os.path.join(tmp, 'tmp')
                     subprocess.check_call(['docker', 'cp', f"{new_container_id}:{file_name}", tmp_dest_name])
                     subprocess.check_call(['docker', 'cp', tmp_dest_name, f"{current_docker_id}:{file_name}"])
-                    
                     os.unlink(tmp_dest_name)
-                    print("Finished Copying file")
     finally:
         subprocess.run(['docker', 'rm', new_container_id])
-        print("Removed Container - {new_container_id}")
+        print(f"Removed Container - {new_container_id}")
+
+
+def start_server(config_dir):
+    """
+    Start a server and create an endpoint to upload config tars.
+    """
+
+    class ServerThread(threading.Thread):
+
+        def __init__(self):
+            super().__init__(daemon=True)
+
+            self.app = web.Application(debug=True)
+            self.app.add_routes([
+                web.post('/configuration', self._update_config),
+                web.put('/configuration', self._update_config)
+            ])
+            self.runner = web.AppRunner(self.app)
+            
+            # logging.basicConfig(level=logging.DEBUG)
+
+        def stop_server(self):
+            self.stop_event.set_result(1)
+
+        def run(self):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            loop.run_until_complete(self.runner.setup())
+
+            site = web.TCPSite(self.runner, '0.0.0.0', 9001)
+            loop.run_until_complete(site.start())
+
+            print("Site started")
+
+            self.stop_event = loop.create_future()            
+            loop.run_until_complete(self.stop_event)
+
+            print("Site stopping")
+            
+            loop.run_until_complete(self.runner.cleanup())
+
+        async def _update_config(self, request):
+            data = await request.post()
+
+            config_data = data['config']
+            
+            with tarfile.TarFile(fileobj=config_data.file) as t:
+                t.extractall(config_dir)
+
+            return web.json_response({'status': 'success'})
+
+    # Run it in a thread
+    t = ServerThread()
+    t.start()
+
+    return t
+
 
 @dataclasses.dataclass
 class _PluginFolderDesc:
