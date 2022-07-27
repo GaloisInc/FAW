@@ -25,8 +25,8 @@ import tarfile
 import textwrap
 import threading
 import time
-import tempfile
 import traceback
+import uuid
 import webbrowser
 
 from aiohttp import web
@@ -657,6 +657,20 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
     suffix = '-dev' if development else ''
     assert config_data is not None, 'required --config?'
 
+    # Generate the contents for the dockerfile
+    dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir)
+    print('='*79)
+    print(dockerfile_contents)
+    print('='*79)
+
+    # And build the docker image
+    # TODO: Consider taking the image tag/name as input?
+    img_tag = _build_docker_image(build_dir, suffix, dockerfile_contents)
+
+    # Return the tag for the build
+    return img_tag
+
+def _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir):
     dockerfile = []
     dockerfile_middle = []
     dockerfile_final = []
@@ -708,9 +722,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
             FROM base AS ui-builder
             # Install npm locally, only for the build.
             RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
-
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
-
             RUN cd /home/pdf-observatory/ui \
                 && npm install \
                 && npm run build
@@ -721,7 +733,6 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
     dockerfile_final.append(rf'''
             COPY {build_faw_dir}/faw/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
             RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
-
             COPY {build_faw_dir}/faw/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
             RUN pip3 install -r /home/pdf-observatory/requirements.txt
     ''')
@@ -747,10 +758,8 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
             COPY {build_faw_dir}/faw/pdf-observatory/mongo_queue_helper /home/pdf-observatory/mongo_queue_helper
             COPY {build_faw_dir}/faw/docker-bin/* /usr/bin/
             COPY --from=ui-builder /home/pdf-observatory/ui/dist /home/pdf-observatory/ui/dist
-
             # Copy shared plugins
             COPY {shlex.quote(build_faw_dir + '/all')} /home/all
-
             # The final stage must always have the distribution folder available as
             # /home/dist; do this after copying the base material and building the
             # base UI, so user changes trigger those rebuilds infrequently.
@@ -792,10 +801,9 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
                     'RUN apt-get update && apt-get install -y curl python3 python3-pip wget',
                     ] + stage_commands
         dockerfile.extend(stage_commands)
-        for k, v in stage_def.get('copy_output', {}).items():
-            if v is True:
-                v = k
-            dockerfile_final_postamble.append(f'COPY --from={stage} {k} {v}')
+
+        copy_commands = _generate_copy_commands(stage, stage_def)
+        dockerfile_final_postamble.extend(copy_commands)
 
     # Regardless, there's some glue code to create the final image.
     dockerfile_middle.append(rf'''
@@ -806,7 +814,6 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
             ## s6 overlay for running mongod and observatory side by side
             #ADD https://github.com/just-containers/s6-overlay/releases/download/v1.21.8.0/s6-overlay-amd64.tar.gz /tmp/
             COPY {build_faw_dir}/faw/s6-overlay-amd64.tar.gz /tmp/
-
             # Updated for ubuntu 20.04, for which /bin is a symlink
             # Still need old extract command for previous versions.
             RUN bash -c '\
@@ -821,11 +828,9 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
                     ) \
                     && rm /tmp/s6-overlay-amd64.tar.gz \
                     '
-
             # Setup service files to automatically run mongodb in the background
             # Note that logging for mongodb goes to /var/log/mongodb; see
             # https://github.com/just-containers/s6-overlay/issues/291
-
             # Tell S6 to pass environment variables on to child processes
             ENV S6_KEEP_ENV 1
             # Tell python to never buffer output. This is vital for preventing
@@ -837,7 +842,6 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
             # Always use 'bash' from this point forward, because 'echo' commands
             # are inconsistent between sh and bash.
             SHELL ["/bin/bash", "-c"]
-
             # Mongodb service
             RUN \
                 mkdir -p /etc/cont-init.d \
@@ -848,7 +852,6 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
                 && mkdir /etc/services.d/mongod/log \
                 && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/mongodb' >> /etc/services.d/mongod/log/run \
                 && chmod a+x /etc/services.d/mongod/log/run
-
             # Observatory service (modifications must also change faw/teaming/pyinfra/deploy.py)
             RUN \
                 mkdir -p /etc/cont-init.d \
@@ -860,7 +863,6 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
                     && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/observatory' > /etc/services.d/observatory/log/run \
                     && chmod a+x /etc/services.d/observatory/log/run \
                 && echo OK
-
             # Dask service (scheduler AND worker initially; teaming script fixes this)
             # Note -- listens to all IPv4 and IPv6 addresses by default.
             RUN \
@@ -883,13 +885,11 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
                     && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/dask-worker' > /etc/services.d/dask-worker/log/run \
                     && chmod a+x /etc/services.d/dask-worker/log/run \
                 && echo OK
-
             # Add 'timeout' script to /usr/bin, for collecting memory + CPU time
             # information.
             COPY {build_faw_dir}/faw/timeout-master /home/timeout
             RUN chmod a+x /home/timeout/timeout \
                 && ln -s /home/timeout/timeout /usr/bin/timeout_pshved
-
             # Container runtime properties
             ENV LC_ALL C.UTF-8
             ENV LANG C.UTF-8
@@ -913,19 +913,16 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
 
     dockerfile = '\n'.join(dockerfile + dockerfile_middle
             + dockerfile_final + dockerfile_final_postamble)
-    print('='*79)
-    print(dockerfile)
-    print('='*79)
+            
+    return dockerfile
 
+def _build_docker_image(build_dir, suffix, dockerfile_contents):
     r = subprocess.run(['docker', 'build', '-t', IMAGE_TAG + suffix,
-        '-f', '-', '.'], cwd=build_dir, input=dockerfile.encode())
+        '-f', '-', '.'], cwd=build_dir, input=dockerfile_contents.encode())
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
-
-    # Return the tag for the build
-    # TODO: Consider taking the image tag/name as input?
-    return IMAGE_TAG + suffix
-
+    else:
+        return IMAGE_TAG + suffix
 
 def _export_config_json(config_data):
     import json
@@ -934,6 +931,22 @@ def _export_config_json(config_data):
     config_json = json.dumps(config_data_client)
     return config_json
 
+def _generate_copy_commands(stage, stage_def, *, force_prefix=None):
+    commands = []
+    for k, v in stage_def.get('copy_output', {}).items():
+        if v is True:
+            v = k
+
+        # If force_prefix has been provided, the target path is forced to be
+        # <force_prefix>/<v>. Otherwise it will simply be <v>
+        if force_prefix:
+            suffix = v[1:] if v[0] == '/' else v  # Required for os.path.join to work correctly
+            new_path = os.path.join(force_prefix, suffix)
+            commands.append(f'COPY --from={stage} {k} {new_path}')
+        else:
+            commands.append(f'COPY --from={stage} {k} {v}')
+    
+    return commands
 
 def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
     # Only spin up mongo -- the only reason we make it externally connectible is
@@ -1095,6 +1108,9 @@ def _check_build_stage_change_and_update(
     # We really shouldn't be calling this without something having changed,
     assert new_config != old_config
 
+    # And we should be operating in development mode
+    assert development, "Automatic rebuild on build stage configuration updates are only supported in development mode"
+
     # Check if any build stages in the new_config has changed, though we only
     # care about stages that specify things that can be copied
     updated_stages = {}
@@ -1110,14 +1126,36 @@ def _check_build_stage_change_and_update(
     if not updated_stages:
         return
 
-    # Build a new image
-    # NOTE: Currently we are using the same image tag that is currently 
-    # running in FAW.
-    image_tag = _check_image(
+    # To build a new image, first create the dockerfile contents
+    dockerfile_contents = _create_dockerfile_contents(
         development=development, config=config_dir, config_data=new_config,
         build_dir=build_dir, build_faw_dir=build_faw_dir
     )
+
+    # We need to collect all the outputs from the updated stages in some place
+    # where we can extract them out of the image (the container really) cleanly.
+    # To this end, we insert extra COPY commands to the dockerfile that copy
+    # the files under a specific temp directory, but retaining the full path.
+    # We then create a tar file with all the copied files for extraction.
+    temp_name = str(uuid.uuid4())
+    temp_dir_name = os.path.join('/tmp', temp_name)
+    commands = []
+    for stage_name, stage_data in updated_stages.items():
+        copy_cmds = _generate_copy_commands(stage_name, stage_data, force_prefix=temp_dir_name)
+        commands.extend(copy_cmds)
     
+    tar_file_name = f"/tmp/{temp_name}.tar"
+    tar_command = f"RUN tar -cvf {tar_file_name} -C {temp_dir_name}/ ."
+    commands.append(tar_command)
+
+    dockerfile_contents += ("\n" + "\n".join(commands))
+
+    # Finally build the image
+    # NOTE: Currently we are using the same image tag that is currently 
+    # running in FAW.
+    image_tag = _build_docker_image(
+        build_dir=build_dir, suffix="-dev", dockerfile_contents=dockerfile_contents
+    )
     print("Completed Rebuild")
 
     # Create a container with this image and copy files appropriately
@@ -1127,21 +1165,11 @@ def _check_build_stage_change_and_update(
         subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
         print(f"Completed Container Creation - {new_container_id}")
 
-        # Copy all the required files
-        with tempfile.TemporaryDirectory() as tmp:
-            for stage_name, stage_data in updated_stages.items():
-                for src, dest in stage_data['copy_output'].items():
-                    # Remember that the build process will copy everything to the final
-                    # destination before we do our copying. So our source file is the
-                    # destination of the `copy_output`. It is also the destination 
-                    # filename in the running container
-                    file_name = src if dest == True else dest
-                    print("Copying file -", file_name)
-
-                    tmp_dest_name = os.path.join(tmp, 'tmp')
-                    subprocess.check_call(['docker', 'cp', f"{new_container_id}:{file_name}", tmp_dest_name])
-                    subprocess.check_call(['docker', 'cp', tmp_dest_name, f"{current_docker_id}:{file_name}"])
-                    os.unlink(tmp_dest_name)
+        # Copy the tar file we created during the build process locally and then stream it out to the
+        # destination container. NOTE: The explicit tar creation above ensures that the resultant tar
+        # has the right hierarchy to allow us to do this.
+        subprocess.check_call(["docker", "cp", f"{new_container_id}:{tar_file_name}", tar_file_name])
+        subprocess.check_call(f"docker cp - {current_docker_id}:/ < {tar_file_name}", shell=True)
     finally:
         subprocess.run(['docker', 'rm', new_container_id])
         print(f"Removed Container - {new_container_id}")
