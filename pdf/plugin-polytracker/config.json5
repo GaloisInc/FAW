@@ -18,7 +18,7 @@
         commands: [
           'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
           cd /tmp && git clone --recursive git://git.ghostscript.com/mupdf.git && cd mupdf && \
-          git submodule update --init && git checkout d00de0e96a4a5ec90ffc30837d40cd624a6a89e0',
+          git checkout d00de0e96a4a5ec90ffc30837d40cd624a6a89e0 && git submodule update --init',
           'WORKDIR /tmp/mupdf',
           'RUN make -j$((`nproc`+1)) HAVE_X11=no HAVE_GLUT=no prefix=/usr/local build=debug install',
           'WORKDIR /tmp/mupdf/build/debug',
