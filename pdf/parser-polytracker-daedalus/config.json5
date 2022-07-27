@@ -1,0 +1,40 @@
+{
+  parsers: {
+    "daedalus-file-cavities": {
+      version: 'polytracker-v1.2',
+      exec: ['python3', 'main.py', '<inputFile>'],
+      timeout: 60,
+      parse: {
+        type: 'regex-counter',
+        version: '1.7',
+        stdstar: {
+          '^"(([^"\\\\]|\\\\.)*?)","(([^"\\\\]|\\\\.)*?)","': {
+            nameGroup: 'INFIX: "\\g<3>"',
+            nameReplace: {
+              '[0-9]+': '<INT>',
+            },
+            fallthrough: true,
+          },
+          '^.*$': {
+            nameReplace: {'[0-9]+': '<INT>'},
+          }
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      mupdf: {
+        from: 'trailofbits/polytracker-daedalus-pdf',
+        copy_output: {
+          '/polytracker/the_klondike/daedalus/formats/pdf/new/c++/parser-test-track': '/usr/bin/'
+        },
+        commands: [],
+      },
+      final: {
+        commands: [
+        ],
+      }
+    },
+  }
+}
