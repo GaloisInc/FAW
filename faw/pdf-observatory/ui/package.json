@@ -12,7 +12,7 @@
     "d3-svg-annotation": "^2.5.1",
     "pegjs": "^0.10.0",
     "pug": "^3.0.2",
-    "pug-plain-loader": "^1.0.0",
+    "pug-plain-loader": "^1.1.0",
     "v-clipboard": "^2.2.3",
     "vue": "^2.6.14",
     "vue-router": "^3.5.3",
@@ -55,7 +55,12 @@
       "no-constant-condition": "off",
       "no-inner-declarations": "off",
       "no-unused-vars": "off",
-      "@typescript-eslint/no-unused-vars": ["error", {"args": "none"}],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          "args": "none"
+        }
+      ],
       "vue/component-tags-order": "off",
       "vue/order-in-components": "off",
       "vue/require-default-prop": "off"
