@@ -21,7 +21,7 @@ def process_pdf(path: str, timeout: Optional[float] = None):
             ps_path = psfile.name
             tmpfile.close()
             psfile.close()
-            subprocess.check_call(["/usr/bin/parser-test-track", f"--output-file={ps_path}", path], env={
+            subprocess.check_call(["/usr/bin/parser-test-track", f"--text-output={ps_path}", path], env={
                 "POLYDB": db_path
             }, timeout=timeout)
             cavity_detection(Path(db_path), Path(path))

@@ -25,9 +25,12 @@
   build: {
     stages: {
       mupdf: {
-        from: 'trailofbits/polytracker-daedalus-pdf',
+        from: 'trailofbits/polytracker:faw-daedalus-2022-07-27',
         copy_output: {
-          '/polytracker/the_klondike/daedalus/formats/pdf/new/c++/parser-test-track': '/usr/bin/'
+          '/polytracker/the_klondike/daedalus/formats/pdf/new/c++/parser-test-track': '/usr/bin/',
+          '/usr/lib/x86_64-linux-gnu/libgmpxx.so.4.6.0': '/lib/x86_64-linux-gnu/',
+          '/usr/lib/x86_64-linux-gnu/libgmpxx.so.4': '/lib/x86_64-linux-gnu/',
+          '/usr/lib/x86_64-linux-gnu/libgmpxx.so': '/lib/x86_64-linux-gnu/'
         },
         commands: [],
       },
