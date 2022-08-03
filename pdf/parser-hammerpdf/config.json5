@@ -1,0 +1,49 @@
+{
+    parsers: {
+        'validate': {
+            exec: ['bash', './hammer.sh', '<inputFile>', '0', '99999'],
+            version: 'hammer-tag-2022-04-04_merged',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                    //NOTE: The current version of the parser produces a lot of output
+                    //on success that appears to be a dump of internal structures. We
+                    //ignore all of that for now.
+                    '^.*$': {
+                        nameGroup: '',
+                    },
+                },
+                stderr: {
+                    '^.*$': {
+                        nameGroup: 0,
+                    }
+                },
+            },
+        },
+    },
+    build: {
+       stages: {
+            'hammer-pdf': {
+                copy_output: {
+                    '/parsec/pdf/pdf': true,
+                    '/usr/local/lib/libhammer.so': '/usr/lib/libhammer.so'
+                },
+                commands: [
+                    'RUN \
+                        DEBIAN_FRONTEND=noninteractive apt update && DEBIAN_FRONTEND=noninteractive \
+                        apt install -y python3 python3-pip git scons pkg-config swig libglib2.0-dev \
+                    ',
+                    'RUN \
+                        mkdir -p /parsec \
+                        && cd /parsec && git clone https://gitlab.special-circumstanc.es/hammer/hammer.git \
+                        && cd /parsec/hammer && git checkout origin/master && scons && scons install \
+                        && cd /parsec && git clone https://gitlab.special-circumstanc.es/pesco/pdf.git \
+                        && cd /parsec/pdf && git checkout tags/2022-04-04_merged && make pdf \
+                    ',
+                    'RUN ldconfig'
+                ],
+            },
+        },
+    },
+}
