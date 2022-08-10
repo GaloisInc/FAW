@@ -1,0 +1,53 @@
+/* This parser comes from: https://github.com/DFDLSchemas/NITF */
+{
+  /** Build process is broken:
+    sbt.librarymanagement.ResolveException: Error downloading com.mitre:dfdl-jpeg:0.0.1
+    */
+  disabled: true,
+  parsers: {
+    dfdl: {
+      exec: ['/usr/bin/env', 'PYTHONPATH=.', 'python3', 'main.py', '<inputFile>'],
+      version: '1',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stdstar: {
+          '.*': {
+            nameReplace: {
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+
+  build: {
+    stages: {
+      base: {
+        commands: [
+          // `sbt` commands required by DFDL
+          'RUN \
+              apt-get update && apt-get install -y unzip zip \
+              && curl -s "https://get.sdkman.io" | bash',
+          'RUN \
+              source "/root/.sdkman/bin/sdkman-init.sh" \
+              && sdk install java $(sdk list java | grep -o "\b8\.[0-9]*\.[0-9]*\-tem" | head -1) \
+              && sdk install sbt',
+        ],
+      },
+      compile: {
+        commands: [
+          'RUN mkdir /opt/dfdl \
+              && cd /opt/dfdl \
+              && git clone https://github.com/DFDLSchemas/NITF \
+              && cd NITF',
+          'RUN \
+              source "/root/.sdkman/bin/sdkman-init.sh" \
+              && cd /opt/dfdl/NITF \
+              && sbt -Dsbt.rootdir=true compile',
+        ],
+      },
+    },
+  },
+}

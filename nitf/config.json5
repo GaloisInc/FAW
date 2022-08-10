@@ -1,0 +1,118 @@
+/* Test files from: https://web.archive.org/web/20210506204348/https://gwg.nga.mil/ntb/baseline/software/testfile/Nitfv2_1/scen_2_1.html */
+{
+    // The workbench consists of UI connected to a number of external plugins,
+    // which are organized into 'parsers', 'file_detail_views', and
+    // 'decision_views'.  These are  supported through the defining of the
+    // "build" environment.
+    //
+    // The reason this is a custom format instead of a standard Dockerfile is
+    // so that the entire deployment might be specified in a single location.
+    // Dockerfile is necessary because many external plugins have their own
+    // requirements, etc.
+    //
+    // Everything in this file except 'build' is live-reloaded when used with
+    // the --development flag. This applies mostly to plugins, but can also
+    // apply to 'parsers' when the DB is reset through the UI (use on small
+    // collections of files only).
+
+
+    // The name of the docker image to be produced.
+    name: 'galois-workbench-nitf',
+
+    // If needbe, a program may be specified here. The given program can take
+    // only '<inputFile>' as a special argument, and is expected to output (to
+    // stdout) a transformed version of the input file, which is the content
+    // that will actually be inspected by the FAW.
+    file_transform: null, /*{
+      version: '1',
+      exec: ['echo', '<inputFile>'],
+    },*/
+
+    // Seconds, per parser, in which each parser must finish executing.
+    parserDefaultTimeout: 60,
+    parsers: {
+    },
+
+    pipelines: {
+      // See ml_test/config.json5 for example.
+    },
+
+    // May also specify a plaintext file to avoid needed to format as JSON5:
+    // decision_default: {file: 'file_path_relative_to_config.json5'},
+    decision_default: '\
+# Any line beginning with a hash is a comment.  \n\
+filters:  \n\
+  # Filters are defined as groups of regular expressions.  \n\
+  \n\
+  PdfiumError:  \n\
+    ^pdfium_.*unsuccessful  \n\
+    ^pdfium_.*bad  \n\
+  \n\
+  MutoolCleanAccept:  \n\
+    ^mutool-clean_.*<<workbench:\ Exit\ code\ 0>>  \n\
+  MutoolCleanError:  \n\
+    ^mutool-clean_.*<<workbench:\ Exit\ code\ (?!0)  \n\
+    ^mutool-clean_.*[Ee]rror(?!: cannot recognize version marker)  \n\
+    ^mutool\-clean_warning:\ ignoring\ object\ with\ invalid\ object\ number\ \\(\ \ R\\)  \n\
+  MutoolConvertAccept:  \n\
+    ^mutool-convert_.*<<workbench:\ Exit\ code\ 0>>  \n\
+  MutoolDrawAccept:  \n\
+    ^mutool-draw_.*<<workbench:\ Exit\ code\ 0>>  \n\
+  PdfiumAccept:  \n\
+    ^pdfium_<<workbench:\ Exit\ code\ 0>>$  \n\
+  PdfdriverAccept:  \n\
+    ^pdf-hs-driver_<<workbench:\ Exit\ code\ 0>>$  \n\
+  PdftotextError:  \n\
+    ^pdftotext_Syntax Error  \n\
+  XrefRebuildNeeded:  \n\
+    ^pdftocairo\-pdf_Internal\ Error:\ xref\ num\ \-\ not\ found\ but\ needed\,\ try\ to\ reconstruct<a>  \n\
+  \n\
+  Unsafe:  \n\
+    ^polyfile_mimetype: (?!application/pdf)  \n\
+    ^schizo-test-schizo-test_Max RMSE  \n\
+      sum > 0.4  \n\
+    ^schizo-text-test-schizo-text-test_\\w+ to \\w+  \n\
+      sum < 0.5  \n\
+    ^pdffonts_Unembedded font  \n\
+  \n\
+outputs:  \n\
+  \n\
+  status:  \n\
+    "valid" is !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
+    #"valid" is !MutoolCleanError  \n\
+    "rejected" else  \n\
+  status-strict:  \n\
+    "rejected" is PdfiumError | PdftotextError | !MutoolDrawAccept | !MutoolConvertAccept | !MutoolCleanAccept | Unsafe | !PdfdriverAccept  \n\
+    "valid" else  \n\
+  ',
+
+    decision_views: {
+    },
+
+    file_detail_views: {
+    },
+
+    build: {
+        stages: {
+            base: {
+                'from': 'ubuntu:20.04',
+                commands: [
+                    'ENV DEBIAN_FRONTEND=noninteractive',
+                    'SHELL ["/bin/bash", "-c"]',
+                    'RUN apt-get update && apt-get install -y git openjdk-11-jdk',
+                ],
+            },
+
+            // final is a special stage which runs in the final image.  Useful
+            // for installing dependencies for downstream tools, without needing
+            // to rebuild all of the other workbench internals.
+            final: {
+                commands: [
+                    // Interestingly, some packages (e.g. opencv-python) require
+                    // an updated pip.
+                    'RUN pip3 install --upgrade pip',
+                ],
+            },
+        },
+    },
+}
