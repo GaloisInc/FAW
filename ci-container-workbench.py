@@ -166,7 +166,6 @@ def main():
         # Export docker image
         assert IMAGE_TAG is not None
         # relpath() here used to strip trailing slash, which messes up basename
-        # dist_name = os.path.basename(os.path.relpath(CONFIG_FOLDER))
         dist_name = os.path.basename(os.path.relpath(args.config_dir))
         image_file_name = f'{IMAGE_TAG}.image'
         subprocess.check_call(
@@ -175,7 +174,7 @@ def main():
 
         # Export readme
         with \
-                open(os.path.join('faw', 'README-dist.md')) as fin, \
+                open(os.path.join(faw_dir, 'faw', 'README-dist.md')) as fin, \
                 open(os.path.join(pdf_dir, 'README.md'), 'w') as fout:
             fout.write(
                     re.sub(r'{distribution}', dist_name,
@@ -651,7 +650,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
             raise Exception("Image not correctly installed, and not "
                     "locally present.  Try re-extracting and running "
                     "again?")
-        return
+        return o
 
     # Need to build the image
     suffix = '-dev' if development else ''
