@@ -1,0 +1,42 @@
+{
+  parsers: {
+    polyfile: {
+      exec: ['python3', 'main.py', '<inputFile>'],
+      // Keep DB version on old version; no need to reprocess all 1M+ eval3
+      // files
+      version: 'polyfile-v0.3.4',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stdstar: {
+          '^.*$': {
+            nameReplace: {'0x[0-9a-fA-F]+': '<HEX>'},
+            nameReplace: {'[0-9]+': '<INT>'},
+          },
+        },
+      },
+    },
+  },
+  file_detail_views: {
+    polyfile: {
+      label: 'Polyfile',
+      // 'type' denotes the way this detail view should be shown in the
+      // UI, and how the underlying program gets run.  'program_to_html'
+      // runs a program and opens '<outputHtml>' in something like an
+      // IFrame.
+      type: 'program_to_html',
+      exec: ['polyfile', '--html', '<outputHtml>', '<inputFile>'],
+    },
+  },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'RUN pip3 install "polyfile >= 0.4.0"',
+          // Polyfile now requires 7zip as of 2021-05-04
+          'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
+        ],
+      },
+    },
+  },
+}

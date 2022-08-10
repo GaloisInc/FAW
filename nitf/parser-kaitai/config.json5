@@ -1,0 +1,31 @@
+/* This parser comes from: https://formats.kaitai.io/nitf/python.html */
+{
+  parsers: {
+    nitf: {
+      exec: ['/usr/bin/env', 'PYTHONPATH=.', 'python3', 'main.py', '<inputFile>'],
+      version: '1.01',
+      parse: {
+        type: 'regex-counter',
+        version: '1.01',
+        stdstar: {
+          '.*': {
+            nameReplace: {
+              '0x[0-9a-f]+': '<HEX>',
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'RUN pip3 install kaitaistruct',
+        ],
+      },
+    },
+  },
+}
