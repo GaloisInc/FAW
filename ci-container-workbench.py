@@ -35,7 +35,7 @@ from aiohttp import web
 # TODO: Remove them and pass as parameters
 CONFIG_FOLDER = None
 IMAGE_TAG = None
-VOLUME_SUFFIX = '-data'
+VOLUME_SUFFIX = None
 
 # Keep track of the directory containing the FAW
 faw_dir = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +62,7 @@ def main():
     For running a FAW deployment on multiple machines, see
     `workbench-teaming-init.py`.
     """
+    global IMAGE_TAG, VOLUME_SUFFIX
 
     parser = argparse.ArgumentParser(description=textwrap.dedent(main.__doc__),
             formatter_class=argparse.RawTextHelpFormatter)
@@ -71,11 +72,19 @@ def main():
     def folder_exists_or_build(v):
         assert os.path.lexists(v) or v.startswith('build'), f'Path must exist or start with build: {v}'
         return v
-    ## if CONFIG_FOLDER is None and IMAGE_TAG is None:
-    parser.add_argument('--config-dir', type=folder_exists, help="Folder "
+    
+    if CONFIG_FOLDER is None and IMAGE_TAG is None:
+        parser.add_argument('--config-dir', type=folder_exists, help="Folder "
             "containing configuration for workbench to analyze a format.")
-    parser.add_argument('--file-dir', type=folder_exists_or_build, required=True, help="Folder containing "
-            "files to investigate.")
+    
+    if CONFIG_FOLDER is None and IMAGE_TAG is None:
+        parser.add_argument('--file-dir', type=folder_exists_or_build, required=True, help="Folder containing "
+                "files to investigate.")
+    else:
+        # Note the positional style of parameter used here. This allows for fluent usage in deployment
+        # scenarios
+        parser.add_argument('file_dir', type=folder_exists_or_build, help="Folder containing files to investigate.")
+
     parser.add_argument('--port', default=8123, type=int,
             help="Port on which Galois Workbench is accessed.")
     parser.add_argument('--port-dask', default=None, type=int,
@@ -97,8 +106,11 @@ def main():
             help="Developer option on by default: mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.")
-    parser.add_argument('--image-tag', default=None, help="Tag prefix for the image being built")
-    parser.add_argument('--volume-suffix', default='-data', help="Suffix for the database Volume")
+    if IMAGE_TAG is None:
+        parser.add_argument('--image-tag', default=None, help="Tag prefix for the image being built")
+    if VOLUME_SUFFIX is None:
+        parser.add_argument('--volume-suffix', default='-data', help="Suffix for the database Volume")
+
     args = parser.parse_args()
     pdf_dir = args.file_dir
     port = args.port
@@ -109,16 +121,15 @@ def main():
 
     # Update the global variables
     # TODO: Remove globals and pass as parameters
-    global IMAGE_TAG, VOLUME_SUFFIX
-    IMAGE_TAG = args.image_tag
+    if not IMAGE_TAG:
+        IMAGE_TAG = args.image_tag
     VOLUME_SUFFIX = args.volume_suffix
-    
+
     build_mode = (os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build')
     if build_mode:
         # Exit before building image, which can be expensive
         assert not development, "Build cannot use --development"
 
-    config_data = None
     if IMAGE_TAG is None:
         config = args.config_dir
         # # Not a deployment -- need to load spec so we can build the image.
@@ -151,6 +162,13 @@ def main():
 
         # Ensure config is up to date
         config_data = _check_config_file(config, build_dir)
+    else:
+        # We have an IMAGE_TAG and that means we are working off a saved image
+        # We shouldn't need to care about config/config_data etc really. We also
+        # only support production mode in this case
+        config_data, config, build_dir, build_faw_dir = None, None, None, None
+        development = False
+
 
     # Check that observatory image is loaded / built
     _check_image(development=development, config=config, config_data=config_data,
@@ -642,7 +660,8 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
         if os.path.lexists(image_file):
             print('Loading docker image...')
             subprocess.check_call(['docker', 'load', '-i', image_file])
-            os.unlink(image_file)
+            # TODO: Why this next line??
+            # os.unlink(image_file)
 
         o = subprocess.check_output(['docker', 'image', 'ls',
                 IMAGE_TAG, '--format', '{{.ID}}'])

@@ -148,6 +148,7 @@ def to_script_args(args):
         arglist.append('--production')
 
     # Then the extras we need to push along
+    # TODO: Check if these ever get populated
     if IMAGE_TAG:
         arglist.append(f"--image-tag={IMAGE_TAG}")
     if VOLUME_SUFFIX:
