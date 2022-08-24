@@ -13,6 +13,55 @@ RUN pip3 install -r /tmp/requirements.txt
 USER root
 RUN curl -fsSL https://get.docker.com | sh
 
+# Next we will also install the S6-overlay primarily for logging purposes
+COPY faw/s6-overlay-amd64.tar.gz /tmp/
+
+# Updated for ubuntu 20.04, for which /bin is a symlink
+# Still need old extract command for previous versions.
+RUN bash -c '\
+        ([ -L /bin ] \
+            && ( \
+                tar xzf /tmp/s6-overlay-amd64.tar.gz -C / --exclude="./bin" \
+                && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /usr ./bin \
+            ) \
+            || ( \
+                tar xzf /tmp/s6-overlay-amd64.tar.gz -C / \
+            ) \
+        ) \
+        && rm /tmp/s6-overlay-amd64.tar.gz \
+        '
+# Tell S6 to pass environment variables on to child processes
+ENV S6_KEEP_ENV 1
+
+# Tell python to never buffer output. This is vital for preventing
+# some "write would block" messages.
+ENV PYTHONUNBUFFERED 1
+
+# Move over to using bash as the default shell
+SHELL ["/bin/bash", "-c"]
+
+# (Dynamically) create an S6 service for the CI container's actual job
+# This is actually a bunch of different things:
+#   1. Create a script to actually run the CI container's main command (the CI workbench script really)
+#   2. We also create a "finish" script, just so that if the main command dies, the container comes down
+#   3. We set up logging via s6-log/logutil-service to a specific host directory
+#   4. Introduce support for s6 readiness notifications (necessary to support faw-cli interactivity)
+#   5. Finally create a "global" finish script that will take down the FAW container if the CI container dies
+RUN \
+    mkdir -p '/etc/services.d/ci-container'  \
+    && echo -e '#!/bin/sh\n{ci_container_cmd} 2>&1' >> /etc/services.d/ci-container/run \
+    && chmod u+x /etc/services.d/ci-container/run \
+    && echo -e '#!/bin/sh\ns6-svscanctl -t /var/run/s6/services' >> /etc/services.d/ci-container/finish \
+    && chmod u+x /etc/services.d/ci-container/finish \
+    && mkdir -p /etc/cont-init.d \
+    && echo -e '#!/bin/sh\nmkdir -p {ci_container_logdir}\nchown -R nobody:nogroup {ci_container_logdir}' > /etc/cont-init.d/ci-container \
+    && mkdir -p '/etc/services.d/ci-container/log'  \
+    && echo -e '#!/bin/sh\nexec logutil-service {ci_container_logdir}' >> /etc/services.d/ci-container/log/run \
+    && echo -e '3' >> /etc/services.d/ci-container/notification-fd \
+    && echo -e '#!/bin/sh\ndocker ps -q --filter "name={faw_container_name}" | grep -q . && docker stop {faw_container_name}' > /etc/cont-finish.d/ci-container
+
+# Finally start the s6 overlay's init
+ENTRYPOINT ["/init"]
 
 
 

@@ -7,17 +7,26 @@ running end-user copies of the Galois Format Analysis Workbench.
 # IMPORTANT - Only stdlib here! We want to minimize dependencies required by
 # downstream users. Other imports are allowed in functions not used by the
 # version published as part of a build.
+
+# NOTE: We are not completely devoid of non-standarddependencies, but it is
+# important to note that they are all imported only on demand. Thus if a
+# feature is not available, the corresponding package will not be required.
+
+# NOTE: While it is true that this file runs in a container most of the time
+# a modified copy of this can *also* be used to run a saved image.
+
 import argparse
 import asyncio
 import atexit
 import dataclasses
-import hashlib
 import io
+import logging
 import os
 import pathlib
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -29,7 +38,8 @@ import traceback
 import uuid
 import webbrowser
 
-from aiohttp import web
+from workbench import get_db_name, get_faw_container_name
+
 
 # These variables are used throughout the script. So we keep them for now
 # TODO: Remove them and pass as parameters
@@ -40,6 +50,14 @@ VOLUME_SUFFIX = None
 # Keep track of the directory containing the FAW
 faw_dir = os.path.dirname(os.path.abspath(__file__))
 ALL_FOLDER = os.path.abspath(os.path.join(faw_dir, 'all'))
+
+# Initialize a logger
+logging.basicConfig(level=logging.DEBUG,
+                    format="%(name)s - %(levelname)s - %(message)s",
+                    datefmt='%d-%b-%y %H:%M:%S')
+
+# Service notification FD
+SERVICE_NOTIFICATION_FD = 3
 
 
 def main():
@@ -72,11 +90,11 @@ def main():
     def folder_exists_or_build(v):
         assert os.path.lexists(v) or v.startswith('build'), f'Path must exist or start with build: {v}'
         return v
-    
+
     if CONFIG_FOLDER is None and IMAGE_TAG is None:
         parser.add_argument('--config-dir', type=folder_exists, help="Folder "
             "containing configuration for workbench to analyze a format.")
-    
+
     if CONFIG_FOLDER is None and IMAGE_TAG is None:
         parser.add_argument('--file-dir', type=folder_exists_or_build, required=True, help="Folder containing "
                 "files to investigate.")
@@ -106,6 +124,9 @@ def main():
             help="Developer option on by default: mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.")
+    parser.add_argument('--service', action='store_true',
+            help="Indicates whether the script should run in a non-interactive service mode")
+
     if IMAGE_TAG is None:
         parser.add_argument('--image-tag', default=None, help="Tag prefix for the image being built")
     if VOLUME_SUFFIX is None:
@@ -169,7 +190,6 @@ def main():
         config_data, config, build_dir, build_faw_dir = None, None, None, None
         development = False
 
-
     # Check that observatory image is loaded / built
     _check_image(development=development, config=config, config_data=config_data,
             build_dir=build_dir, build_faw_dir=build_faw_dir)
@@ -223,14 +243,11 @@ def main():
             subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(pdf_dir),
                     cwd=pdf_dir)
 
-        print(f'Package available as {pdf_dir}')
+        logging.info(f'Package available as {pdf_dir}')
         return
 
     # Hash absolute path to folder to generate consistent DB name.
-    pdf_dir = os.path.abspath(pdf_dir)
-    pdf_dir_name = re.sub(r'[ /\.]', '-', os.path.basename(pdf_dir))
-    hash = hashlib.sha256(pdf_dir.encode('utf-8')).hexdigest()
-    db_name = f'gfaw-{pdf_dir_name}-{hash[:8]}'
+    db_name = get_db_name(pdf_dir)
 
     if copy_mongo_from is not None or copy_mongo_to is not None:
         # Auxiliary command for copying data from an existing mongo instance.
@@ -268,14 +285,14 @@ def main():
 
         extra_flags.append(IMAGE_TAG + '-dev')
 
-    docker_id = f'gfaw-{IMAGE_TAG}-{db_name}'
+    docker_id = get_faw_container_name(IMAGE_TAG, config, pdf_dir)
     if development:
         # Ensure that the necessary npm modules are installed to run the UI
         # locally. Notably, we do this from docker s.t. the node version used
         # to install packages is the same one used to run the FAW.
         #subprocess.check_call(['npm', 'install'],
         #        cwd=os.path.join(faw_dir, 'faw', 'pdf-observatory', 'ui'))
-        subprocess.check_call(['docker', 'run', '-it', '--rm', '--entrypoint',
+        subprocess.check_call(['docker', 'run', '--rm', '--entrypoint',
                 '/bin/bash']
                 + extra_flags
                 + [
@@ -306,7 +323,7 @@ def main():
                         # Some config changed
                         last_ts = new_ts
 
-                        print('workbench: Updating /home/config.json')
+                        logging.info('workbench: Updating /home/config.json')
                         new_config = _check_config_file(config, build_dir)
                         new_config_file = _export_config_json(new_config).encode('utf-8')
 
@@ -346,7 +363,7 @@ def main():
         time.sleep(1.5)
         try:
             webbrowser.open(f'http://localhost:{port}')
-        except:
+        except ex:
             traceback.print_exc()
     open_browser_thread = threading.Thread(target=open_browser)
     open_browser_thread.daemon = True
@@ -359,6 +376,7 @@ def main():
     # about to start) on exiting, including during abnormal exits,
     # we will register ourselves an atexit listener
     def on_exit(faw_docker_id=docker_id, server_thread=server_thread):
+        logging.info("In at exit processing")
         # Because we are in an exit handler, let us not throw an exception
         r = subprocess.run(f"docker ps -a | grep {faw_docker_id}", shell=True)
         if r.returncode == 0:
@@ -372,20 +390,35 @@ def main():
 
     atexit.register(on_exit)
 
-    # Run the FAW container non-interactively
-    subprocess.check_call(['docker', 'run', '--rm', '--detach',
-            '--log-driver', 'none',
-            '--name', docker_id,
-            '-v', f'{pdf_dir}:/home/pdf-files',
-            '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db',
-            '-e', f'DB={db_name}',
-            '-p', f'{port}:8123',
-            ] + extra_flags)
+    logdir = pathlib.Path(faw_dir, 'logs', 'ci-container').resolve()
+    logfile_target_loc = '/var/log/ci-container'
+    subprocess.check_call(
+        ['docker', 'run', '--rm', '--detach',
+         '--log-driver', 'none',
+         '--name', docker_id,
+         '-v', f'{pdf_dir}:/home/pdf-files',
+         '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db',
+         '-v', f'{str(logdir)}:{logfile_target_loc}',
+         '-e', f'DB={db_name}',
+         '-p', f'{port}:8123'
+        ] + extra_flags
+    )
 
-    # Run the FAW cli
+    # If in an interactive mode, run the FAW cli
     # TODO: Not sure this would return a "good" exit code on Ctrl+C. Figure that out.
     # So currently we just don't check the exit status!
-    subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])
+    if (not args.service):
+        subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])
+    else:
+        # Wait for a few seconds and write out a notification
+        time.sleep(5)
+        logging.info("Writing daemon ready notification")
+        with os.fdopen(SERVICE_NOTIFICATION_FD, "w") as f:
+            f.write('Service is up\n')
+
+        # Wait for ever
+        while True:
+            time.sleep(1)
 
 
 def _check_config_file(config, build_dir):
@@ -405,7 +438,7 @@ def _check_config_file(config, build_dir):
         # CONFIG_FOLDER = config
     # else:
         # assert config is None
-    
+
     import pyjson5, schema as s
     # config_data = pyjson5.load(open(os.path.join(CONFIG_FOLDER,
             # 'config.json5')))
@@ -658,7 +691,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
         # For e.g. version updates, load the image first.
         image_file = os.path.join(faw_dir, IMAGE_TAG + '.image')
         if os.path.lexists(image_file):
-            print('Loading docker image...')
+            logging.info('Loading docker image...')
             subprocess.check_call(['docker', 'load', '-i', image_file])
             # TODO: Why this next line??
             # os.unlink(image_file)
@@ -677,9 +710,9 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
 
     # Generate the contents for the dockerfile
     dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir)
-    print('='*79)
-    print(dockerfile_contents)
-    print('='*79)
+    logging.info('='*79)
+    logging.info(dockerfile_contents)
+    logging.info('='*79)
 
     # And build the docker image
     # TODO: Consider taking the image tag/name as input?
@@ -931,7 +964,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
 
     dockerfile = '\n'.join(dockerfile + dockerfile_middle
             + dockerfile_final + dockerfile_final_postamble)
-            
+
     return dockerfile
 
 def _build_docker_image(build_dir, suffix, dockerfile_contents):
@@ -963,7 +996,7 @@ def _generate_copy_commands(stage, stage_def, *, force_prefix=None):
             commands.append(f'COPY --from={stage} {k} {new_path}')
         else:
             commands.append(f'COPY --from={stage} {k} {v}')
-    
+
     return commands
 
 def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
@@ -978,7 +1011,8 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
     dummy_mongo_port = 27015
 
     async def run_and_dump():
-        print(f'Spinning up mongo inside FAW container...', file=sys.stderr)
+        # print(f'Spinning up mongo inside FAW container...', file=sys.stderr)
+        logging.info(f'Spinning up mongo inside FAW container...')
         container_name = 'faw-workbench-mongo-copy'
         p = await asyncio.create_subprocess_exec(
                 'docker', 'run', '--rm', # '-it',
@@ -1017,11 +1051,13 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
             while not await test_connection():
                 pass
 
-            print('Docker w/ mongo spun up and ready.', file=sys.stderr)
+            # print('Docker w/ mongo spun up and ready.', file=sys.stderr)
+            logging.info('Docker w/ mongo spun up and ready.')
             if copy_mongo_from is not None:
                 if os.path.isabs(copy_mongo_from):
                     # Restore backup from file
-                    print('Restoring from file.', file=sys.stderr)
+                    # print('Restoring from file.', file=sys.stderr)
+                    logging.info('Restoring from file.')
                     pr = await asyncio.create_subprocess_exec(
                             'docker', 'exec', '-i',
                             container_name,
@@ -1034,13 +1070,13 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                     stdout, stderr = await pr.communicate()
                     r_code = await pr.wait()
                     if r_code != 0:
-                        print('STDOUT', file=sys.stderr)
-                        print(stdout.decode(), file=sys.stderr)
-                        print('STDERR', file=sys.stderr)
-                        print(stderr.decode(), file=sys.stderr)
+                        logging.error('STDOUT')
+                        logging.error(stdout.decode())
+                        logging.error('STDERR')
+                        logging.error(stderr.decode())
                         raise ValueError('Mongorestore crashed')
                 else:
-                    print(f'Restoring from running mongod.', file=sys.stderr)
+                    logging.info(f'Restoring from running mongod.')
                     raise NotImplementedError
                     # Restore backup from remote source
                     mongo_host, mongo_db = copy_mongo_from.split('/', 1)
@@ -1056,7 +1092,7 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
 
                     cols = [c['name'] for c in await client_db.list_collections()]
                     for col in cols:
-                        print(f'Copying {col}...')
+                        logging.info(f'Copying {col}...')
                         client_col = client_db[col]
                         dest_col = dest_db[col]
 
@@ -1090,10 +1126,10 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                             if len(batch) >= 1024:
                                 await dump_batch()
                         await dump_batch()
-                        print(f'...copied {copied[0]}')
+                        logging.info(f'...copied {copied[0]}')
             if copy_mongo_to is not None:
                 # Restore to file
-                print('Backing up database.', file=sys.stderr)
+                logging.info('Backing up database.', file=sys.stderr)
                 assert os.path.isabs(copy_mongo_to), copy_mongo_to
                 pr = await asyncio.create_subprocess_exec(
                         'docker', 'exec', '-i',
@@ -1107,10 +1143,10 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                 _stdout, stderr = await pr.communicate()
                 r_code = await pr.wait()
                 if r_code != 0:
-                    print('STDERR', file=sys.stderr)
-                    print(stderr.decode(), file=sys.stderr)
+                    logging.error('STDERR')
+                    logging.error(stderr.decode())
                     raise ValueError('Mongodump crashed')
-            print('All done - OK')
+            logging.info('All done - OK')
         finally:
             # Stop docker
             # Kill stops the interface, but the container keeps going.
@@ -1123,6 +1159,8 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
 def _check_build_stage_change_and_update(
     *, new_config, old_config, development, config_dir, build_dir, build_faw_dir, current_docker_id
 ):
+    logging.info(f"Checking for stage updates ...")
+
     # We really shouldn't be calling this without something having changed,
     assert new_config != old_config
 
@@ -1134,14 +1172,19 @@ def _check_build_stage_change_and_update(
     updated_stages = {}
     for stage_name, stage_data in new_config['build']['stages'].items():
         if 'copy_output' not in stage_data:
+            logging.debug(f"Ignoring stage {stage_name} as it does not have a 'copy_output' specification")
             continue
 
         old_stage_data = old_config['build']['stages'].get(stage_name)
         if old_stage_data is None or old_stage_data != stage_data:
             updated_stages[stage_name] = stage_data
+            logging.debug(f"Stage {stage_name} has been updated")
+        else:
+            logging.debug(f"Stage {stage_name} has no changes")
 
     # If there are any updated stages, build them
     if not updated_stages:
+        logging.info("No updated stages. Returning")
         return
 
     # To build a new image, first create the dockerfile contents
@@ -1161,7 +1204,7 @@ def _check_build_stage_change_and_update(
     for stage_name, stage_data in updated_stages.items():
         copy_cmds = _generate_copy_commands(stage_name, stage_data, force_prefix=temp_dir_name)
         commands.extend(copy_cmds)
-    
+
     tar_file_name = f"/tmp/{temp_name}.tar"
     tar_command = f"RUN tar -cvf {tar_file_name} -C {temp_dir_name}/ ."
     commands.append(tar_command)
@@ -1169,34 +1212,39 @@ def _check_build_stage_change_and_update(
     dockerfile_contents += ("\n" + "\n".join(commands))
 
     # Finally build the image
-    # NOTE: Currently we are using the same image tag that is currently 
+    # NOTE: Currently we are using the same image tag that is currently
     # running in FAW.
+    logging.info("Rebuilding FAW ...")
     image_tag = _build_docker_image(
         build_dir=build_dir, suffix="-dev", dockerfile_contents=dockerfile_contents
     )
-    print("Completed Rebuild")
+    logging.info("Completed Rebuild")
 
     # Create a container with this image and copy files appropriately
     new_container_id = f"{image_tag}-rebuild"
 
     try:
         subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
-        print(f"Completed Container Creation - {new_container_id}")
+        logging.info(f"Completed Container Creation - {new_container_id}")
 
         # Copy the tar file we created during the build process locally and then stream it out to the
         # destination container. NOTE: The explicit tar creation above ensures that the resultant tar
         # has the right hierarchy to allow us to do this.
+        logging.info("Starting to copy files ...")
         subprocess.check_call(["docker", "cp", f"{new_container_id}:{tar_file_name}", tar_file_name])
         subprocess.check_call(f"docker cp - {current_docker_id}:/ < {tar_file_name}", shell=True)
+        logging.info("Copying files completed")
     finally:
         subprocess.run(['docker', 'rm', new_container_id])
-        print(f"Removed Container - {new_container_id}")
+        logging.info(f"Removed Container - {new_container_id}")
 
 
 def start_server(config_dir):
     """
     Start a server and create an endpoint to upload config tars.
     """
+
+    from aiohttp import web
 
     class ServerThread(threading.Thread):
 
@@ -1209,7 +1257,7 @@ def start_server(config_dir):
                 web.put('/configuration', self._update_config)
             ])
             self.runner = web.AppRunner(self.app)
-            
+
             # logging.basicConfig(level=logging.DEBUG)
 
         def stop_server(self):
@@ -1224,20 +1272,20 @@ def start_server(config_dir):
             site = web.TCPSite(self.runner, '0.0.0.0', 9001)
             loop.run_until_complete(site.start())
 
-            print("Site started")
+            logging.info("Site started")
 
-            self.stop_event = loop.create_future()            
+            self.stop_event = loop.create_future()
             loop.run_until_complete(self.stop_event)
 
-            print("Site stopping")
-            
+            logging.info("Site stopping")
+
             loop.run_until_complete(self.runner.cleanup())
 
         async def _update_config(self, request):
             data = await request.post()
 
             config_data = data['config']
-            
+
             with tarfile.TarFile(fileobj=config_data.file) as t:
                 t.extractall(config_dir)
 

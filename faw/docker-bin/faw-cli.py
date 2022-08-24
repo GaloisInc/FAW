@@ -13,6 +13,7 @@ def main():
                 'View /var/log/observatory',
                 'View /var/log/dask-scheduler',
                 'View /var/log/dask-worker',
+                'View /var/log/ci-container',
                 'Database REPL',
                 'Bash shell',
                 'Restart FAW service',
@@ -39,7 +40,7 @@ def main():
         elif log_types[li].startswith('Bash shell'):
             _wrapped_call(['/usr/bin/bash'])
         elif log_types[li].startswith('Restart'):
-            subprocess.call(['faw-restart.sh'])
+            subprocess.call(['faw-restart.sh'])   
         else:
             raise NotImplementedError(log_types[li])
 

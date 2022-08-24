@@ -1,6 +1,17 @@
+#! /usr/bin/env python3
+"""This is the convenience script for developing, building, distributing, and
+running end-user copies of the Galois Format Analysis Workbench.
+"""
+
+# IMPORTANT - Only stdlib here! We want to minimize dependencies required by
+# downstream users. Other imports are allowed in functions not used by the
+# version published as part of a build.
+
 import argparse
+import hashlib
 import itertools
 import os
+import re
 import shlex
 import subprocess
 import textwrap
@@ -16,6 +27,11 @@ from pathlib import Path
 CONFIG_FOLDER = None
 IMAGE_TAG = None
 VOLUME_SUFFIX = '-data'
+
+# Where the CI container logs should go. This needs to be a local path since
+# we need to mount this in to the FAW as well.
+CI_CONTAINER_LOG_PATH = 'logs/ci-container'
+CI_CONTAINER_LOG_PATH_ABSOLUTE = str(Path(CI_CONTAINER_LOG_PATH).resolve())
 
 
 def main():
@@ -42,28 +58,54 @@ def main():
     # Parse arguments
     args = parse_args()
 
-    # Build an image for the ci container
-    cname = container_name(args)
-    dockerfile = 'ci-container-dockerfile'
-    subprocess.check_call(['docker', 'build', '-t', cname, '-f', dockerfile, '.'])
-
-    # Before running, compute all the mount paths
+    # Compute all the mount paths for the CI container
     mount_paths = compute_mount_paths(args.config_dir, args.file_dir)
     mount_paths_as_args = list(
         itertools.chain.from_iterable((("-v", f"{src}:{target}") for (src, target) in mount_paths))
     )
 
-    # And the full command line
-    script_path = Path(__file__).resolve().with_name('ci-container-workbench.py')
-    command_line = ['python3', str(script_path)] + to_script_args(args)
+    # And the full command line for running the CI container as a service
+    container_script_path = Path(__file__).resolve().with_name('ci-container-workbench.py')
+    command_line = ['python3', str(container_script_path)] + to_script_args(args)
 
-    subprocess.check_call(
+    # Build an image for the ci container
+    cname = container_name(args)
+    dockerfile = 'ci-container-dockerfile'
+
+    dockerfile_contents = ''
+    with open(dockerfile, 'r') as f:
+        dockerfile_contents = f.read()
+        dockerfile_contents = dockerfile_contents.format(
+            ci_container_cmd=shlex.join(command_line),
+            ci_container_logdir=CI_CONTAINER_LOG_PATH_ABSOLUTE,
+            faw_container_name=get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
+        )
+
+    r = subprocess.run(
+        ['docker', 'build', '-t', cname, '-f', '-', '.'],
+        input=dockerfile_contents.encode()
+    )
+    if r.returncode != 0:
+        raise Exception("Docker build failed; see above")
+
+    # Finally run the CI Container interactive process, well, interactively
+    interactive_script_path = Path(__file__).resolve().with_name('ci-container-interactive.py')
+    command_line = (
+        ["python3", str(interactive_script_path)] +
+        ['--config-dir', to_absolute_path(args.config_dir)] +
+        ['--file-dir', to_absolute_path(args.file_dir)] +
+        [] if not IMAGE_TAG else ['--image-tag', IMAGE_TAG]
+    )
+    command = (
         ['docker', 'run']
         + mount_paths_as_args
         + ['-p', f"{args.port_ci}:9001"]
         + ['-it', '--rm', cname]
         + command_line
+        # + ['/bin/bash']
     )
+    print('Command: ', command)
+    subprocess.run(command)
 
 
 def parse_args():
@@ -154,12 +196,15 @@ def to_script_args(args):
     if VOLUME_SUFFIX:
         arglist.append(f"--volume-suffix={VOLUME_SUFFIX}")
 
+    # Finally if we are launching from here, it is always as a service
+    arglist.append("--service")
+
     return arglist
 
 
 def container_name(args):
-    # TODO: Use a name derived from the container config
-    return "faw-ci-container" if args.production else "faw-ci-container-dev"
+    faw_container_name = get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
+    return f"{faw_container_name}-ci"
 
 
 def compute_mount_paths(config_dir, file_dir):
@@ -191,10 +236,30 @@ def compute_mount_paths(config_dir, file_dir):
     if faw_dir_p not in file_dir_p.parents:
         paths.append((str(file_dir_p), str(file_dir_p)))
 
+    paths.append((CI_CONTAINER_LOG_PATH_ABSOLUTE, CI_CONTAINER_LOG_PATH_ABSOLUTE))
+
     return paths
+
 
 def to_absolute_path(path):
     return Path(path).resolve()
+
+
+def get_db_name(pdf_dir):
+    pdf_dir = os.path.abspath(pdf_dir)
+    pdf_dir_name = re.sub(r'[ /\.]', '-', os.path.basename(pdf_dir))
+    hash = hashlib.sha256(pdf_dir.encode('utf-8')).hexdigest()
+    return f'gfaw-{pdf_dir_name}-{hash[:8]}'
+
+
+def get_faw_container_name(image_tag, config_dir, pdf_dir):
+    if not image_tag:
+        import pyjson5
+        config_data = pyjson5.load(open(os.path.join(config_dir, 'config.json5')))
+        image_tag = config_data['name']
+
+    return f'gfaw-{image_tag}-{get_db_name(pdf_dir)}'
+
 
 if __name__ == '__main__':
     main()
