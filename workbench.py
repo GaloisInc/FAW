@@ -81,8 +81,9 @@ def main():
             faw_container_name=get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
         )
 
+    imgname = image_name(args)
     r = subprocess.run(
-        ['docker', 'build', '-t', cname, '-f', '-', '.'],
+        ['docker', 'build', '-t', imgname, '-f', '-', '.'],
         input=dockerfile_contents.encode()
     )
     if r.returncode != 0:
@@ -100,7 +101,8 @@ def main():
         ['docker', 'run']
         + mount_paths_as_args
         + ['-p', f"{args.port_ci}:9001"]
-        + ['-it', '--rm', cname]
+        + ['--name', cname]
+        + ['-it', '--rm', imgname]
         + command_line
         # + ['/bin/bash']
     )
@@ -202,6 +204,10 @@ def to_script_args(args):
     return arglist
 
 
+def image_name(args):
+    return get_faw_image_name(IMAGE_TAG, args.config_dir, '' if args.production else '-dev') + '-ci'
+
+
 def container_name(args):
     faw_container_name = get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
     return f"{faw_container_name}-ci"
@@ -259,6 +265,18 @@ def get_faw_container_name(image_tag, config_dir, pdf_dir):
         image_tag = config_data['name']
 
     return f'gfaw-{image_tag}-{get_db_name(pdf_dir)}'
+
+
+def get_faw_image_name(image_tag, config_dir, suffix):
+    tag = image_tag or get_default_image_tag(config_dir)
+    return tag + suffix
+
+
+def get_default_image_tag(config_dir):
+    import pyjson5
+    config_data = pyjson5.load(open(os.path.join(config_dir, 'config.json5')))
+    image_tag = config_data['name']
+    return image_tag
 
 
 if __name__ == '__main__':

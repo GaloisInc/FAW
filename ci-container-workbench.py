@@ -26,7 +26,6 @@ import pathlib
 import re
 import shlex
 import shutil
-import signal
 import stat
 import subprocess
 import sys
@@ -38,7 +37,7 @@ import traceback
 import uuid
 import webbrowser
 
-from workbench import get_db_name, get_faw_container_name
+from workbench import get_db_name, get_faw_container_name, get_faw_image_name
 
 
 # These variables are used throughout the script. So we keep them for now
@@ -716,7 +715,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
 
     # And build the docker image
     # TODO: Consider taking the image tag/name as input?
-    img_tag = _build_docker_image(build_dir, suffix, dockerfile_contents)
+    img_tag = _build_docker_image(build_dir, config, suffix, dockerfile_contents)
 
     # Return the tag for the build
     return img_tag
@@ -967,8 +966,8 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
 
     return dockerfile
 
-def _build_docker_image(build_dir, suffix, dockerfile_contents):
-    r = subprocess.run(['docker', 'build', '-t', IMAGE_TAG + suffix,
+def _build_docker_image(build_dir, config, suffix, dockerfile_contents):
+    r = subprocess.run(['docker', 'build', '-t', get_faw_image_name(IMAGE_TAG, config, suffix),
         '-f', '-', '.'], cwd=build_dir, input=dockerfile_contents.encode())
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
@@ -1216,7 +1215,7 @@ def _check_build_stage_change_and_update(
     # running in FAW.
     logging.info("Rebuilding FAW ...")
     image_tag = _build_docker_image(
-        build_dir=build_dir, suffix="-dev", dockerfile_contents=dockerfile_contents
+        build_dir=build_dir, config=config_dir, suffix="-dev", dockerfile_contents=dockerfile_contents
     )
     logging.info("Completed Rebuild")
 
