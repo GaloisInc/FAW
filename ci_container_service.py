@@ -27,7 +27,6 @@ import pathlib
 import re
 import shlex
 import shutil
-import stat
 import subprocess
 import sys
 import tarfile
@@ -358,10 +357,10 @@ def main():
 
     faw_command_line = [
         'docker', 'run', '--rm', '--detach',
-         '--log-driver', 'none',
-         '--name', docker_id,
-         '-e', f'DB={db_name}',
-         '-p', f'{port}:8123'
+        '--log-driver', 'none',
+        '--name', docker_id,
+        '-e', f'DB={db_name}',
+        '-p', f'{port}:8123'
     ] + volume_mount_params + extra_flags
 
     logging.info(f"FAW command line: {faw_command_line}")
@@ -1136,12 +1135,14 @@ def _check_build_stage_change_and_update(
     # care about stages that specify things that can be copied
     updated_stages = {}
     for stage_name, stage_data in new_config['build']['stages'].items():
-        if 'copy_output' not in stage_data:
-            logging.debug(f"Ignoring stage {stage_name} as it does not have a 'copy_output' specification")
-            continue
-
         old_stage_data = old_config['build']['stages'].get(stage_name)
         if old_stage_data is None or old_stage_data != stage_data:
+            if 'copy_output' not in stage_data:
+                logging.warning("=" * 80)
+                logging.warning(f"Stage '{stage_name}' has been updated, but will have no effect on the running FAW as the stage lacks a 'copy_output' specification")
+                logging.warning("=" * 80)
+                continue
+
             updated_stages[stage_name] = stage_data
             logging.debug(f"Stage {stage_name} has been updated")
         else:
