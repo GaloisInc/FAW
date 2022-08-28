@@ -8,15 +8,20 @@ running end-user copies of the Galois Format Analysis Workbench.
 # version published as part of a build.
 
 import argparse
-import hashlib
 import itertools
 import os
 import re
 import shlex
+import shutil
+import stat
 import subprocess
+import sys
 import textwrap
 
 from pathlib import Path
+
+from ci_container_service import get_faw_container_name, get_faw_image_name, get_default_image_tag
+
 
 # These variables are a bit strange, but they exist to make distribution easier.
 # Basically, this script is copied and these variables are overwritten
@@ -32,6 +37,9 @@ VOLUME_SUFFIX = '-data'
 # we need to mount this in to the FAW as well.
 CI_CONTAINER_LOG_PATH = 'logs/ci-container'
 CI_CONTAINER_LOG_PATH_ABSOLUTE = str(Path(CI_CONTAINER_LOG_PATH).resolve())
+
+# Keep track of the directory containing the FAW
+faw_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def main():
@@ -65,7 +73,7 @@ def main():
     )
 
     # And the full command line for running the CI container as a service
-    container_script_path = Path(__file__).resolve().with_name('ci-container-workbench.py')
+    container_script_path = Path(__file__).resolve().with_name('ci_container_service.py')
     command_line = ['python3', str(container_script_path)] + to_script_args(args)
 
     # Build an image for the ci container
@@ -89,25 +97,31 @@ def main():
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
 
-    # Finally run the CI Container interactive process, well, interactively
-    interactive_script_path = Path(__file__).resolve().with_name('ci-container-interactive.py')
-    command_line = (
-        ["python3", str(interactive_script_path)] +
-        ['--config-dir', to_absolute_path(args.config_dir)] +
-        ['--file-dir', to_absolute_path(args.file_dir)] +
-        [] if not IMAGE_TAG else ['--image-tag', IMAGE_TAG]
-    )
-    command = (
-        ['docker', 'run']
-        + mount_paths_as_args
-        + ['-p', f"{args.port_ci}:9001"]
-        + ['--name', cname]
-        + ['-it', '--rm', imgname]
-        + command_line
-        # + ['/bin/bash']
-    )
-    print('Command: ', command)
-    subprocess.run(command)
+    # If we were in build mode, we need to now export the image and do associated activities
+    if args.build_mode:
+        # Save the docker image here. This ensures appropriate permissions on the file(s) etc
+        export_faw_image(args.config_dir, args.file_dir)
+
+    # Otherwise run an interactive process in the CI container to support, well, interactivity
+    else:
+        interactive_script_path = Path(__file__).resolve().with_name('ci_container_interactive.py')
+        command_line = (
+            ["python3", str(interactive_script_path)] +
+            ['--config-dir', to_absolute_path(args.config_dir)] +
+            ['--file-dir', to_absolute_path(args.file_dir)] +
+            [] if not IMAGE_TAG else ['--image-tag', IMAGE_TAG]
+        )
+        command = (
+            ['docker', 'run']
+            + mount_paths_as_args
+            + ['-p', f"{args.port_ci}:9001"]
+            + ['--name', cname]
+            + ['-it', '--rm', imgname]
+            + command_line
+            # + ['/bin/bash']
+        )
+        print('Command: ', command)
+        subprocess.run(command)
 
 
 def parse_args():
@@ -158,7 +172,76 @@ def parse_args():
     if IMAGE_TAG is None and CONFIG_FOLDER is not None:
         args.config_dir = CONFIG_FOLDER
 
+    # Check if we are in build mode, which is determined by the target path and not
+    # the command line arguments interestingly.
+    faw_dir = os.path.dirname(os.path.abspath(__file__))
+    build_mode = (os.path.split(os.path.relpath(args.file_dir, faw_dir))[0] == 'build')
+    if build_mode and not args.production:
+        assert args.production, "Build cannot use --development"
+    args.build_mode = build_mode
+
     return args
+
+
+def export_faw_image(config_dir, target_dir):
+    # Populate the given directory with a built version of the workbench.
+    # Assume that the CI container has already built the image
+
+    print("Saving image ...")
+
+    # First remove the directory if it exists
+    try:
+        shutil.rmtree(target_dir)
+    except FileNotFoundError:
+        pass
+    os.makedirs(target_dir)
+
+    # Export docker image
+    image_tag = IMAGE_TAG or get_default_image_tag(config_dir)
+
+    # relpath() here used to strip trailing slash, which messes up basename
+    dist_name = os.path.basename(os.path.relpath(config_dir))
+    image_file_name = f'{image_tag}.image'
+    subprocess.check_call(
+        f'docker save {image_tag} | gzip > {os.path.join(target_dir, image_file_name)}', shell=True
+    )
+
+    # Export readme
+    with \
+            open(os.path.join(faw_dir, 'faw', 'README-dist.md')) as fin, \
+            open(os.path.join(target_dir, 'README.md'), 'w') as fout:
+        fout.write(
+            re.sub(
+                r'{distribution}', dist_name,
+                re.sub(r'{imageName}', image_tag, fin.read())
+            )
+        )
+
+    # Build modified script, put it in the right place and make it executable
+    source_script_path = os.path.join(faw_dir, 'ci_container_service.py')
+    target_script_path = os.path.join(target_dir, f'workbench-{dist_name}.py')
+    with open(source_script_path) as fin, open(target_script_path, 'w') as fout:
+        fout.write(
+            re.sub('IMAGE_TAG = [N]one', f'IMAGE_TAG = {repr(image_tag)}', fin.read())
+        )
+        st = os.stat(target_script_path)
+        os.chmod(target_script_path, st.st_mode | stat.S_IEXEC)
+
+    if False:
+        # Package up whole file
+        # On second thought, don't. It takes up disk space and the user could
+        # run this step on their own
+        file_name = os.path.abspath(os.path.join(os.path.abspath(target_dir), '..',
+                f'{config_data["name"]}.tar.gz'))
+        try:
+            os.remove(file_name)
+        except FileNotFoundError:
+            pass
+        subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(target_dir),
+                cwd=target_dir)
+
+    print(f'Package available as {target_dir}')
+
 
 def to_script_args(args):
     """
@@ -190,6 +273,8 @@ def to_script_args(args):
         arglist.append(f"--copy-mongo-to={args.copy_mongo_to}")
     if args.production:
         arglist.append('--production')
+    if args.build_mode:
+        arglist.append('--build-mode')
 
     # Then the extras we need to push along
     # TODO: Check if these ever get populated
@@ -250,33 +335,6 @@ def compute_mount_paths(config_dir, file_dir):
 def to_absolute_path(path):
     return Path(path).resolve()
 
-
-def get_db_name(pdf_dir):
-    pdf_dir = os.path.abspath(pdf_dir)
-    pdf_dir_name = re.sub(r'[ /\.]', '-', os.path.basename(pdf_dir))
-    hash = hashlib.sha256(pdf_dir.encode('utf-8')).hexdigest()
-    return f'gfaw-{pdf_dir_name}-{hash[:8]}'
-
-
-def get_faw_container_name(image_tag, config_dir, pdf_dir):
-    if not image_tag:
-        import pyjson5
-        config_data = pyjson5.load(open(os.path.join(config_dir, 'config.json5')))
-        image_tag = config_data['name']
-
-    return f'gfaw-{image_tag}-{get_db_name(pdf_dir)}'
-
-
-def get_faw_image_name(image_tag, config_dir, suffix):
-    tag = image_tag or get_default_image_tag(config_dir)
-    return tag + suffix
-
-
-def get_default_image_tag(config_dir):
-    import pyjson5
-    config_data = pyjson5.load(open(os.path.join(config_dir, 'config.json5')))
-    image_tag = config_data['name']
-    return image_tag
 
 
 if __name__ == '__main__':

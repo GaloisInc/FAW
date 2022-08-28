@@ -20,6 +20,7 @@ import asyncio
 import atexit
 import dataclasses
 import io
+import hashlib
 import logging
 import os
 import pathlib
@@ -36,8 +37,6 @@ import time
 import traceback
 import uuid
 import webbrowser
-
-from workbench import get_db_name, get_faw_container_name, get_faw_image_name
 
 
 # These variables are used throughout the script. So we keep them for now
@@ -123,8 +122,12 @@ def main():
             help="Developer option on by default: mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.")
-    parser.add_argument('--service', action='store_true',
-            help="Indicates whether the script should run in a non-interactive service mode")
+
+    if CONFIG_FOLDER is None and IMAGE_TAG is None:
+        parser.add_argument('--build-mode', action='store_true',
+                help="Indicates whether the script should run in build mode")
+        parser.add_argument('--service', action='store_true',
+                help="Indicates whether the script should run in a non-interactive service mode")
 
     if IMAGE_TAG is None:
         parser.add_argument('--image-tag', default=None, help="Tag prefix for the image being built")
@@ -132,12 +135,14 @@ def main():
         parser.add_argument('--volume-suffix', default='-data', help="Suffix for the database Volume")
 
     args = parser.parse_args()
-    pdf_dir = args.file_dir
+    pdf_dir = os.path.abspath(args.file_dir)
     port = args.port
     port_mongo = args.port_mongo
     copy_mongo_from = args.copy_mongo_from
     copy_mongo_to = args.copy_mongo_to
     development = not args.production
+    build_mode = 'build_mode' in vars(args) and args.build_mode
+    running_as_service = 'service' in vars(args) and args.service
 
     # Update the global variables
     # TODO: Remove globals and pass as parameters
@@ -145,7 +150,6 @@ def main():
         IMAGE_TAG = args.image_tag
     VOLUME_SUFFIX = args.volume_suffix
 
-    build_mode = (os.path.split(os.path.relpath(pdf_dir, faw_dir))[0] == 'build')
     if build_mode:
         # Exit before building image, which can be expensive
         assert not development, "Build cannot use --development"
@@ -192,57 +196,9 @@ def main():
     # Check that observatory image is loaded / built
     _check_image(development=development, config=config, config_data=config_data,
             build_dir=build_dir, build_faw_dir=build_faw_dir)
+
+    # If we are in build mode, we have no more work to do in the CI container
     if build_mode:
-        # Populate the given directory with a built version of the workbench.
-        try:
-            shutil.rmtree(pdf_dir)
-        except FileNotFoundError:
-            pass
-        os.makedirs(pdf_dir)
-
-        # Export docker image
-        assert IMAGE_TAG is not None
-        # relpath() here used to strip trailing slash, which messes up basename
-        dist_name = os.path.basename(os.path.relpath(args.config_dir))
-        image_file_name = f'{IMAGE_TAG}.image'
-        subprocess.check_call(
-                f'docker save {IMAGE_TAG} | gzip > {os.path.join(pdf_dir, image_file_name)}',
-                shell=True)
-
-        # Export readme
-        with \
-                open(os.path.join(faw_dir, 'faw', 'README-dist.md')) as fin, \
-                open(os.path.join(pdf_dir, 'README.md'), 'w') as fout:
-            fout.write(
-                    re.sub(r'{distribution}', dist_name,
-                        re.sub(r'{imageName}', IMAGE_TAG,
-                            fin.read()
-                        )
-                    )
-            )
-
-        # Build modified script
-        script_name = os.path.join(pdf_dir, f'workbench-{dist_name}.py')
-        with open(__file__) as fin, open(script_name, 'w') as fout:
-            fout.write(re.sub('IMAGE_TAG = [N]one', f'IMAGE_TAG = {repr(IMAGE_TAG)}',
-                    fin.read()))
-            st = os.stat(script_name)
-            os.chmod(script_name, st.st_mode | stat.S_IEXEC)
-
-        if False:
-            # Package up whole file
-            # On second thought, don't. It takes up disk space and the user could
-            # run this step on their own
-            file_name = os.path.abspath(os.path.join(os.path.abspath(pdf_dir), '..',
-                    f'{config_data["name"]}.tar.gz'))
-            try:
-                os.remove(file_name)
-            except FileNotFoundError:
-                pass
-            subprocess.check_call(['tar', '-czvf', file_name] + os.listdir(pdf_dir),
-                    cwd=pdf_dir)
-
-        logging.info(f'Package available as {pdf_dir}')
         return
 
     # Hash absolute path to folder to generate consistent DB name.
@@ -389,27 +345,37 @@ def main():
 
     atexit.register(on_exit)
 
+    # Launch the FAW container with the appropriate command line
+    volume_mount_params = [
+        '-v', f'{pdf_dir}:/home/pdf-files',
+        '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db'
+    ]
+
     logdir = pathlib.Path(faw_dir, 'logs', 'ci-container').resolve()
     logfile_target_loc = '/var/log/ci-container'
-    subprocess.check_call(
-        ['docker', 'run', '--rm', '--detach',
+    if logdir.exists():
+        volume_mount_params.extend(['-v', f'{str(logdir)}:{logfile_target_loc}'])
+
+    faw_command_line = [
+        'docker', 'run', '--rm', '--detach',
          '--log-driver', 'none',
          '--name', docker_id,
-         '-v', f'{pdf_dir}:/home/pdf-files',
-         '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db',
-         '-v', f'{str(logdir)}:{logfile_target_loc}',
          '-e', f'DB={db_name}',
          '-p', f'{port}:8123'
-        ] + extra_flags
-    )
+    ] + volume_mount_params + extra_flags
+
+    logging.info(f"FAW command line: {faw_command_line}")
+    subprocess.check_call(faw_command_line)
 
     # If in an interactive mode, run the FAW cli
     # TODO: Not sure this would return a "good" exit code on Ctrl+C. Figure that out.
     # So currently we just don't check the exit status!
-    if (not args.service):
+    if (not running_as_service):
         subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])
     else:
         # Wait for a few seconds and write out a notification
+        # TODO: Do this in a loop until FAW starts up, maybe?
+        # But then you have to handle FAW refusing to start up.
         time.sleep(5)
         logging.info("Writing daemon ready notification")
         with os.fdopen(SERVICE_NOTIFICATION_FD, "w") as f:
@@ -1295,6 +1261,35 @@ def start_server(config_dir):
     t.start()
 
     return t
+
+
+def get_db_name(pdf_dir):
+    pdf_dir = os.path.abspath(pdf_dir)
+    pdf_dir_name = re.sub(r'[ /\.]', '-', os.path.basename(pdf_dir))
+    hash = hashlib.sha256(pdf_dir.encode('utf-8')).hexdigest()
+    return f'gfaw-{pdf_dir_name}-{hash[:8]}'
+
+
+def get_faw_container_name(image_tag, config_dir, pdf_dir):
+    if not image_tag:
+        import pyjson5
+        config_data = pyjson5.load(open(os.path.join(config_dir, 'config.json5')))
+        image_tag = config_data['name']
+
+    return f'gfaw-{image_tag}-{get_db_name(pdf_dir)}'
+
+
+def get_faw_image_name(image_tag, config_dir, suffix):
+    tag = image_tag or get_default_image_tag(config_dir)
+    return tag + suffix
+
+
+def get_default_image_tag(config_dir):
+    import pyjson5
+    config_data = pyjson5.load(open(os.path.join(config_dir, 'config.json5')))
+    image_tag = config_data['name']
+    return image_tag
+
 
 
 @dataclasses.dataclass
