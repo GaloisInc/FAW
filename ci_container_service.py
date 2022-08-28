@@ -657,8 +657,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
         if os.path.lexists(image_file):
             logging.info('Loading docker image...')
             subprocess.check_call(['docker', 'load', '-i', image_file])
-            # TODO: Why this next line??
-            # os.unlink(image_file)
+            os.unlink(image_file)
 
         o = subprocess.check_output(['docker', 'image', 'ls',
                 IMAGE_TAG, '--format', '{{.ID}}'])
