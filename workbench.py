@@ -107,8 +107,8 @@ def main():
         interactive_script_path = Path(__file__).resolve().with_name('ci_container_interactive.py')
         command_line = (
             ["python3", str(interactive_script_path)] +
-            ['--config-dir', to_absolute_path(args.config_dir)] +
-            ['--file-dir', to_absolute_path(args.file_dir)] +
+            ['--config-dir', str(to_absolute_path(args.config_dir))] +
+            ['--file-dir', str(to_absolute_path(args.file_dir))] +
             [] if not IMAGE_TAG else ['--image-tag', IMAGE_TAG]
         )
         command = (
