@@ -350,10 +350,11 @@ def main():
         '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db'
     ]
 
-    logdir = pathlib.Path(faw_dir, 'logs', 'ci-container').resolve()
-    logfile_target_loc = '/var/log/ci-container'
-    if logdir.exists():
-        volume_mount_params.extend(['-v', f'{str(logdir)}:{logfile_target_loc}'])
+    # In build mode, this variable will not be set:
+    if 'FAW_HOST_CI_LOG_DIR' in os.environ:
+        logdir = os.environ['FAW_HOST_CI_LOG_DIR']
+        logfile_target_loc = '/var/log/ci-container'
+        volume_mount_params.extend(['-v', f'{logdir}:{logfile_target_loc}'])
 
     faw_command_line = [
         'docker', 'run', '--rm', '--detach',

@@ -37,6 +37,11 @@ ENV S6_KEEP_ENV 1
 # some "write would block" messages.
 ENV PYTHONUNBUFFERED 1
 
+# Env vars that must be overwritten
+ENV FAW_CI_CMD I:NEED:TO:BE:SPECIFIED
+ENV FAW_CONTAINER_NAME I:NEED:TO:BE:SPECIFIED
+ENV FAW_HOST_CI_LOG_DIR I:NEED:TO:BE:SPECIFIED
+
 # Move over to using bash as the default shell
 SHELL ["/bin/bash", "-c"]
 
@@ -47,18 +52,21 @@ SHELL ["/bin/bash", "-c"]
 #   3. We set up logging via s6-log/logutil-service to a specific host directory
 #   4. Introduce support for s6 readiness notifications (necessary to support faw-cli interactivity)
 #   5. Finally create a "global" finish script that will take down the FAW container if the CI container dies
+# Note that `chmod -R a+rwx` on the logging directory is important since it gets
+# created on the host machine, and we want it to be deleteable by the calling user
+# (who may not be root).
 RUN \
     mkdir -p '/etc/services.d/ci-container'  \
-    && echo -e '#!/bin/sh\n{ci_container_cmd} 2>&1' >> /etc/services.d/ci-container/run \
+    && echo -e '#!/bin/sh\n${FAW_CI_CMD} 2>&1' >> /etc/services.d/ci-container/run \
     && chmod u+x /etc/services.d/ci-container/run \
     && echo -e '#!/bin/sh\ns6-svscanctl -t /var/run/s6/services' >> /etc/services.d/ci-container/finish \
     && chmod u+x /etc/services.d/ci-container/finish \
     && mkdir -p /etc/cont-init.d \
-    && echo -e '#!/bin/sh\nmkdir -p {ci_container_logdir}\nchown -R nobody:nogroup {ci_container_logdir}' > /etc/cont-init.d/ci-container \
+    && echo -e '#!/bin/sh\nmkdir -p /var/log/ci-container\nchown -R nobody:nogroup /var/log/ci-container\nchmod -R a+rwx /var/log/ci-container' > /etc/cont-init.d/ci-container \
     && mkdir -p '/etc/services.d/ci-container/log'  \
-    && echo -e '#!/bin/sh\nexec logutil-service {ci_container_logdir}' >> /etc/services.d/ci-container/log/run \
+    && echo -e '#!/bin/sh\nexec logutil-service /var/log/ci-container' >> /etc/services.d/ci-container/log/run \
     && echo -e '3' >> /etc/services.d/ci-container/notification-fd \
-    && echo -e '#!/bin/sh\ndocker ps -q --filter "name={faw_container_name}" | grep -q . && docker stop {faw_container_name}' > /etc/cont-finish.d/ci-container
+    && echo -e '#!/bin/sh\ndocker ps -q --filter "name=${FAW_CONTAINER_NAME}" | grep -q . && docker stop ${FAW_CONTAINER_NAME}' > /etc/cont-finish.d/ci-container
 
 # Finally start the s6 overlay's init
 ENTRYPOINT ["/init"]

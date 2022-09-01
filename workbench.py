@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 import argparse
+import atexit
 import itertools
 import os
 import re
@@ -9,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import textwrap
 
 from pathlib import Path
@@ -27,9 +29,12 @@ IMAGE_TAG = None
 VOLUME_SUFFIX = '-data'
 
 # Where the CI container logs should go. This needs to be a local path since
-# we need to mount this in to the FAW as well.
-CI_CONTAINER_LOG_PATH = 'logs/ci-container'
-CI_CONTAINER_LOG_PATH_ABSOLUTE = str(Path(CI_CONTAINER_LOG_PATH).resolve())
+# we need to mount this in to the FAW as well. However, multiple FAWs can run,
+# so we use a temporary directory.
+CI_TEMPDIR = tempfile.TemporaryDirectory()
+atexit.register(CI_TEMPDIR.cleanup)
+CI_CONTAINER_LOG_PATH_HOST = os.path.join(CI_TEMPDIR.name, 'logs', 'ci-container')
+CI_CONTAINER_LOG_PATH_CONTAINER = '/var/log/ci-container'
 
 # Keep track of the directory containing the FAW
 faw_dir = os.path.dirname(os.path.abspath(__file__))
@@ -71,22 +76,12 @@ def main():
 
     # Build an image for the ci container
     cname = container_name(args)
-    dockerfile = 'ci-container-dockerfile'
-
-    dockerfile_contents = ''
-    with open(dockerfile, 'r') as f:
-        dockerfile_contents = f.read()
-        dockerfile_contents = dockerfile_contents.format(
-            ci_container_cmd=shlex.join(command_line),
-            ci_container_logdir=CI_CONTAINER_LOG_PATH_ABSOLUTE,
-            faw_container_name=get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
-        )
-
     imgname = image_name(args)
+    faw_container_name = get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
+    ci_container_cmd = shlex.join(command_line)
     r = subprocess.run(
-        ['docker', 'build', '-t', imgname, '-f', '-', '.'],
-        input=dockerfile_contents.encode()
-    )
+            ['docker', 'build', '-t', imgname, '-f', 'ci-container-dockerfile',
+                '.'])
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
 
@@ -108,6 +103,9 @@ def main():
             ['docker', 'run']
             + mount_paths_as_args
             + ['-p', f"{args.port_ci}:9001"]
+            + ['-e', f'FAW_CI_CMD={ci_container_cmd}']
+            + ['-e', f'FAW_CONTAINER_NAME={faw_container_name}']
+            + ['-e', f'FAW_HOST_CI_LOG_DIR={CI_CONTAINER_LOG_PATH_HOST}']
             + ['--name', cname]
             + ['-it', '--rm', imgname]
             + command_line
@@ -320,7 +318,10 @@ def compute_mount_paths(config_dir, file_dir):
     if faw_dir_p not in file_dir_p.parents:
         paths.append((str(file_dir_p), str(file_dir_p)))
 
-    paths.append((CI_CONTAINER_LOG_PATH_ABSOLUTE, CI_CONTAINER_LOG_PATH_ABSOLUTE))
+    # Ensure this exists; if it does not, then docker will create it as `root`,
+    # which makes it difficult to delete
+    os.makedirs(CI_CONTAINER_LOG_PATH_HOST, exist_ok=True)
+    paths.append((CI_CONTAINER_LOG_PATH_HOST, CI_CONTAINER_LOG_PATH_CONTAINER))
 
     return paths
 

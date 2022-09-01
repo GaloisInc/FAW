@@ -16,10 +16,16 @@ args = parser.parse_args()
 
 print("=" * 80)
 print("Waiting for CI container to be ready")
-if not args.wait_time:
-    r = subprocess.run(['s6-svwait', '-U', '/var/run/s6/services/ci-container/'])
-else:
-    r = subprocess.run(['s6-svwait', '-U', '-t', str(args.wait_time * 1000), '/var/run/s6/services/ci-container/'])
+# We want to stream logs until the container is up
+p_log = subprocess.Popen(['s6-logwatch', '/var/log/ci-container/'])
+try:
+    if not args.wait_time:
+        r = subprocess.run(['s6-svwait', '-U', '/var/run/s6/services/ci-container/'])
+    else:
+        r = subprocess.run(['s6-svwait', '-U', '-t', str(args.wait_time * 1000), '/var/run/s6/services/ci-container/'])
+finally:
+    p_log.kill()
+    p_log.wait()
 
 if r.returncode != 0:
     print("CI Container has not reached its steady state. Check the current logs at logs/ci-container/current")
