@@ -85,14 +85,34 @@ def main():
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
 
+    interactive_script_path = Path(__file__).resolve().with_name('ci_container_interactive.py')
     # If we were in build mode, we need to now export the image and do associated activities
     if args.build_mode:
+        # First, build the image
+        image_tag = IMAGE_TAG or get_default_image_tag(args.config_dir)
+        command_line = [
+                'python3', str(interactive_script_path),
+                '--build-mode',
+                '--config-dir', str(to_absolute_path(args.config_dir)),
+                '--file-dir', str(to_absolute_path(args.file_dir)),
+                '--image-tag', image_tag]
+        docker_args = (
+                ['docker', 'run',
+                  ] + mount_paths_as_args + [
+                  '-e', f'FAW_CI_CMD={ci_container_cmd}',
+                  '-e', f'FAW_CONTAINER_NAME={faw_container_name}',
+                  '--name', cname,
+                  '-it', '--rm', imgname
+                  ] + command_line)
+        r = subprocess.run(docker_args)
+        if r.returncode != 0:
+            raise ValueError("Image build failed; see above")
+
         # Save the docker image here. This ensures appropriate permissions on the file(s) etc
-        export_faw_image(args.config_dir, args.file_dir)
+        export_faw_image(image_tag, args.config_dir, args.file_dir)
 
     # Otherwise run an interactive process in the CI container to support, well, interactivity
     else:
-        interactive_script_path = Path(__file__).resolve().with_name('ci_container_interactive.py')
         command_line = (
             ["python3", str(interactive_script_path)] +
             ['--config-dir', str(to_absolute_path(args.config_dir))] +
@@ -174,7 +194,7 @@ def parse_args():
     return args
 
 
-def export_faw_image(config_dir, target_dir):
+def export_faw_image(image_tag, config_dir, target_dir):
     # Populate the given directory with a built version of the workbench.
     # Assume that the CI container has already built the image
 
@@ -188,7 +208,6 @@ def export_faw_image(config_dir, target_dir):
     os.makedirs(target_dir)
 
     # Export docker image
-    image_tag = IMAGE_TAG or get_default_image_tag(config_dir)
 
     # relpath() here used to strip trailing slash, which messes up basename
     dist_name = os.path.basename(os.path.relpath(config_dir))

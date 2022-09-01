@@ -85,7 +85,7 @@ def main():
         assert os.path.lexists(v), f'Path must exist: {v}'
         return v
     def folder_exists_or_build(v):
-        assert os.path.lexists(v) or v.startswith('build'), f'Path must exist or start with build: {v}'
+        assert os.path.lexists(v) or v.startswith(os.path.join(faw_dir, 'build')), f'Path must exist or start with build: {v}'
         return v
 
     if CONFIG_FOLDER is None and IMAGE_TAG is None:
@@ -198,6 +198,8 @@ def main():
 
     # If we are in build mode, we have no more work to do in the CI container
     if build_mode:
+        assert running_as_service
+        _service_write_ready()
         return
 
     # Hash absolute path to folder to generate consistent DB name.
@@ -377,9 +379,7 @@ def main():
         # TODO: Do this in a loop until FAW starts up, maybe?
         # But then you have to handle FAW refusing to start up.
         time.sleep(5)
-        logging.info("Writing daemon ready notification")
-        with os.fdopen(SERVICE_NOTIFICATION_FD, "w") as f:
-            f.write('Service is up\n')
+        _service_write_ready()
 
         # Wait for ever
         while True:
@@ -1330,6 +1330,12 @@ def _plugin_folders(*, config, include_root=False):
             add(_PluginFolderDesc(name=pname, local_path=pp,
                     prod_path=f'/home/all/{p}'))
     return r
+
+
+def _service_write_ready():
+    logging.info("Writing daemon ready notification")
+    with os.fdopen(SERVICE_NOTIFICATION_FD, "w") as f:
+        f.write('Service is up\n')
 
 
 if __name__ == '__main__':

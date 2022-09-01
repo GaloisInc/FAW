@@ -11,6 +11,7 @@ parser.add_argument('--image-tag', help="Image tag for the faw container")
 parser.add_argument('--config-dir', required=True, help="Config directory for the distribution")
 parser.add_argument('--file-dir', required=True, help="Directory containing test files")
 parser.add_argument('--wait_time', default=0, type=int, help="Timeout (in seconds) to wait till the CI container is up. 0 (default) will wait for ever")
+parser.add_argument('--build-mode', action='store_true', help="Specifies that this is a build that should run the CI once and exit.")
 args = parser.parse_args()
 
 
@@ -28,7 +29,9 @@ finally:
     p_log.wait()
 
 if r.returncode != 0:
-    print("CI Container has not reached its steady state. Check the current logs at logs/ci-container/current")
+    # Ensure we propagate nonzero return
+    raise ValueError("CI Container has not reached its steady state; check logs")
 else:
-    docker_id = get_faw_container_name(args.image_tag, args.config_dir, args.file_dir)
-    subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])
+    if not args.build_mode:
+        docker_id = get_faw_container_name(args.image_tag, args.config_dir, args.file_dir)
+        subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])
