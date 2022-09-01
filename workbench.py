@@ -1,11 +1,4 @@
 #! /usr/bin/env python3
-"""This is the convenience script for developing, building, distributing, and
-running end-user copies of the Galois Format Analysis Workbench.
-"""
-
-# IMPORTANT - Only stdlib here! We want to minimize dependencies required by
-# downstream users. Other imports are allowed in functions not used by the
-# version published as part of a build.
 
 import argparse
 import itertools
