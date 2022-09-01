@@ -3,7 +3,7 @@
   parsers: {
     nitf: {
       exec: ['/usr/bin/env', 'PYTHONPATH=.', 'python3', 'main.py', '<inputFile>'],
-      version: '1.02',
+      version: '1.01',
       parse: {
         type: 'regex-counter',
         version: '1.01',
@@ -21,14 +21,6 @@
 
   build: {
     stages: {
-      beep: {
-        copy_output: {
-          '/test2': '/test2',
-        },
-        commands: [
-          'RUN bash -c "echo hi > /test2"',
-        ],
-      },
       final: {
         commands: [
           'RUN pip3 install kaitaistruct',
