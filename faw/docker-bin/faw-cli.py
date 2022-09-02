@@ -7,16 +7,20 @@ import os
 import signal
 import subprocess
 
+
+log_types = [
+    'View /var/log/observatory',
+    'View /var/log/dask-scheduler',
+    'View /var/log/dask-worker'
+] + ( ['View /var/log/ci-container'] if os.path.exists('/var/log/ci-container') else [] ) + [
+    'Database REPL',
+    'Bash shell',
+    'Restart FAW service',
+]
+
+
 def main():
-    while True:
-        log_types = [
-                'View /var/log/observatory',
-                'View /var/log/dask-scheduler',
-                'View /var/log/dask-worker',
-                'Database REPL',
-                'Bash shell',
-                'Restart FAW service',
-        ]
+    while True:        
         print('')  # Clear ctrl+C
         for i, loc in enumerate(log_types):
             print(f'{i+1}) {loc}')
@@ -39,7 +43,7 @@ def main():
         elif log_types[li].startswith('Bash shell'):
             _wrapped_call(['/usr/bin/bash'])
         elif log_types[li].startswith('Restart'):
-            subprocess.call(['faw-restart.sh'])
+            subprocess.call(['faw-restart.sh'])   
         else:
             raise NotImplementedError(log_types[li])
 
@@ -55,4 +59,3 @@ def _wrapped_call(cmd):
 
 if __name__ == '__main__':
     main()
-

@@ -1,0 +1,76 @@
+FROM ubuntu:20.04 AS base
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic tools including Python
+RUN apt-get update && apt-get install -y curl python3 python3-pip wget
+
+# Install the python packages we need
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install -r /tmp/requirements.txt
+
+# Install docker in the container, mainly for the cli
+# TODO: Is there a better way to get the cli in there?
+USER root
+RUN curl -fsSL https://get.docker.com | sh
+
+# Next we will also install the S6-overlay primarily for logging purposes
+COPY faw/s6-overlay-amd64.tar.gz /tmp/
+
+# Updated for ubuntu 20.04, for which /bin is a symlink
+# Still need old extract command for previous versions.
+RUN bash -c '\
+        ([ -L /bin ] \
+            && ( \
+                tar xzf /tmp/s6-overlay-amd64.tar.gz -C / --exclude="./bin" \
+                && tar xzf /tmp/s6-overlay-amd64.tar.gz -C /usr ./bin \
+            ) \
+            || ( \
+                tar xzf /tmp/s6-overlay-amd64.tar.gz -C / \
+            ) \
+        ) \
+        && rm /tmp/s6-overlay-amd64.tar.gz \
+        '
+# Tell S6 to pass environment variables on to child processes
+ENV S6_KEEP_ENV 1
+
+# Tell python to never buffer output. This is vital for preventing
+# some "write would block" messages.
+ENV PYTHONUNBUFFERED 1
+
+# Env vars that must be overwritten
+ENV FAW_CI_CMD I:NEED:TO:BE:SPECIFIED
+ENV FAW_CONTAINER_NAME I:NEED:TO:BE:SPECIFIED
+ENV FAW_HOST_CI_LOG_DIR I:NEED:TO:BE:SPECIFIED
+
+# Move over to using bash as the default shell
+SHELL ["/bin/bash", "-c"]
+
+# (Dynamically) create an S6 service for the CI container's actual job
+# This is actually a bunch of different things:
+#   1. Create a script to actually run the CI container's main command (the CI workbench script really)
+#   2. We also create a "finish" script, just so that if the main command dies, the container comes down
+#   3. We set up logging via s6-log/logutil-service to a specific host directory
+#   4. Introduce support for s6 readiness notifications (necessary to support faw-cli interactivity)
+#   5. Finally create a "global" finish script that will take down the FAW container if the CI container dies
+# Note that `chmod -R a+rwx` on the logging directory is important since it gets
+# created on the host machine, and we want it to be deleteable by the calling user
+# (who may not be root).
+RUN \
+    mkdir -p '/etc/services.d/ci-container'  \
+    && echo -e '#!/bin/sh\n${FAW_CI_CMD} 2>&1' >> /etc/services.d/ci-container/run \
+    && chmod u+x /etc/services.d/ci-container/run \
+    && echo -e '#!/bin/sh\ns6-svscanctl -t /var/run/s6/services' >> /etc/services.d/ci-container/finish \
+    && chmod u+x /etc/services.d/ci-container/finish \
+    && mkdir -p /etc/cont-init.d \
+    && echo -e '#!/bin/sh\nmkdir -p /var/log/ci-container\nchown -R nobody:nogroup /var/log/ci-container\nchmod -R a+rwx /var/log/ci-container' > /etc/cont-init.d/ci-container \
+    && mkdir -p '/etc/services.d/ci-container/log'  \
+    && echo -e '#!/bin/sh\nexec logutil-service /var/log/ci-container' >> /etc/services.d/ci-container/log/run \
+    && echo -e '3' >> /etc/services.d/ci-container/notification-fd \
+    && echo -e '#!/bin/sh\ndocker ps -q --filter "name=${FAW_CONTAINER_NAME}" | grep -q . && docker stop ${FAW_CONTAINER_NAME}' > /etc/cont-finish.d/ci-container
+
+# Finally start the s6 overlay's init
+ENTRYPOINT ["/init"]
+
+
+
+

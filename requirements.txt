@@ -4,4 +4,5 @@
 # pyjson5 gives more reliable error locations than `json5`...
 pyjson5
 schema
+aiohttp
 
