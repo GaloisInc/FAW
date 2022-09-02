@@ -35,7 +35,6 @@ import threading
 import time
 import traceback
 import uuid
-import webbrowser
 
 
 # These variables are used throughout the script. So we keep them for now
@@ -43,6 +42,9 @@ import webbrowser
 CONFIG_FOLDER = None
 IMAGE_TAG = None
 VOLUME_SUFFIX = None
+
+# In copied scripts (see `build` functionality), IMAGE_TAG is written
+STATIC_BUILD = IMAGE_TAG is not None
 
 # Keep track of the directory containing the FAW
 faw_dir = os.path.dirname(os.path.abspath(__file__))
@@ -88,11 +90,11 @@ def main():
         assert os.path.lexists(v) or v.startswith(os.path.join(faw_dir, 'build')), f'Path must exist or start with build: {v}'
         return v
 
-    if CONFIG_FOLDER is None and IMAGE_TAG is None:
+    if not STATIC_BUILD:
         parser.add_argument('--config-dir', type=folder_exists, help="Folder "
             "containing configuration for workbench to analyze a format.")
 
-    if CONFIG_FOLDER is None and IMAGE_TAG is None:
+    if not STATIC_BUILD:
         parser.add_argument('--file-dir', type=folder_exists_or_build, required=True, help="Folder containing "
                 "files to investigate.")
     else:
@@ -122,7 +124,7 @@ def main():
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.")
 
-    if CONFIG_FOLDER is None and IMAGE_TAG is None:
+    if not STATIC_BUILD:
         parser.add_argument('--build-mode', action='store_true',
                 help="Indicates whether the script should run in build mode")
         parser.add_argument('--service', action='store_true',
@@ -315,15 +317,18 @@ def main():
         t_watch.daemon = True
         t_watch.start()
 
-    def open_browser():
-        time.sleep(1.5)
-        try:
-            webbrowser.open(f'http://localhost:{port}')
-        except ex:
-            traceback.print_exc()
-    open_browser_thread = threading.Thread(target=open_browser)
-    open_browser_thread.daemon = True
-    open_browser_thread.start()
+    if STATIC_BUILD:
+        # Pop open the UI for the user
+        def open_browser():
+            time.sleep(1.5)
+            import webbrowser
+            try:
+                webbrowser.open(f'http://localhost:{port}')
+            except ex:
+                traceback.print_exc()
+        open_browser_thread = threading.Thread(target=open_browser)
+        open_browser_thread.daemon = True
+        open_browser_thread.start()
 
     # Start the webserver for the endpoint
     server_thread = start_server(config)

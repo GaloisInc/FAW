@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 
 from pathlib import Path
 
@@ -131,6 +132,19 @@ def main():
             + command_line
             # + ['/bin/bash']
         )
+
+        # Pop open the UI for the user
+        def open_browser():
+            import time, webbrowser
+            time.sleep(1.5)
+            try:
+                webbrowser.open(f'http://localhost:{args.port}')
+            except ex:
+                traceback.print_exc()
+        open_browser_thread = threading.Thread(target=open_browser)
+        open_browser_thread.daemon = True
+        open_browser_thread.start()
+
         print('Command: ', command)
         subprocess.run(command)
 
