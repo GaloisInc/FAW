@@ -47,7 +47,8 @@ VOLUME_SUFFIX = None
 STATIC_BUILD = IMAGE_TAG is not None
 
 # Keep track of the directory containing the FAW
-faw_dir = os.path.dirname(os.path.abspath(__file__))
+# Must not be used for built distributions (e.g., target `build/`)
+faw_dir = str(pathlib.Path(__file__).parent.parent.parent.resolve())
 ALL_FOLDER = os.path.abspath(os.path.join(faw_dir, 'all'))
 
 # Initialize a logger

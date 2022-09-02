@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import subprocess
-
-from workbench import get_faw_container_name
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--image-tag', help="Image tag for the faw container")
@@ -33,5 +31,5 @@ if r.returncode != 0:
     raise ValueError("CI Container has not reached its steady state; check logs")
 else:
     if not args.build_mode:
-        docker_id = get_faw_container_name(args.image_tag, args.config_dir, args.file_dir)
+        docker_id = os.environ['FAW_CONTAINER_NAME']
         subprocess.run(['docker', 'exec', '-it', docker_id, 'faw-cli.py'])

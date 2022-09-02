@@ -4,6 +4,7 @@ import argparse
 import atexit
 import itertools
 import os
+from pathlib import Path
 import re
 import shlex
 import shutil
@@ -14,8 +15,10 @@ import tempfile
 import textwrap
 import threading
 
-from pathlib import Path
+# Keep track of the directory containing the FAW
+faw_dir = os.path.dirname(os.path.abspath(__file__))
 
+sys.path.insert(0, os.path.join(faw_dir, 'faw/ci'))
 from ci_container_service import get_faw_container_name, get_faw_image_name, get_default_image_tag
 
 
@@ -36,9 +39,6 @@ CI_TEMPDIR = tempfile.TemporaryDirectory()
 atexit.register(CI_TEMPDIR.cleanup)
 CI_CONTAINER_LOG_PATH_HOST = os.path.join(CI_TEMPDIR.name, 'logs', 'ci-container')
 CI_CONTAINER_LOG_PATH_CONTAINER = '/var/log/ci-container'
-
-# Keep track of the directory containing the FAW
-faw_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def main():
@@ -72,7 +72,7 @@ def main():
     )
 
     # And the full command line for running the CI container as a service
-    container_script_path = Path(__file__).resolve().with_name('ci_container_service.py')
+    container_script_path = Path(faw_dir) / 'faw' / 'ci' / 'ci_container_service.py'
     command_line = ['python3', str(container_script_path)] + to_script_args(args)
 
     # Build an image for the ci container
@@ -81,12 +81,13 @@ def main():
     faw_container_name = get_faw_container_name(IMAGE_TAG, args.config_dir, args.file_dir)
     ci_container_cmd = shlex.join(command_line)
     r = subprocess.run(
-            ['docker', 'build', '-t', imgname, '-f', 'ci-container-dockerfile',
+            ['docker', 'build', '-t', imgname,
+                '-f', os.path.join(faw_dir, 'faw', 'ci', 'ci-container-dockerfile'),
                 '.'])
     if r.returncode != 0:
         raise Exception("Docker build failed; see above")
 
-    interactive_script_path = Path(__file__).resolve().with_name('ci_container_interactive.py')
+    interactive_script_path = Path(faw_dir) / 'faw' / 'ci' / 'ci_container_interactive.py'
     # If we were in build mode, we need to now export the image and do associated activities
     if args.build_mode:
         # First, build the image
@@ -242,7 +243,7 @@ def export_faw_image(image_tag, config_dir, target_dir):
         )
 
     # Build modified script, put it in the right place and make it executable
-    source_script_path = os.path.join(faw_dir, 'ci_container_service.py')
+    source_script_path = os.path.join(faw_dir, 'faw', 'ci', 'ci_container_service.py')
     target_script_path = os.path.join(target_dir, f'workbench-{dist_name}.py')
     with open(source_script_path) as fin, open(target_script_path, 'w') as fout:
         fout.write(
