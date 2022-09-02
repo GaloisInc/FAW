@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -38,36 +39,33 @@ def main():
 
 
 def _handle_config_change(args):
-    # Figure out the directories we need to zip
-    folders = set()
-    for f in args.file_or_dir:
-        ford = pathlib.Path(f)
-        if not ford.exists:
-            raise f"File or directory {ford} does not exist"
+    # Step 1 - find common path, reframe everything relative to that
+    paths = [pathlib.Path(a).absolute() for a in args.file_or_dir]
+    for p in paths:
+        if not p.exists:
+            raise ValueError(f'{p} does not exist')
 
-        if ford.is_dir():
-            # We are going to assume this is a plugin directory
-            # and go with it.
-            folders.add(ford)
-        else:
-            # If this a (config) file, we will just move a level up
-            # and treat that as the plugin directory
-            folders.add(ford.parent)
+    common = pathlib.Path(os.path.commonpath([p.resolve() for p in paths]))
+    if not common.is_dir():
+        common = common.parent
+    for parent in reversed([common] + list(common.parents)):
+        if (
+                (parent / 'config.json5').exists()
+                and not (parent.parent / 'config.json5').exists()):
+            # Found the root config.
+            common = parent
+            break
 
-    # Create the parameters related to folders that we need to pass on to tar
-    folder_tar_params = []
-    for f in folders:
-        folder_tar_params.extend(['-C', str(f.parent.resolve())])
-        folder_tar_params.append(f.name)
+    paths = [p.relative_to(common) for p in paths]
 
-    # Tar it up to a temporary directory (and a fixed filename)
-    # and then send it to the CI container's server
+    # Create the tar file
     with tempfile.TemporaryDirectory() as temp:
-        file_path = pathlib.Path(temp, "config.tar.gz")
-        subprocess.check_call([
-            'tar', 'cvf', str(file_path.resolve()),
-        ] + folder_tar_params)
+        file_path = pathlib.Path(temp, 'config.tar.gz')
+        subprocess.check_call(
+                ['tar', 'czvf', str(file_path.resolve()), '-C', str(common.resolve())]
+                + [str(p) for p in paths])
 
+        # Upload to server
         subprocess.check_call([
             'curl', '-v', '-i', '-F', f'config=@{str(file_path)}', f'http://{args.host}:{args.port}/configuration'
         ])

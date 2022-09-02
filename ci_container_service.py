@@ -1125,9 +1125,6 @@ def _check_build_stage_change_and_update(
 ):
     logging.info(f"Checking for stage updates ...")
 
-    # We really shouldn't be calling this without something having changed,
-    assert new_config != old_config
-
     # And we should be operating in development mode
     assert development, "Automatic rebuild on build stage configuration updates are only supported in development mode"
 
@@ -1252,7 +1249,7 @@ def start_server(config_dir):
 
             config_data = data['config']
 
-            with tarfile.TarFile(fileobj=config_data.file) as t:
+            with tarfile.open(fileobj=config_data.file) as t:
                 t.extractall(config_dir)
 
             return web.json_response({'status': 'success'})
