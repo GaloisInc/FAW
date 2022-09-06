@@ -117,9 +117,10 @@ absolute path.
 
 4. When using FAW with a large set of files/directories, it is possible for NodeJS 
   to hit the limit on the maximum number of file watchers allowed. This is usually
-  indicated by a `ENOSPC` error in the logs. The current limit can be checked via
-  something like: `cat /proc/sys/fs/inotify/max_user_watches`. To increase this limit
-  do something like: `echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf`.
+  indicated by a `ENOSPC` error in the logs. This issue must be addressed on the host
+  machine (and not the container). The current limit on the host machine can be checked 
+  via: `cat /proc/sys/fs/inotify/max_user_watches`. To increase this limit do something like: 
+  `echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf`.
   See [here](https://howchoo.com/node/node-increase-file-watcher-system-limit#why-do-i-see-this-enospc-file-watch-limit-error) 
   for more details.
 
