@@ -1,0 +1,49 @@
+ // Parser from https://github.com/GaloisInc/daedalus/tree/master/formats/nitf
+ {
+  parsers: {
+    daedalus: {
+      exec: ['/usr/bin/env', 'LD_LIBRARY_PATH=/opt/daedalus',
+        './ddl_wrapper.py', '/opt/daedalus/nitf-driver', '<inputFile>'],
+      // Be sure to change commit SHA in build stage as well
+      version: 'nitf-driver 2022-10-11.8',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stderr: {},
+        stdout: {
+          '.*': {
+            'nameReplace': {
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      daedalus: {
+        from: 'haskell:8.8',
+        copy_output: {
+          '/home/ddl/nitf_cpp_parser/parser': '/opt/daedalus/nitf-driver',
+          '/usr/lib/x86_64-linux-gnu/libgmp*': '/opt/daedalus/',
+        },
+        commands: [
+          'RUN mkdir -p /home/ddl',
+          'WORKDIR /home/ddl',
+          'RUN git init . \
+            && git remote add origin https://github.com/GaloisInc/DaeDaLus \
+            && git fetch origin f53262d849d59cb82de216d3f4453115c26f2632 \
+            && git reset --hard FETCH_HEAD',
+          'RUN cabal update \
+            && git submodule update --init',
+          'RUN \
+            cabal run daedalus -- compile-c++ formats/nitf/nitf_main.ddl --out-dir=nitf_cpp_parser',
+          'RUN \
+            cd nitf_cpp_parser \
+            && make',
+        ],
+      },
+    },
+  },
+}

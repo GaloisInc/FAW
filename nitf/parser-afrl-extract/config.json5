@@ -6,11 +6,11 @@ This is a version fixed up by Kudu Dynamics, 2022-10-05.
   parsers: {
     nitf: {
       exec: ['/usr/bin/env', 'DFFPATH=/opt/parser_afrl_extract/dff',
-        '/opt/parser_afrl_extract/extract_d', '<inputFile>',
+        '/opt/parser_afrl_extract/extract_d', '-r', '<inputFile>',
         // Directory to dump a bunch of useless files.
         '<tempDir>',
         ],
-      version: '1.1-kudu-drop-2022-10-05',
+      version: '1.2-kudu-drop-2022-10-05',
       parse: {
         type: 'regex-counter',
         version: '1.3',
