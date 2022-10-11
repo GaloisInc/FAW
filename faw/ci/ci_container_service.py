@@ -1175,7 +1175,7 @@ def _check_build_stage_change_and_update(
         commands.extend(copy_cmds)
 
     tar_file_name = f"/tmp/{temp_name}.tar"
-    tar_command = f"RUN tar -cvf {tar_file_name} -C {temp_dir_name}/ ."
+    tar_command = f"RUN cd {temp_dir_name} && find . -type f -print0 | tar -cvf {tar_file_name} --null -T -"
     commands.append(tar_command)
 
     dockerfile_contents += ("\n" + "\n".join(commands))
