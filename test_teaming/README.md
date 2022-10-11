@@ -2,7 +2,7 @@ Teaming tests are done in vagrant instead of docker to avoid docker-in-docker is
 
 To run the teaming tests:
 
-0. Run `./workbench.py pdf build/test_teaming` to specify the FAW distribution to be tested
+0. Run `./workbench.py pdf build/test_teaming --production` to specify the FAW distribution to be tested
 1. Install Vagrant, and `cd` to this folder
 1a. Optionally reset past tests with `vagrant destroy -f`
 2. Run `vagrant up`
