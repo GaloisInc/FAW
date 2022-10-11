@@ -1,0 +1,80 @@
+IMGHDR21.dff 1.0 .dff for NITF 2.1 image subheader
+IM              X 00002
+IID1            X 00010
+IDATIM          X 00014
+TGTID           X 00017
+IID2            X 00080
+ISCLAS          X 00001
+ISCLSY          X 00002
+ISCODE          X 00011
+ISCTLH          X 00002
+ISREL           X 00020
+ISDCTP          X 00002
+ISDCDT          X 00008
+ISDCXM          X 00004
+ISDG            X 00001
+ISDGDT          X 00008
+ISCLTX          X 00043
+ISCATP          X 00001
+ISCAUT          X 00040
+ISCRSN          X 00001
+ISSRDT          X 00008
+ISCTLN          X 00015
+ENCRYP          X 00001
+ISORCE          X 00042
+NROWS           X 00008
+NCOLS           X 00008
+PVTYPE          X 00003
+IREP            X 00008
+ICAT            X 00008
+ABPP            X 00002
+PJUST           X 00001
+ICORDS          X 00001
+[IF NOT " "][ICORDS][00001]
+IGEOLO          X 00060
+NICOM           X 00001
+[LOOP][NICOM][00001]
+ICOM            X 00080
+IC              X 00002
+[IF CONTAINS "C1" "C3" "C4" "C5" "M1" "M3" "M4" "M5" "I1"][IC][00001]
+COMRAT          X 00004
+NBANDS          X 00001
+[IF CONTAINS "0"][NBANDS][00002]
+XBANDS          X 00005
+[LOOP][XBANDS][00006]
+IREPBAND        X 00002
+ISUBCAT         X 00006
+IFC             X 00001
+IMFLT           X 00003
+NLUTS           X 00001
+[IF NOT "0"][NLUTS][00002]
+NELUT           X 00001
+[LOOP][NLUTS][00001]
+[LOOP][NELUT][00001]
+LUTD            BN 00001
+[LOOP][NBANDS][00006]
+IREPBAND        X 00002
+ISUBCAT         X 00006
+IFC             X 00001
+IMFLT           X 00003
+NLUTS           X 00001
+[IF NOT "0"][NLUTS][00002]
+NELUT           X 00001
+[LOOP][NLUTS][00001]
+[LOOP][NELUT][00001]
+LUTD            BN 00001
+ISYNC           X 00001
+IMODE           X 00001
+NBPR            X 00004
+NBPC            X 00004
+NPPBH           X 00004
+NPPBV           X 00004
+NBPP            X 00002
+IDLVL           X 00003
+IALVL           X 00003
+ILOC            X 00010
+IMAG            X 00004
+UDIDL           X 00005
+[IF NOT "00000"][UDIDL][00001]
+UDOFL           X 00003
+ENDOFTAGDEF

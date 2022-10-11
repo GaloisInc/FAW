@@ -1,0 +1,37 @@
+pltfma v1.2 <Research_TRE_Doc 0.5x>
+PLTFMA_VERNUM   X 00004
+P_NAME          X 00012
+P_DESCR         X 00040
+P_DATE          X 00008
+P_TIME          X 00009
+P_TYPE          X 00001
+[IF CONTAINS "G" "T" "M"][P_TYPE][00003]
+SNSR_HT         X 00003
+SNSRLOC         X 00021
+SNSRHDNG        X 00003
+[IF CONTAINS "A"][P_TYPE][00024]
+AC_TYPE         X 00015
+AC_SERIAL       X 00012
+AC_T_NUM        X 00010
+AC_PITCH        X 00005
+AC_ROLL         X 00005
+AC_HDNG         X 00003
+AC_REF_PT       x 00001
+AC_POS_X        X 00009
+AC_POS_Y        X 00009
+AC_POS_Z        X 00009
+AC_VEL_X        X 00009
+AC_VEL_Y        X 00009
+AC_VEL_Z        X 00009
+AC_ACC_X        X 00008
+AC_ACC_Y        X 00008
+AC_ACC_Z        X 00008
+AC_SPEED        X 00005
+ENTLOC          X 00021
+ENTALT          X 00006
+EXITLOC         X 00021
+EXITALT         X 00006
+INS_V_NC        X 00005
+INS_V_EC        X 00005
+INS_V_DC        X 00005
+ENDOFTAGDEF

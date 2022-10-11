@@ -1,0 +1,22 @@
+USE03B                 [00020]
+FIELD1          X 00003
+FIELD2          X 00003
+FIELD3          X 00003
+FIELD4          X 00008
+FIELD5          X 00008
+FIELD6          X 00002
+FIELD7          X 00002
+FIELD8          X 00002
+FIELD9          X 00005
+FIELD10         X 00001
+FIELD11         X 00001
+FIELD12         X 00012
+FIELD13         X 00015
+FIELD14         X 00001
+FIELD15         X 00002
+FIELD16         X 00002
+FIELD17         X 00002
+FIELD18         X 00002
+FIELD19         X 00005
+FIELD20         X 00008
+ENDOFTAGDEF

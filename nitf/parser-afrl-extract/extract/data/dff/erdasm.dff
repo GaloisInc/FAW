@@ -1,0 +1,93 @@
+ERDASM    v?? entered 99/11/11      [00074]
+
+FIELD1          X 00004
+VERSION         X 00001       # Version # in ASCII
+
+
+
+
+PRO_TYPE        X 00001       # (This section holds Eprj_ProParameters) Projection Type
+PRO_NUMBER      X 00020       # Projection number for internal projections
+PRO_NAME        X 00200       # projection name
+PRO_EXE_NAME    X 00200       # projection executable name for EXTERNal projections
+PRO_ZONE        X 00020       # projection zone (UTM, SP only)
+PRO_PARAM_COUNT X 00020       # number of parameters used in projection parameters array
+
+PRO_PARAMS1     X 00026       # projection parameters array in the GCTP form
+PRO_PARAMS2     X 00026       #
+PRO_PARAMS3     X 00026       #
+PRO_PARAMS4     X 00026       #
+PRO_PARAMS5     X 00026       #
+PRO_PARAMS6     X 00026       #
+PRO_PARAMS7     X 00026       #
+PRO_PARAMS8     X 00026       #
+PRO_PARAMS9     X 00026       #
+PRO_PARAMS10    X 00026       #
+PRO_PARAMS11    X 00026       #
+PRO_PARAMS12    X 00026       #
+PRO_PARAMS13    X 00026       #
+PRO_PARAMS14    X 00026       #
+PRO_PARAMS15    X 00026       #
+PRO_PARAMS16    X 00026       #
+PRO_PARAMS17    X 00026       #
+PRO_PARAMS18    X 00026       #
+PRO_PARAMS19    X 00026       #
+PRO_PARAMS20    X 00026       #
+PRO_PARAMS21    X 00026       #
+PRO_PARAMS22    X 00026       #
+PRO_PARAMS23    X 00026       #
+PRO_PARAMS24    X 00026       #
+PRO_PARAMS25    X 00026       #
+
+
+
+
+SPHERE_NAME     X 00200       # (This section holds Eprj_Spheroid) name of the ellipsoid
+SEMI_MAJ_AXIS   X 00026       # semi-major axis of ellipsoid
+SEMI_MIN_AXIS   X 00026       # semi-minor axis of ellipsoid
+E_SQUARED       X 00026       # eccentricity-squared
+RADIUS          X 00026       # radius of the sphere
+
+DATUM_NAME      X 00200       # (This section holds Eprj_Datum) name of the datum
+TYPE            X 00020       # The datum type
+PARAMS_COUNT    X 00020       # number of parameters used
+
+DATUM_PARA1     X 00026       # The parameters for type EPRJ_DATUM_PARAMETRIC
+DATUM_PARA2     X 00026       #
+DATUM_PARA3     X 00026       #
+DATUM_PARA4     X 00026       #
+DATUM_PARA5     X 00026       #
+DATUM_PARA6     X 00026       #
+DATUM_PARA7     X 00026       #
+DATUM_PARA8     X 00026       #
+DATUM_PARA9     X 00026       #
+DATUM_PARA10    X 00026       #
+DATUM_PARA11    X 00026       #
+DATUM_PARA12    X 00026       #
+DATUM_PARA13    X 00026       #
+DATUM_PARA14    X 00026       #
+DATUM_PARA15    X 00026       #
+DATUM_PARA16    X 00026       #
+DATUM_PARA17    X 00026       #
+DATUM_PARA18    X 00026       #
+DATUM_PARA19    X 00026       #
+DATUM_PARA20    X 00026       #
+DATUM_PARA21    X 00026       #
+DATUM_PARA22    X 00026       #
+DATUM_PARA23    X 00026       #
+DATUM_PARA24    X 00026       #
+DATUM_PARA25    X 00026       #
+
+GRID_NAME       X 00200       # Name of the grid file
+
+
+
+
+CLIP_X          X 00026       # (This section holds data for calculating MapInfo)
+CLIP_Y          X 00026       #
+ORIG_X          X 00026       #
+ORIG_Y          X 00026       #
+NUM_PIX_X       X 00020       #
+NUM_PIX_Y       X 00020       #
+UNITS           X 00200       #
+ENDOFTAGDEF

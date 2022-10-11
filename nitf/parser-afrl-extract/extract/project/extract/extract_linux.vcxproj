@@ -1,0 +1,145 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x86">
+      <Configuration>Debug</Configuration>
+      <Platform>x86</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x86">
+      <Configuration>Release</Configuration>
+      <Platform>x86</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\src\convert_data_12_16.c" />
+    <ClCompile Include="..\..\src\des.c" />
+    <ClCompile Include="..\..\src\dfparse.c" />
+    <ClCompile Include="..\..\src\df_read.c" />
+    <ClCompile Include="..\..\src\eng_read.c" />
+    <ClCompile Include="..\..\src\extract.c" />
+    <ClCompile Include="..\..\src\graphic.c" />
+    <ClCompile Include="..\..\src\image.c" />
+    <ClCompile Include="..\..\src\j_io.c" />
+    <ClCompile Include="..\..\src\j_string.c" />
+    <ClCompile Include="..\..\src\label.c" />
+    <ClCompile Include="..\..\src\md5c.c" />
+    <ClCompile Include="..\..\src\menu.c" />
+    <ClCompile Include="..\..\src\rbd_jpeg.c" />
+    <ClCompile Include="..\..\src\read_switch.c" />
+    <ClCompile Include="..\..\src\symbol.c" />
+    <ClCompile Include="..\..\src\text.c" />
+    <ClCompile Include="..\..\src\tre.c" />
+    <ClCompile Include="..\..\src\unblock.c" />
+    <ClCompile Include="..\..\src\write_fs.c" />
+    <ClCompile Include="..\..\src\write_text.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\include\defines.h" />
+    <ClInclude Include="..\..\include\global.h" />
+    <ClInclude Include="..\..\include\md5.h" />
+    <ClInclude Include="..\..\include\nitf_s20.h" />
+    <ClInclude Include="..\..\include\nitf_s21.h" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{2F065EA8-BD6B-447A-8771-DDF64AE22D78}</ProjectGuid>
+    <Keyword>Linux</Keyword>
+    <RootNamespace>helloworld_makefile_application</RootNamespace>
+    <MinimumVisualStudioVersion>15.0</MinimumVisualStudioVersion>
+    <ApplicationType>Linux</ApplicationType>
+    <ApplicationTypeRevision>1.0</ApplicationTypeRevision>
+    <TargetLinuxPlatform>Generic</TargetLinuxPlatform>
+    <LinuxProjectType>{FC1A4D80-50E9-41DA-9192-61C0DBAA00D2}</LinuxProjectType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <ConfigurationType>Makefile</ConfigurationType>
+    <RemoteRootDir>/mnt/$(ProjectDir.Substring(0,1).ToLower())/$(ProjectDir.Substring(3).Replace(\,/))/../../../../</RemoteRootDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x86'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <ConfigurationType>Makefile</ConfigurationType>
+    <RemoteRootDir>/mnt/$(SolutionDir.Substring(0,1).ToLower())/$(SolutionDir.Substring(3).Replace(\,/))/../../</RemoteRootDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <ConfigurationType>Makefile</ConfigurationType>
+    <RemoteRootDir>/mnt/p/Code/Work/Kudu/SD/Projects/safedocs-internal/hidden/projects/nitf/extract/</RemoteRootDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <ConfigurationType>Makefile</ConfigurationType>
+    <RemoteRootDir>/mnt/p/Code/Work/Kudu/SD/Projects/safedocs-internal/hidden/projects/dds/dds_libs_3.14/</RemoteRootDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <ConfigurationType>Makefile</ConfigurationType>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Label="Configuration">
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <ConfigurationType>Makefile</ConfigurationType>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <RemoteBuildCommandLine>make debug</RemoteBuildCommandLine>
+    <OutDir>$(RemoteRootDir)/lib/</OutDir>
+    <IntDir>$(RemoteRootDir)/build/utils/gnu/debug/</IntDir>
+    <RemoteProjectDir>$(RemoteRootDir)/src/</RemoteProjectDir>
+    <RemoteBuildOutputs>
+    </RemoteBuildOutputs>
+    <LocalRemoteCopySources>false</LocalRemoteCopySources>
+    <NMakeIncludeSearchPath>$(RemoteRootDir)/../include/</NMakeIncludeSearchPath>
+    <RemoteReBuildCommandLine>make clean_debug; make debug</RemoteReBuildCommandLine>
+    <RemoteCleanCommandLine>make clean_debug</RemoteCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
+    <OutDir>$(RemoteRootDir)/test/bin</OutDir>
+    <IntDir>$(RemoteRootDir)/test/build/dds_api_test/debug/gnu/</IntDir>
+    <RemoteProjectDir>$(RemoteRootDir)/test/src/dds_api_test/</RemoteProjectDir>
+    <LocalRemoteCopySources>false</LocalRemoteCopySources>
+    <RemoteBuildCommandLine>make publisher_debug</RemoteBuildCommandLine>
+    <RemoteReBuildCommandLine>make publisher_clean_debug; make publisher_debug</RemoteReBuildCommandLine>
+    <RemoteCleanCommandLine>make publisher_clean_debug</RemoteCleanCommandLine>
+    <RemoteBuildOutputs>$(RemoteRootDir)/test/bin/ddsapi_test_publisher_d</RemoteBuildOutputs>
+    <SourcesToCopyRemotelyOverride />
+    <NMakeIncludeSearchPath>$(RemoteRootDir)/test/include/;$(RemoteRootDir)/include/;$(RemoteRootDir)/include/opendds/</NMakeIncludeSearchPath>
+    <NMakePreprocessorDefinitions>OS_IS_UNIX;USE_OPEN_DDS</NMakePreprocessorDefinitions>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x86'">
+    <RemoteBuildCommandLine>make release</RemoteBuildCommandLine>
+    <RemoteReBuildCommandLine>make clean_release; make release</RemoteReBuildCommandLine>
+    <RemoteCleanCommandLine>make release</RemoteCleanCommandLine>
+    <OutDir>$(RemoteRootDir)/../../bin</OutDir>
+    <IntDir>$(RemoteRootDir)/../../build/debug/gnu/</IntDir>
+    <RemoteProjectDir>$(RemoteRootDir)/</RemoteProjectDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <RemoteBuildCommandLine>make release</RemoteBuildCommandLine>
+    <RemoteReBuildCommandLine>make clean_release ; make release</RemoteReBuildCommandLine>
+    <RemoteCleanCommandLine>make clean_release</RemoteCleanCommandLine>
+    <RemoteProjectDir>$(RemoteRootDir)/src/utils/</RemoteProjectDir>
+    <IntDir>$(RemoteRootDir)/build/utils/gnu/release/</IntDir>
+    <OutDir>$(RemoteRootDir)/lib/</OutDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
+    <PreBuildEvent>
+      <Command>echo $(RemoteRootDir)</Command>
+    </PreBuildEvent>
+    <RemotePreBuildEvent>
+      <Command>source $(RemoteRootDir)/test/setenv.sh</Command>
+    </RemotePreBuildEvent>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

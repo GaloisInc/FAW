@@ -1,0 +1,24 @@
+USE26A                 [00022]
+FIELD1          X 00003
+FIELD2          X 00005
+FIELD3          X 00001
+FIELD4          X 00005
+FIELD5          X 00003
+FIELD6          X 00001
+FIELD7          X 00003
+FIELD8          X 00005
+FIELD9          X 00006
+FIELD10         X 00012
+FIELD11         X 00015
+FIELD12         X 00004
+FIELD13         X 00001
+FIELD14         X 00003
+FIELD15         X 00001
+FIELD16         X 00001
+FIELD17         X 00002
+FIELD18         X 00005
+FIELD19         X 00003
+FIELD20         X 00006
+FIELD21         X 00006
+FIELD22         X 00006
+ENDOFTAGDEF

@@ -1,0 +1,46 @@
+/* This parser comes from: https://web.archive.org/web/20161124014949/https://www.sdms.afrl.af.mil/index.php?collection=tools_nitf
+
+This is a version fixed up by Kudu Dynamics, 2022-10-05.
+*/
+{
+  parsers: {
+    nitf: {
+      exec: ['/usr/bin/env', 'DFFPATH=/opt/parser_afrl_extract/dff',
+        '/opt/parser_afrl_extract/extract_d', '<inputFile>',
+        // Directory to dump a bunch of useless files.
+        '<tempDir>',
+        ],
+      version: '1.1-kudu-drop-2022-10-05',
+      parse: {
+        type: 'regex-counter',
+        version: '1.3',
+        stdstar: {
+          '\\*\\*\\* Extract (V.*?) ': {
+            nameGroup: 'NITF \\1',
+            fallthrough: true,
+          },
+          '.*': {
+            nameReplace: {
+              '0x[0-9a-f]+': '<HEX>',
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      extractor: {
+        copy_output: {
+          '/opt/extract/bin/extract_d': '/opt/parser_afrl_extract/extract_d',
+          '/opt/extract/data/dff': '/opt/parser_afrl_extract/dff',
+        },
+        commands: [
+          'COPY {dist}/extract/ /opt/extract',
+          'RUN cd /opt/extract/src && make -j8',
+        ],
+      },
+    },
+  },
+}

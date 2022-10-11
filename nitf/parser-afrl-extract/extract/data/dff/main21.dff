@@ -1,0 +1,56 @@
+MAIN21 v1.0 NITF 2.1 Main header .dff file
+FHDR            X 00004
+FVER            X 00005
+CLEVEL          X 00002 "(Compliance Level)"
+STYPE           X 00004
+OSTAID          X 00010
+FDT             X 00014
+FTITLE          X 00080
+FSCLAS          X 00001
+FSCLSY          X 00002
+FSCODE          X 00011
+FSCTLH          X 00002
+FSREL           X 00020
+FSDCTP          X 00002
+FSDCDT          X 00008
+FSDCXM          X 00004
+FSDG            X 00001
+FSDGDT          X 00008
+FSCLTX          X 00043
+FSCATP          X 00001
+FSCAUT          X 00040
+FSCRSN          X 00001
+FSSRDT          X 00008
+FSCTLN          X 00015
+FSCOP           X 00005
+FSCPYS          X 00005
+ENCRYP          X 00001
+FBKGC           B 00003
+ONAME           X 00024
+OPHONE          X 00018
+FL              X 00012
+HL              X 00006
+NUMI            X 00003
+[LOOP][NUMI][00002]
+LISH            X 00006
+LI              X 00010
+NUMS            X 00003
+[LOOP][NUMS][00002]
+LSSH            X 00004
+LS              X 00006
+NUMX            X 00003
+NUMT            X 00003
+[LOOP][NUMT][00002]
+LTSH            X 00004
+LT              X 00005
+NUMDES          X 00003
+[LOOP][NUMDES][00002]
+LDSH            X 00004
+LD              X 00009
+NUMRES          X 00003
+[LOOP][NUMRES][00002]
+LRESH           X 00004
+LRE             X 00007
+UDHDL           X 00005
+[IF NOT "00000"][UDHDL][00001]
+UDHOFL          X 00003

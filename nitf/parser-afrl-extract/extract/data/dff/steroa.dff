@@ -1,0 +1,11 @@
+STEROA                 [00009]
+ST_ID           X 00040
+N_MATES         X 00001
+MATE_INSTANCE   X 00001
+B_CONV          X 00005
+E_CONV          X 00005
+B_ASYM          X 00005
+E_ASYM          X 00005
+B_BIE           X 00006
+E_EIE           X 00006
+ENDOFTAGDEF

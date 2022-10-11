@@ -1,0 +1,44 @@
+/* Parser from https://github.com/mdaus/nitro */
+{
+  parsers: {
+    nitf: {
+      exec: ['/bin/nitro_show_nitf', '<inputFile>'],
+      version: '2.10.12',
+      parse: {
+        type: 'regex-counter',
+        version: '1.0',
+        stdstar: {
+          '.*': {
+            nameReplace: {
+              '0x[0-9a-f]+': '<HEX>',
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      nitro: {
+        copy_output: {
+          '/opt/nitro_inst/nitro_show_nitf': '/bin/nitro_show_nitf',
+        },
+        commands: [
+          'RUN apt-get update && apt-get install -y cmake curl',
+          'RUN git clone --depth 1 --branch NITRO-2.10.12 https://github.com/mdaus/nitro /opt/nitro',
+          'WORKDIR /opt/nitro',
+          'RUN \
+              mkdir build \
+              && cd build \
+              && cmake .. -DENABLE_PYTHON=OFF -DCMAKE_INSTALL_PREFIX=/opt/nitro_inst \
+              && cmake --build . -j \
+              && cmake --build . --target install \
+              ',
+          // Give it a different name... the pluses are weird in docker
+          'RUN cp /opt/nitro_inst/bin/show_nitf++ /opt/nitro_inst/nitro_show_nitf',
+        ],
+      },
+    },
+  },
+}

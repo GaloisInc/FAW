@@ -1,0 +1,25 @@
+STDIDA                 [00023]
+FIELD1          X 00002
+FIELD2          X 00003
+FIELD3          X 00002
+FIELD4          X 00004
+FIELD5          X 00002
+FIELD6          X 00003
+FIELD7          X 00002
+FIELD8          X 00002
+FIELD9          X 00003
+FIELD10         X 00001
+FIELD11         X 00002
+FIELD12         X 00005
+FIELD13         X 00002
+FIELD14         X 00002
+FIELD15         X 00005
+FIELD16         X 00002
+FIELD17         X 00004
+FIELD18         X 00004
+FIELD19         X 00001
+FIELD20         X 00005
+FIELD21         X 00001
+FIELD22         X 00005
+FIELD23         X 00007
+ENDOFTAGDEF

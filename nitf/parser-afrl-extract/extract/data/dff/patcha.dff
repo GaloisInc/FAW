@@ -1,0 +1,23 @@
+PATCHA V1.0 1/13/99    [00021]
+PAT_NO          X 00004
+LAST_PAT_FLAG   X 00001
+LNSTRT          X 00007
+LNSTOP          X 00007
+A_Z_L           X 00005
+N_V_L           X 00005
+F_V_L           X 00003
+NPIXEL          X 00005
+FVPIX           X 00005
+FRAME           X 00003
+UTC             X 00008
+SHEAD           X 00007
+GRAVITY         X 00007
+INS_V_NC        X 00005
+INS_V_EC        X 00005
+INS_V_DC        X 00005
+OFFLAT          X 00008
+OFFLONG         X 00008
+TRACK           X 00003
+GSWEEP          X 00006
+SHEAR           X 00008
+ENDOFTAGDEF

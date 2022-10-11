@@ -1,0 +1,16 @@
+PATCHA v0.9a           [00021]
+PAT_NO          X 00004
+LAST_PAT_FLAG   X 00001
+LNSTRT          X 00007
+LNSTOP          X 00007
+AZL             X 00005
+NVL             X 00005
+FVL             X 00003
+NPIXEL          X 00005
+FVPIX           X 00005
+FRAME           X 00003
+GMT             X 00008
+SHEAD           X 00007
+GSWEEP          X 00006
+SHEAR           X 00008
+ENDOFTAGDEF

@@ -1,0 +1,27 @@
+MPDSRA                 [00025]    v0.9a
+RESERVED        X 00002
+IPR             X 00002
+RESERVED        X 00002
+ROWS_IN_BLK     X 00005
+COLS_IN_BLK     X 00005
+ORP_X           X 00009
+ORP_Y           X 00009
+ORP_Z           X 00009
+ORP_ROW         X 00005
+ORP_COLUMN      X 00005
+FOC_X           X 00007
+FOC_Y           X 00007
+FOC_Z           X 00007
+ARP_TIME        X 00009
+RESERVED        X 00014
+ARP_POS_N       X 00009
+ARP_POS_E       X 00009
+ARP_POS_D       X 00009
+ARP_VEL_N       X 00009
+ARP_VEL_E       X 00009
+ARP_VEL_D       X 00009
+ARP_ACC_N       X 00008
+ARP_ACC_E       X 00008
+ARP_ACC_D       X 00008
+RESERVED        X 00013
+ENDOFTAGDEF

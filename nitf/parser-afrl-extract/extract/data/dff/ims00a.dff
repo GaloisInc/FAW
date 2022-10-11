@@ -1,0 +1,18 @@
+IMS00A                 [00013]
+FIELD1          X 00001
+FIELD2          X 00001
+FIELD3          X 00001
+FIELD4          X 00003
+FIELD5          X 00003
+FIELD6          X 00003
+FIELD7          X 00003
+FIELD8          X 00003
+FIELD9          X 00003
+FIELD10         X 00002
+FIELD11         X 00004
+FIELD12         X 00004
+FIELD13         X 00003
+[LOOP][FIELD13        ][00002]
+FIELD14         X 00012
+FIELD15         X 00012
+ENDOFTAGDEF

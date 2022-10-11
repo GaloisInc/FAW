@@ -1,0 +1,22 @@
+MENSRA  v1.0d 1/13/99    [00020]
+CCRP_LOC        X 00021
+CCRP_ALT        X 00006
+OF_PC_R         X 00007
+OF_PC_A         X 00007
+COSGRZ          X 00007
+RGCCRP          X 00007
+RLMAP           X 00001
+CCRP_ROW        X 00005
+CCRP_COL        X 00005
+ACFT_LOC        X 00021
+ACFT_ALT        X 00005
+C_R_NC          X 00007
+C_R_EC          X 00007
+C_R_DC          X 00007
+C_AZ_NC         X 00007
+C_AZ_EC         X 00007
+C_AZ_DC         X 00007
+C_AL_NC         X 00007
+C_AL_EC         X 00007
+C_AL_DC         X 00007
+ENDOFTAGDEF

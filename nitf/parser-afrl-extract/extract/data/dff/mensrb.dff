@@ -1,0 +1,26 @@
+MENSRB  v1.0d 1/13/99  [00024]
+ACFT_LOC        X 00025
+ACFT_LOC_ACCY   X 00006
+ACFT_ALT        X 00006
+RP_LOC          X 00025
+RP_LOC_ACCY     X 00006
+RP_ALT          X 00006
+OF_PC_R         X 00007
+OF_PC_A         X 00007
+COSGRZ          X 00007
+RGCCRP          X 00007
+RLMAP           X 00001
+RP_ROW          X 00005
+RP_COL          X 00005
+C_R_NC          X 00010
+C_R_EC          X 00010
+C_R_DC          X 00010
+C_AZ_NC         X 00009
+C_AZ_EC         X 00009
+C_AZ_DC         X 00009
+C_AL_NC         X 00009
+C_AL_EC         X 00009
+C_AL_DC         X 00009
+TOTAL_TILE_COLS X 00003
+TOTAL_TILE_ROWS X 00005
+ENDOFTAGDEF
