@@ -23,10 +23,6 @@ def main():
     print(err.decode(), file=sys.stderr)
 
     out = out.decode()
-    # Until Iavor fixes it...
-    import re
-    out = re.sub('": inf\n', '": Infinity\n', out)
-
     out = json.loads(out)
     assert 'results' in out, out.keys()
     out = out['results']
@@ -34,8 +30,16 @@ def main():
     if isinstance(out, dict) and 'error' in out:
         # Note that we use `json.dumps` to collapse newlines
         print(f'Error at {out["offset"]}: {json.dumps(out["error"])}')
-        for c in out['context']:
-            print(f'Error context: {c[0][0]}')
+        # Per Iavor, schema is:
+        # CallStack := [ Funs ]
+        # Funs        := [ Fun ]
+        # Fun          := STRING | [  STRING, NUMBER ]
+        for cfuns in out['context']:
+            for cfun in cfuns:
+                if isinstance(cfun, list):
+                    print(f'Error context: {cfun[0]}::{cfun[1]}')
+                else:
+                    print(f'Error context: {cfun}')
     else:
         def dump_obj(prefix, o):
             if isinstance(o, list):

@@ -5,7 +5,7 @@
       exec: ['/usr/bin/env', 'LD_LIBRARY_PATH=/opt/daedalus',
         './ddl_wrapper.py', '/opt/daedalus/nitf-driver', '<inputFile>'],
       // Be sure to change commit SHA in build stage as well
-      version: 'nitf-driver 2022-10-11.8',
+      version: 'nitf-driver 2022-10-11.902',
       parse: {
         type: 'regex-counter',
         version: '1',
@@ -33,7 +33,7 @@
           'WORKDIR /home/ddl',
           'RUN git init . \
             && git remote add origin https://github.com/GaloisInc/DaeDaLus \
-            && git fetch origin f53262d849d59cb82de216d3f4453115c26f2632 \
+            && git fetch origin 7b699a0830c00e512c140b59042164cfd98cb982 \
             && git reset --hard FETCH_HEAD',
           'RUN cabal update \
             && git submodule update --init',
