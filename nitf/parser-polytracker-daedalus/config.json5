@@ -27,7 +27,7 @@
       mupdf: {
         from: 'trailofbits/polytracker:latest@sha256:8430b1c2d2cfee9b3ab280bd4ea68339c793e9a90b9935317ba7d6cd53d6b707',
         copy_output: {
-          '/tmp/daedalus/formats/pdf/new/c++/parser-test-track': '/usr/bin/',
+          '/tmp/daedalus/formats/nitf/cpp_parser/parser-daedalus-nitf-track': '/usr/bin/',
           '/usr/lib/x86_64-linux-gnu/libgmp*': '/lib/x86_64-linux-gnu/',
         },
         commands: [
@@ -39,13 +39,12 @@
           "RUN git clone --recursive https://github.com/GaloisInc/daedalus.git",
           "WORKDIR /tmp/daedalus",
           "RUN cabal update",
-          "WORKDIR /tmp/daedalus/formats/pdf/new/c++",
-          "RUN polytracker build cmake -S . -B build",
-          "RUN polytracker build cmake --build build --target parser-test -j$(nproc)",
-          //"WORKDIR /tmp/daedalus/formats/pdf/new/c++/build",
-          //"RUN polytracker build make -j$(nproc)",
-          "RUN polytracker instrument-targets --taint --ftrace parser-test --ignore-lists gmp ssl libz",
-          "RUN mv parser-test.instrumented parser-test-track"
+          "WORKDIR /tmp/daedalus/formats/nitf",
+          "RUN cabal run ../../:daedalus -- compile-c++ nitf_main.ddl --out-dir=cpp_parser",
+          "WORKDIR /tmp/daedalus/formats/nitf/cpp_parser",
+          "RUN polytracker build make parser",
+          "RUN polytracker instrument-targets --taint --ftrace parser --ignore-lists gmp ssl libz",
+          "RUN mv parser.instrumented parser-daedalus-nitf-track"
         ],
       },
       final: {
