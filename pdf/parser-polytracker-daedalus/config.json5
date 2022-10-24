@@ -45,7 +45,8 @@
           //"WORKDIR /tmp/daedalus/formats/pdf/new/c++/build",
           //"RUN polytracker build make -j$(nproc)",
           "RUN polytracker instrument-targets --taint --ftrace parser-test --ignore-lists gmp ssl libz",
-          "RUN mv parser-test.instrumented parser-test-track"
+          "RUN mv parser-test.instrumented parser-test-track",
+          "ENV POLYTRACKER_STDOUT_SINK=1"
         ],
       },
       final: {

@@ -44,7 +44,8 @@
           "WORKDIR /tmp/daedalus/formats/nitf/cpp_parser",
           "RUN polytracker build make parser",
           "RUN polytracker instrument-targets --taint --ftrace parser --ignore-lists gmp ssl libz",
-          "RUN mv parser.instrumented parser-daedalus-nitf-track"
+          "RUN mv parser.instrumented parser-daedalus-nitf-track",
+          "ENV POLYTRACKER_STDOUT_SINK=1"
         ],
       },
       final: {
