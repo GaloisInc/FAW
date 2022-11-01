@@ -1,7 +1,7 @@
 {
   parsers: {
     "daedalus-file-cavities": {
-      version: 'polytracker-daedalus-v1.3',
+      version: 'polytracker-daedalus-v1.3--7b699a',
       exec: ['python3', 'main.py', '<inputFile>'],
       timeout: 60,
       parse: {
@@ -38,7 +38,8 @@
           "WORKDIR /tmp",
           "RUN git clone --recursive https://github.com/GaloisInc/daedalus.git",
           "WORKDIR /tmp/daedalus",
-          "RUN cabal update",
+          "RUN git checkout 7b699a0830c00e512c140b59042164cfd98cb982",
+          "RUN cabal update && git submodule update --init",
           "WORKDIR /tmp/daedalus/formats/nitf",
           "RUN cabal run ../../:daedalus -- compile-c++ nitf_main.ddl --out-dir=cpp_parser",
           "WORKDIR /tmp/daedalus/formats/nitf/cpp_parser",
