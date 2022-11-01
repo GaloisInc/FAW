@@ -10,26 +10,24 @@
   build: {
     stages: {
       mupdf: {
-        from: 'trailofbits/polytracker:3.1.0',
+        from: 'trailofbits/polytracker:latest@sha256:8430b1c2d2cfee9b3ab280bd4ea68339c793e9a90b9935317ba7d6cd53d6b707',
         copy_output: {
-          '/tmp/mupdf/build/debug/mutool_track': '/usr/bin/',
+          '/tmp/mupdf/mutool_track': '/usr/bin/',
           '/lib/x86_64-linux-gnu/libtinfo.so': '/lib/x86_64-linux-gnu/'
         },
         commands: [
           'RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config && \
           cd /tmp && git clone --recursive git://git.ghostscript.com/mupdf.git && cd mupdf && \
-          git submodule update --init && git checkout d00de0e96a4a5ec90ffc30837d40cd624a6a89e0',
+          git checkout d00de0e96a4a5ec90ffc30837d40cd624a6a89e0 && git submodule update --init',
           'WORKDIR /tmp/mupdf',
-          'RUN make -j$((`nproc`+1)) HAVE_X11=no HAVE_GLUT=no prefix=/usr/local build=debug install',
-          'WORKDIR /tmp/mupdf/build/debug',
-          'RUN get-bc -b mutool && /polytracker/build/bin/polybuild_script \
-               --lower-bitcode -i mutool.bc -o mutool_track --libs libmupdf.a m pthread \
-          ',
+          'RUN polytracker build make -j$((`nproc`+1)) HAVE_X11=no HAVE_GLUT=no prefix=/usr/local build=release install',
+          'RUN polytracker instrument-targets --taint --ftrace mutool',
+          'RUN mv mutool.instrumented mutool_track'
         ],
       },
       final: {
         commands: [
-          'RUN pip3 install "polytracker >= 3.1.0"',
+          'RUN pip3 install "polytracker == 3.1.0"',
         ],
       }
     },

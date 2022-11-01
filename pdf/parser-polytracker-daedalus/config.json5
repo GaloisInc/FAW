@@ -1,0 +1,58 @@
+{
+  parsers: {
+    "daedalus-file-cavities": {
+      version: 'polytracker-daedalus-v1.3',
+      exec: ['python3', 'main.py', '<inputFile>'],
+      timeout: 60,
+      parse: {
+        type: 'regex-counter',
+        version: '1.7',
+        stdstar: {
+          '^"(([^"\\\\]|\\\\.)*?)","(([^"\\\\]|\\\\.)*?)","': {
+            nameGroup: 'INFIX: "\\g<3>"',
+            nameReplace: {
+              '[0-9]+': '<INT>',
+            },
+            fallthrough: true,
+          },
+          '^.*$': {
+            nameReplace: {'[0-9]+': '<INT>'},
+          }
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      mupdf: {
+        from: 'trailofbits/polytracker:latest@sha256:8430b1c2d2cfee9b3ab280bd4ea68339c793e9a90b9935317ba7d6cd53d6b707',
+        copy_output: {
+          '/tmp/daedalus/formats/pdf/new/c++/parser-test-track': '/usr/bin/',
+          '/usr/lib/x86_64-linux-gnu/libgmp*': '/lib/x86_64-linux-gnu/',
+        },
+        commands: [
+          "RUN apt-get update && apt-get install -y curl cmake libgmp-dev libssl-dev doxygen && mkdir -p /tmp/",
+          "RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org > ghcup && chmod +x ghcup",
+          "RUN ./ghcup install ghc 8.10.7 && ./ghcup install cabal 3.6",
+          "ENV PATH=$PATH:/root/.ghcup/bin",
+          "WORKDIR /tmp",
+          "RUN git clone --recursive https://github.com/GaloisInc/daedalus.git",
+          "WORKDIR /tmp/daedalus",
+          "RUN cabal update",
+          "WORKDIR /tmp/daedalus/formats/pdf/new/c++",
+          "RUN polytracker build cmake -S . -B build",
+          "RUN polytracker build cmake --build build --target parser-test -j$(nproc)",
+          //"WORKDIR /tmp/daedalus/formats/pdf/new/c++/build",
+          //"RUN polytracker build make -j$(nproc)",
+          "RUN polytracker instrument-targets --taint --ftrace parser-test --ignore-lists gmp ssl libz",
+          "RUN mv parser-test.instrumented parser-test-track",
+          "ENV POLYTRACKER_STDOUT_SINK=1"
+        ],
+      },
+      final: {
+        commands: [
+        ],
+      }
+    },
+  }
+}
