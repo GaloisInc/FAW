@@ -6,8 +6,10 @@
       version: '2.10.12',
       parse: {
         type: 'regex-counter',
-        version: '1.0',
+        version: '1.2',
         stdstar: {
+          '^(ComplianceLevel|FileVersion) = .*': {
+          },
           '.*': {
             nameReplace: {
               '0x[0-9a-f]+': '<HEX>',
