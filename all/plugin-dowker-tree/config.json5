@@ -1,0 +1,10 @@
+{
+  decision_views: {
+    dowker_tree: {
+      label: 'Dowker Tree',
+      type: 'program',
+      exec: ['python3', 'main.py', '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>'],
+      execStdin: '<statsbyfile>',
+    },
+  },
+}
