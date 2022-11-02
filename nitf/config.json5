@@ -31,6 +31,18 @@
     // Seconds, per parser, in which each parser must finish executing.
     parserDefaultTimeout: 60,
     parsers: {
+      versionExtractor: {
+        exec: ['head', '-c9', '<inputFile>'],
+        version: '1',
+        parse: {
+          type: 'regex-counter',
+          version: '1',
+          stderr: {},
+          stdout: {
+            '.*': {},
+          },
+        },
+      },
     },
 
     pipelines: {
