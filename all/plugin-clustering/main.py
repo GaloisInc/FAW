@@ -527,7 +527,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                     prefix_skip: this.prefixSkip,
                                     prefix_max: this.prefixMax,
                             };
-                            if (v) update['feature'] = this.labels[v];
+                            if (v != null) update['feature'] = this.labels[v];
                             if (args) Object.assign(update, args);
                             callRedecide(update);
                         },
