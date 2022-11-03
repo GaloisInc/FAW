@@ -782,6 +782,16 @@ class Client(vuespa.Client):
                     temp.close()
                     files_to_delete.append([temp.name])
                     r.append(temp.name)
+                elif c.startswith('<tempDir'):
+                    suffix = c[8:-1]
+                    if suffix:
+                        assert suffix[0] == ' ', suffix
+                        suffix = suffix[1:]
+                        assert ' ' not in suffix, suffix
+                        assert '"' not in suffix, suffix
+                    temp = tempfile.mkdtemp(suffix=suffix)
+                    files_to_delete.append([None, temp])
+                    r.append(temp)
                 elif c.startswith('<'):
                     rr = template_vals.get(c)
                     if rr is None:
@@ -794,16 +804,20 @@ class Client(vuespa.Client):
         finally:
             for f in files_to_delete:
                 if isinstance(f, list):
-                    fdir = os.path.dirname(f[0])
-                    fbase = os.path.basename(f[0])
-                    for ff in os.listdir(fdir):
-                        if not ff.startswith(fbase):
-                            continue
-                        ff = os.path.join(fdir, ff)
-                        if os.path.isdir(ff):
-                            shutil.rmtree(ff)
-                        else:
-                            os.unlink(ff)
+                    if f[0] is None:
+                        # Directory
+                        shutil.rmtree(f[1])
+                    else:
+                        fdir = os.path.dirname(f[0])
+                        fbase = os.path.basename(f[0])
+                        for ff in os.listdir(fdir):
+                            if not ff.startswith(fbase):
+                                continue
+                            ff = os.path.join(fdir, ff)
+                            if os.path.isdir(ff):
+                                shutil.rmtree(ff)
+                            else:
+                                os.unlink(ff)
                 else:
                     os.unlink(f)
 

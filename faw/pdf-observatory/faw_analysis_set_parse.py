@@ -432,6 +432,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
     args = []
     try:
         for e in parser_cfg['exec']:
+            # FIXME deduplicate these "<temp" things with `main.py`
             if e == '<inputFile>':
                 args.append(fpath)
             elif e == '<apiInfo>':
@@ -460,6 +461,16 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                 temps.append([tempfile.NamedTemporaryFile(suffix=suffix, delete=False)])
                 temps[-1][0].close()
                 args.append(temps[-1][0].name)
+            elif e.startswith('<tempDir'):
+                suffix = e[8:-1]
+                if suffix:
+                    assert suffix[0] == ' ', suffix
+                    suffix = suffix[1:]
+                    assert ' ' not in suffix, suffix
+                    assert '"' not in suffix, suffix
+                temp = tempfile.mkdtemp(suffix=suffix)
+                temps.append([None, temp])
+                args.append(temp)
             else:
                 args.append(e)
 
@@ -562,7 +573,7 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         doc['result']['cpuIowait'] = sum(p.iowait for p in psutil_cpu.values())
         doc['result']['exitcode'] = p.wait()
         paths = (
-                [(t.name if not isinstance(t, list) else t[0].name, '<tempFile>')
+                [(t.name if not isinstance(t, list) else t[1] if t[0] is None else t[0].name, '<tempFile>')
                     for t in temps]
                 + [(fpath, '<inputFile>')])
         doc['result']['stdoutRes'] = _trim_program_output(buf_out.getvalue(), paths)
@@ -571,16 +582,20 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
     finally:
         for t in temps:
             if isinstance(t, list):
-                tdir = os.path.dirname(t[0].name)
-                tbase = os.path.basename(t[0].name)
-                for f in os.listdir(tdir):
-                    if not f.startswith(tbase):
-                        continue
-                    f = os.path.join(tdir, f)
-                    if os.path.isdir(f):
-                        shutil.rmtree(f)
-                    else:
-                        os.unlink(f)
+                if t[0] is None:
+                    # Dir
+                    shutil.rmtree(t[1])
+                else:
+                    tdir = os.path.dirname(t[0].name)
+                    tbase = os.path.basename(t[0].name)
+                    for f in os.listdir(tdir):
+                        if not f.startswith(tbase):
+                            continue
+                        f = os.path.join(tdir, f)
+                        if os.path.isdir(f):
+                            shutil.rmtree(f)
+                        else:
+                            os.unlink(f)
             else:
                 os.unlink(t.name)
 
