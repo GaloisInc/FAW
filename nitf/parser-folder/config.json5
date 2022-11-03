@@ -1,0 +1,16 @@
+{
+  parsers: {
+    folder: {
+      exec: ['python3', 'main.py', '<inputFile>'],
+      version: '1',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stderr: {},
+        stdout: {
+          '.*': {},
+        },
+      },
+    },
+  },
+}
