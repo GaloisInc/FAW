@@ -18,6 +18,9 @@ import pypugjs
 import re
 import sys
 
+# For memory, we compress a lot to int8. But, sums need more
+INT_TYPE = np.int32
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('api_url')
@@ -55,18 +58,14 @@ def main():
                 ft_names.append(k)
             matrix[-1][ft_i] = 1.
 
-    # Sparse to dense
+    # Keep original ordering
     mat = np.zeros((len(matrix), len(ft_names)), dtype=np.int8)
-    ft_i_sorted = sorted(range(len(ft_names)), key=lambda m: ft_names[m].lower())
-    ft_i_backward = [0 for _ in ft_i_sorted]  # goes from original to sorted
-    for i_back, i in enumerate(ft_i_sorted):
-        ft_i_backward[i] = i_back
     for m_i, m in enumerate(matrix):
         for k, v in m.items():
             assert v in (0, 1), v
-            mat[m_i, ft_i_backward[k]] = v
+            mat[m_i, k] = v
 
-    ft_inverted = (mat.sum(0, dtype=np.int32) > 0.5 * mat.shape[0])
+    ft_inverted = (mat.sum(0, dtype=INT_TYPE) > 0.5 * mat.shape[0])
     mat[:, ft_inverted] = 1 - mat[:, ft_inverted]
 
     nodes, edges = learn_dowker_family(mat)
@@ -90,7 +89,7 @@ def main():
                 if rf == 2:
                     continue
                 if rf >= 3:
-                    rf -= 3
+                    rf = rf - 3
                     pre = '(dup) '
                 else:
                     pre = ''
@@ -98,7 +97,7 @@ def main():
                     rf = 1 - rf
                 r.append(f'{pre}{"NOT " if not rf else ""}{ft_names[i]}')
             return r
-        vnodes = [[to_feats(n[0]), len(n[1]), int((n[0] != 2).sum(dtype=np.int32))] for n in nodes]
+        vnodes = [[to_feats(n[0]), len(n[1]), int((n[0] != 2).sum(dtype=INT_TYPE))] for n in nodes]
         vedges = [[int(e[0]), int(e[1]), to_feats(e[2]), float(e[3])] for e in edges]
         visual_html = []
         visual_html.append(f'<div id="d3_vis">D3 did not load correctly</div>')
@@ -118,10 +117,12 @@ r'''
             .force('y', d3.forceY())
             ;
 
-    const width = 1024, height = 768;
+    const width = 712, height = 512;
     const domBase = d3.select('#d3_vis');
     domBase.html(null);
     const svg = domBase.append('svg')
+        .attr('width', '100%')
+        .attr('height', height)
         .attr('viewBox', [0/2, -height/2, width, height])
         ;
     const tooltip = domBase.append('div');
@@ -255,8 +256,8 @@ def learn_dowker_family(mat):
     nodes.append((root_fts, np.arange(mat.shape[0])))
 
     seen = np.zeros_like(mat[0], dtype=np.bool_)
-    ft_counts = mat.sum(0, dtype=np.int32)
-    while seen.sum() != seen.shape[0] and len(nodes) < 50:
+    ft_counts = mat.sum(0, dtype=INT_TYPE)
+    while seen.sum(dtype=INT_TYPE) != seen.shape[0] and len(nodes) < 50:
         # Thoughts: constrain search to only those that exist in the DB.
         # Keeps becoming an NP complete hyper graph. Heuristic?
         # Steps:
@@ -270,6 +271,8 @@ def learn_dowker_family(mat):
         #    be computed against all candidate siblings and complete set; take
         #    minimum.
         #    For any info gain above some threshold, add a new node + edge.
+        # NOTE we encode duplicates as 3, 4 s.t. (value % 3) is 0 for NOT, 1 for
+        # SET, and 2 for DONTCARE
         sel = ~seen
         row_ft_max = ft_counts[sel].argmax()
         ft_idx = np.arange(ft_counts.shape[0])[sel][row_ft_max]
@@ -281,11 +284,14 @@ def learn_dowker_family(mat):
             # Compute info gain; store in node_to_ig
             nr = n[0].copy()
             nr[ft_idx] = 1
-            nrs = (nr < 2).sum(dtype=np.int32)
-            nf = [f for f in n[1] if (nr == mat[f]).sum() == nrs]
-            nnf = len(n[1])
-            p = (len(nf) + 0.01) / (nnf + 0.02)
-            ig = -(p * math.log(p) + (1 - p) * math.log(1 - p))
+            nrs = (nr < 2).sum(dtype=INT_TYPE)
+            nf = [f for f in n[1] if (nr == mat[f]).sum(dtype=INT_TYPE) == nrs]
+            nnf = len(n[1])  # guaranteed non-zero
+            p = len(nf) / nnf
+            if min(p, 1 - p) < 1e-8:
+                ig = 0.
+            else:
+                ig = -(p * math.log(p) + (1 - p) * math.log(1 - p))
             node_to_ig[ni] = (ig, p)
             node_to_fileset[ni] = nf
 
@@ -301,7 +307,7 @@ def learn_dowker_family(mat):
             ig_set = [node_to_ig[ni]] + [node_to_ig[e[1]] for e in n_edges]
             ig = min([i[0] for i in ig_set])
 
-            if ig > 0.3:  # TODO binary entropy threshold
+            if ig > 0.5:  # 0.5 ~= 20% threshold  TODO variable
                 nr = n[0].copy()
                 nr[ft_idx] = 1
                 nf = node_to_fileset[ni]
@@ -320,7 +326,7 @@ def learn_dowker_family(mat):
                 er.fill(2)
                 er[ft_idx] = 0
                 edges.append((ni, len(nodes) - 1, er, -1))
-            else:
+            elif ig == 0.:
                 # Add feature to the node with the least information gain
                 for (n_ig, n_p), n, e in zip(ig_set, ig_nodes, ig_edges):
                     if n_ig != ig:
