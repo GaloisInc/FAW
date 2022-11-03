@@ -30,6 +30,11 @@ def main():
 
     dec_args = json.loads(args.json_arguments)
     dec_args.setdefault('feature_regex', ': exit code (?!0)')
+    dec_args.setdefault('max_nodes', '50')
+    try:
+        int(dec_args['max_nodes'])
+    except ValueError:
+        dec_args['max_nodes'] = '50'
 
     ft_regex = re.compile(dec_args['feature_regex'], flags=re.I)
 
@@ -68,7 +73,7 @@ def main():
     ft_inverted = (mat.sum(0, dtype=INT_TYPE) > 0.5 * mat.shape[0])
     mat[:, ft_inverted] = 1 - mat[:, ft_inverted]
 
-    nodes, edges = learn_dowker_family(mat)
+    nodes, edges = learn_dowker_family(mat, max_nodes=int(dec_args['max_nodes']))
     if False:
         # Nodes view
         visual_html = []
@@ -97,7 +102,8 @@ def main():
                     rf = 1 - rf
                 r.append(f'{pre}{"NOT " if not rf else ""}{ft_names[i]}')
             return r
-        vnodes = [[to_feats(n[0]), len(n[1]), int((n[0] != 2).sum(dtype=INT_TYPE))] for n in nodes]
+        vnodes = [[to_feats(n[0]), int((n[0] < 2).sum(dtype=INT_TYPE)),
+                   len(n[1]), int((n[0] < 2).sum(dtype=INT_TYPE))] for n in nodes]
         vedges = [[int(e[0]), int(e[1]), to_feats(e[2]), float(e[3])] for e in edges]
         visual_html = []
         visual_html.append(f'<div id="d3_vis">D3 did not load correctly</div>')
@@ -108,12 +114,13 @@ r'''
 (function() {
     // Heartily from https://observablehq.com/@d3/mobile-patent-suits
 
-    const snode = nodes.map((x, xi) => ({id: xi, fts: x[0], count: x[1], fx: x[2] * 100}));
+    const snode = nodes.map((x, xi) => ({id: xi, fts: x[0], count_fts: x[1], count: x[2], des_x: x[3] * 200}));
     const sedge = edges.map((x, xi) => ({id: `e${xi}`, source: x[0], target: x[1], fts: x[2], len: x[3]}));
+    const countMax = Math.max.apply(null, snode.map(x => x.count));
     const sim = d3.forceSimulation(snode)
-            .force('link', d3.forceLink(sedge))
-            .force('charge', d3.forceManyBody().strength(-800))
-            .force('x', d3.forceX())
+            .force('link', d3.forceLink(sedge).distance(80))
+            .force('charge', d3.forceManyBody().strength(-2000))
+            .force('x', d3.forceX(d => d.des_x).strength(d => 4 * d.count / countMax))
             .force('y', d3.forceY())
             ;
 
@@ -179,7 +186,7 @@ r'''
         ;
     vnode.append("text")
         .attr("x", 8)
-        .text(d => `${d.fts.length} fts // ${d.count} files`)
+        .text(d => `${d.count_fts} fts // ${d.count} files`)
         .clone(true).lower()
             .attr('fill', 'none')
             .attr('stroke', 'white')
@@ -226,6 +233,9 @@ html
         p Feature regex:
             input(id="featureField" type="text" value=old_args_obj['feature_regex'])
             input(type="button" value="Change" onclick="reprocess({feature_regex: document.getElementById('featureField').value})")
+        p Max nodes:
+            input(id="maxNodesField" type="text" value=old_args_obj['max_nodes'])
+            input(type="button" value="Change" onclick="reprocess({max_nodes: document.getElementById('maxNodesField').value})")
         div!= visual_html
             ''')
     block = parser.parse()
@@ -240,7 +250,7 @@ html
         f.write(compiler.compile())
 
 
-def learn_dowker_family(mat):
+def learn_dowker_family(mat, max_nodes):
     """Given a files x features matrix, produce a dowker.
 
     Unlike above, learn it by an inclusive (rather than exact) metric.
@@ -257,7 +267,7 @@ def learn_dowker_family(mat):
 
     seen = np.zeros_like(mat[0], dtype=np.bool_)
     ft_counts = mat.sum(0, dtype=INT_TYPE)
-    while seen.sum(dtype=INT_TYPE) != seen.shape[0] and len(nodes) < 50:
+    while seen.sum(dtype=INT_TYPE) != seen.shape[0] and len(nodes) < max_nodes:
         # Thoughts: constrain search to only those that exist in the DB.
         # Keeps becoming an NP complete hyper graph. Heuristic?
         # Steps:
