@@ -11,7 +11,10 @@ def dask_check_if_cancelled():
     """
     w = dask.distributed.get_worker()
     try:
-        w.tasks[w.get_current_task()]
+        t = w.tasks[w.get_current_task()]
+        # 2022-11 sometime between now and mid 2021, this became necessary
+        if t.state.startswith('cancel'):
+            return True
     except KeyError:
         return True
 
