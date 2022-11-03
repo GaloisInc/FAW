@@ -1,0 +1,29 @@
+{
+  parsers: {
+    gdal: {
+      exec: ['gdalinfo', '<inputFile>'],
+      version: '1',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stdstar: {
+          '.*': {
+            nameReplace: {
+              '0x[0-9a-fA-F]+': '<HEX>',
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'RUN apt-get update && apt-get install -y gdal-bin',
+        ],
+      },
+    },
+  },
+}
