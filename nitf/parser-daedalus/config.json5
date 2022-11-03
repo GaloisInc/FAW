@@ -1,11 +1,29 @@
  // Parser from https://github.com/GaloisInc/daedalus/tree/master/formats/nitf
  {
   parsers: {
-    daedalus: {
+    daedalus: { /* OLDER VERSION */
       exec: ['/usr/bin/env', 'LD_LIBRARY_PATH=/opt/daedalus',
         './ddl_wrapper.py', '/opt/daedalus/nitf-driver', '<inputFile>'],
       // Be sure to change commit SHA in build stage as well
       version: 'nitf-driver 2022-10-11.902',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stderr: {},
+        stdout: {
+          '.*': {
+            'nameReplace': {
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+    "daedalus-20221103": {
+      exec: ['/usr/bin/env', 'LD_LIBRARY_PATH=/opt/daedalus-20221103',
+        './ddl_wrapper.py', '/opt/daedalus-20221103/nitf-driver', '<inputFile>'],
+      // Be sure to change commit SHA in build stage as well
+      version: 'nitf-driver 2022-11-03 782eb',
       parse: {
         type: 'regex-counter',
         version: '1',
@@ -34,6 +52,28 @@
           'RUN git init . \
             && git remote add origin https://github.com/GaloisInc/DaeDaLus \
             && git fetch origin 7b699a0830c00e512c140b59042164cfd98cb982 \
+            && git reset --hard FETCH_HEAD',
+          'RUN cabal update \
+            && git submodule update --init',
+          'RUN \
+            cabal run daedalus -- compile-c++ formats/nitf/nitf_main.ddl --out-dir=nitf_cpp_parser',
+          'RUN \
+            cd nitf_cpp_parser \
+            && make',
+        ],
+      },
+      "daedalus-20221103": {
+        from: 'haskell:8.10',
+        copy_output: {
+          '/home/ddl/nitf_cpp_parser/parser': '/opt/daedalus-20221103/nitf-driver',
+          '/usr/lib/x86_64-linux-gnu/libgmp*': '/opt/daedalus-20221103/',
+        },
+        commands: [
+          'RUN mkdir -p /home/ddl',
+          'WORKDIR /home/ddl',
+          'RUN git init . \
+            && git remote add origin https://github.com/GaloisInc/DaeDaLus \
+            && git fetch origin 782eb4f08e33aea2515136c92544af456dc37032 \
             && git reset --hard FETCH_HEAD',
           'RUN cabal update \
             && git submodule update --init',
