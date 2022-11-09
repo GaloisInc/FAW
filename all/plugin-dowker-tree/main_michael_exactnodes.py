@@ -220,14 +220,15 @@ html
 def learn_dowker(mat):
     """Given a files x features matrix, produce a dowker.
     """
-    nodes = []  # [(matrix row, num files)]
-    edges = []  # [(node src (less features), node dst (more features), node length)]
+    nodes = []  # [(matrix row, indices of files in set)]
+    edges = []  # [(node src (less features), node dst (more features), labels row, node length)]
 
     # Seed nodes with a special case, to detect all root dialects.
-    nodes.append((np.zeros_like(mat[0]), -1))
+    nodes.append((np.zeros_like(mat[0]), []))
 
-    seen = np.zeros_like(mat[:, 0])
-    linked = np.zeros_like(mat[:, 0])
+    # Convert to boolean -- no superposition here
+    seen = np.zeros_like(mat[:, 0], dtype=np.bool_)
+    linked = np.zeros_like(mat[:, 0], dtype=np.bool_)  # nodes, not files
     mat_row_ft = mat.sum(1)
     while seen.sum() != seen.shape[0]:
         # Steps:
@@ -252,8 +253,13 @@ def learn_dowker(mat):
             else:
                 sel = (mat == rr[None]).all(1)
                 seen[sel] = True
-                nodes.append((rr, sel.sum(0)))
                 row_seen.append(rr)
+                if True or sel.nonzero()[0].shape[0] > 10:
+                    nodes.append((rr, sel.nonzero()[0].tolist()))
+
+        if len(nodes) == nodes_len_last:
+            # Nothing new added this round; rows still marked seen
+            continue
 
         # 3.
         old_nodes_ids = [i for i in range(nodes_len_last) if not linked[i]]
@@ -271,7 +277,14 @@ def learn_dowker(mat):
                 j = nodes_len_last + jj
                 if links[ii, jj]:
                     linked[i] = True
-                    edges.append((i, j, dists[ii, jj]))
+                    ef = np.empty_like(mat[0])
+                    ef.fill(2)
+                    edges.append((i, j, ef, dists[ii, jj]))
+
+    # Convert for parity with non-exact format
+    for n in nodes:
+        v = n[0]
+        v += 2 * (v == 0).astype(mat.dtype)
 
     return nodes, edges
 

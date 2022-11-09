@@ -31,6 +31,7 @@ def main():
     dec_args = json.loads(args.json_arguments)
     dec_args.setdefault('feature_regex', ': exit code (?!0)')
     dec_args.setdefault('max_nodes', '50')
+    dec_args.setdefault('exact', 'no')
     try:
         int(dec_args['max_nodes'])
     except ValueError:
@@ -73,7 +74,11 @@ def main():
     ft_inverted = (mat.sum(0, dtype=INT_TYPE) > 0.5 * mat.shape[0])
     mat[:, ft_inverted] = 1 - mat[:, ft_inverted]
 
-    nodes, edges = learn_dowker_family(mat, max_nodes=int(dec_args['max_nodes']))
+    if dec_args['exact'].lower().startswith('n'):
+        nodes, edges = learn_dowker_family(mat, max_nodes=int(dec_args['max_nodes']))
+    else:
+        import main_michael_exactnodes
+        nodes, edges = main_michael_exactnodes.learn_dowker(mat)
     if False:
         # Nodes view
         visual_html = []
@@ -102,8 +107,9 @@ def main():
                     rf = 1 - rf
                 r.append(f'{pre}{"NOT " if not rf else ""}{ft_names[i]}')
             return r
+        # Node data is [features, count_features, count_files]
         vnodes = [[to_feats(n[0]), int((n[0] < 2).sum(dtype=INT_TYPE)),
-                   len(n[1]), int((n[0] < 2).sum(dtype=INT_TYPE))] for n in nodes]
+                   len(n[1])] for n in nodes]
         vedges = [[int(e[0]), int(e[1]), to_feats(e[2]), float(e[3])] for e in edges]
         visual_html = []
         visual_html.append(f'<div id="d3_vis">D3 did not load correctly</div>')
@@ -114,13 +120,13 @@ r'''
 (function() {
     // Heartily from https://observablehq.com/@d3/mobile-patent-suits
 
-    const snode = nodes.map((x, xi) => ({id: xi, fts: x[0], count_fts: x[1], count: x[2], des_x: x[3] * 200}));
+    const snode = nodes.map((x, xi) => ({id: xi, fts: x[0], count_fts: x[1], count: x[2], des_x: x[1] * 200}));
     const sedge = edges.map((x, xi) => ({id: `e${xi}`, source: x[0], target: x[1], fts: x[2], len: x[3]}));
-    const countMax = Math.max.apply(null, snode.map(x => x.count));
+    const countMax = Math.max.apply(null, snode.map(x => x.count_fts));
     const sim = d3.forceSimulation(snode)
             .force('link', d3.forceLink(sedge).distance(80))
             .force('charge', d3.forceManyBody().strength(-2000))
-            .force('x', d3.forceX(d => d.des_x).strength(d => 4 * d.count / countMax))
+            .force('x', d3.forceX(d => d.des_x).strength(d => 2 * d.count_fts / countMax))
             .force('y', d3.forceY())
             ;
 
@@ -177,15 +183,15 @@ r'''
 
     vedge
         .append("path")
-            .attr("stroke", d => d3.color('blue'))
+            .attr("stroke", d => d3.color(d.target.count > d.source.count ? 'red' : 'blue'))
             .attr("stroke-width", 3)
             .attr("pointer-events", "visibleStroke")
         ;
     vnode.append("circle")
-        .attr("r", d => 4 + Math.log(Math.max(1, d.count)))
+        .attr("r", d => 4 + Math.pow(Math.max(1, d.count), 0.5))
         ;
     vnode.append("text")
-        .attr("x", 8)
+        .attr("x", d => 8 + Math.pow(Math.max(1, d.count), 0.5))
         .text(d => `${d.count_fts} fts // ${d.count} files`)
         .clone(true).lower()
             .attr('fill', 'none')
@@ -236,6 +242,9 @@ html
         p Max nodes:
             input(id="maxNodesField" type="text" value=old_args_obj['max_nodes'])
             input(type="button" value="Change" onclick="reprocess({max_nodes: document.getElementById('maxNodesField').value})")
+        p Exact (any string starting with `n` is no):
+            input(id="exactField" type="text" value=old_args_obj['exact'])
+            input(type="button" value="Change" onclick="reprocess({exact: document.getElementById('exactField').value})")
         div!= visual_html
             ''')
     block = parser.parse()
