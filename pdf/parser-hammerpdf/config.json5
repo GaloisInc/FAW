@@ -5,7 +5,7 @@
             version: 'hammer-tag-2022-08-31_release',
             parse: {
                 type: 'regex-counter',
-                version: '1',
+                version: '2',
                 stdout: {
                     //NOTE: The current version of the parser produces a lot of output
                     //on success that appears to be a json dump of internal structures. We
@@ -17,7 +17,10 @@
                 },
                 stderr: {
                     '^.*$': {
-                        nameGroup: 0,
+                        nameReplace: {
+                          '0x[0-9a-fA-F]+': '<HEX>',
+                          '[0-9]+': '<INT>',
+                        },
                     }
                 },
             },
