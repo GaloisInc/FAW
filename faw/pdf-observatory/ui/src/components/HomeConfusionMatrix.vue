@@ -60,7 +60,7 @@
 import * as d3 from "d3";
 import Vue from 'vue';
 
-import { PdfDecision } from "./common";
+import { PdfDecision } from "@/common/common";
 
 export default Vue.extend({
   props: {

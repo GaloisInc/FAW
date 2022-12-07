@@ -387,8 +387,8 @@ import 'brace/ext/searchbox';
 
 import Vue from 'vue';
 
-import {PdfDecision, sortByReject} from '@/components/common';
-import {DslExpression, DslResult, dslParser, dslDefault} from '@/dsl';
+import {PdfDecision, sortByReject} from '@/common/common';
+import {DslExpression, DslResult, dslParser, dslDefault} from '@/common/dsl';
 import {AsData} from '@/interface/aset';
 
 import AnalysisSetConfigComponent from '@/components/AnalysisSetConfig.vue';
@@ -399,6 +399,8 @@ import StatsComponent from '@/components/HomeStats.vue';
 import DbViewComponent from '@/components/DbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
 
+import { PdfGroups, FileFilterData, reprocess } from '@/common/processor'
+
 export enum DbView {
   Decision = 0,
   Tools = 1,
@@ -406,10 +408,6 @@ export enum DbView {
   Stats = 3,
 }
 
-// export type FileFilterData = [string, Set<string>];
-// export type PdfGroups = {groups: {[message: string]: Array<[number, number]>},
-//     files: Array<string>};
-import { PdfGroups, FileFilterData, Processor } from '@/common/processor'
 
 export class LoadingStatus {
   config_mtime: number = 0;
@@ -459,7 +457,6 @@ export default Vue.extend({
       holdReferences: true,
       initReferences: false,
       loadingStatus: new LoadingStatus(),
-      processor: null as (Processor | null),
       pdfs: [] as readonly PdfDecision[],
       pdfsDslLast: [] as readonly PdfDecision[], // Specifically decisions calculated with DSL.
       pdfsReference: [] as readonly PdfDecision[],
@@ -1163,22 +1160,50 @@ export default Vue.extend({
         return;
       }
       
-      if (this.decisionDefinition === null) {
-        throw new Error("reprocess() was triggered without valid decision spec?");
-      }
-      
-      if (this.processor != null && !this.processor.reprocessInnerPdfGroups && this.pdfGroupsDirty) {
-        this.processor.reprocessInnerPdfGroups = true;
+      if (!this.reprocessInnerPdfGroups && this.pdfGroupsDirty) {
+        // Limit to one repeat of cleaning pdfGroups
+        this.reprocessInnerPdfGroups = true;
         await this._pdfGroupsUpdate();
+        // watcher for pdfGroups will trigger reprocess.
         return;
       }
       
-      this.processor = new Processor(
-        this.decisionDefinition, this.decisionAspectSelected, this.decisionSearchInsensitive,
-        this.decisionSearchCustom, this.pdfGroups, this.fileFilters
-      );
+      const dd = this.decisionDefinition;
+      if (dd === null) {
+        throw new Error("reprocess() was triggered without valid decision spec?");
+      }
+
+      if (this.decisionAspectSelected === 'filter-faw-custom') {
+        dd.filters = dd.filters.filter(x => x.name !== 'faw-custom');
+        dd.filters.push({
+          name: 'faw-custom',
+          all: false,
+          caseInsensitive: this.decisionSearchInsensitive,
+          patterns: [{pat: this.decisionSearchCustom, check: null}],
+        });
+      }
       
-      let newPdfs = this.processor.reprocess();
+      // Push workbench errors regardless
+      dd.filters = dd.filters.filter(x => x.name !== 'faw-errors');
+      dd.filters.push({
+        name: 'faw-errors',
+        all: false,
+        caseInsensitive: true,
+        patterns: [
+          {pat: '_<<workbench: Exit code missing', check: null},
+          {pat: '_<<workbench: Exit status: RuntimeError', check: null},
+          {pat: '_<<workbench: unhandled', check: null},
+        ],
+      });
+      
+      // OK, everything needed fetched, go ahead and run decisions.
+      this.reprocessInnerPdfGroups = false;
+      if (!this.holdReferences) {
+        this.pdfsReference = this.pdfs;
+      }
+    
+      
+      let newPdfs = reprocess(dd, this.pdfGroups, this.fileFilters);
       this.pdfs = Object.freeze(newPdfs);
       this.pdfsDslLast = Object.freeze(newPdfs);
       this.reprocessPost();

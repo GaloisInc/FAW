@@ -1,6 +1,12 @@
-//Re-export type to avoid breaking things just yet
-//TODO: Dont?
-export { PdfDecision } from '@/common/processor'
+// Class mimicking Kudu expected output
+export type PdfDecision = {
+  info: string[],
+  testfile: string,
+
+  [outputGroup: string]: any,
+
+  changed?: boolean,
+};
 
 /** Sort the given data based on the second element, which is presumed
   to be the 'valid'|'rejected' status.
