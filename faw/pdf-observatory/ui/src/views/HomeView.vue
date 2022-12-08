@@ -1202,8 +1202,29 @@ export default Vue.extend({
         this.pdfsReference = this.pdfs;
       }
     
+        // Narrow down to only groups pertaining to selected files
+      let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
+      if (this.fileFilters.length > 0) {
+        const fset = this.fileFilterLatest()![1];
+        let okSet = new Set();
+        for (const [fi, f] of this.pdfGroups.files.entries()) {
+          if (fset.has(f)) okSet.add(fi);
+        }
+
+        groups = {};
+        for (const [k, files] of Object.entries(this.pdfGroups.groups)) {
+          let nfiles = files.filter(x => okSet.has(x[0]));
+          if (nfiles.length === 0) continue;
+          groups[k] = nfiles;
+        }
+      }
       
-      let newPdfs = reprocess(dd, this.pdfGroups, this.fileFilters);
+      let pdfGroups: PdfGroups = {
+        groups: groups,
+        files: this.pdfGroups.files
+      };
+      
+      let newPdfs = reprocess(dd, pdfGroups);
       this.pdfs = Object.freeze(newPdfs);
       this.pdfsDslLast = Object.freeze(newPdfs);
       this.reprocessPost();

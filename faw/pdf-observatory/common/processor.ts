@@ -10,31 +10,12 @@ export type PdfGroups = {
 export type FileFilterData = [string, Set<string>];
 
 
-export function reprocess(
-  decisionDefinition: DslResult, reprocessPdfGroups: PdfGroups, fileFilters: Array<FileFilterData>
-): PdfDecision[] 
-{
-  // Narrow down to only groups pertaining to selected files
-  let groups: {[message: string]: Array<[number, number]>} = reprocessPdfGroups.groups;
-  if (fileFilters.length > 0) {
-    const fset = fileFilters[fileFilters.length - 1]![1];
-    let okSet = new Set();
-    for (const [fi, f] of reprocessPdfGroups.files.entries()) {
-      if (fset.has(f)) okSet.add(fi);
-    }
-
-    groups = {};
-    for (const [k, files] of Object.entries(reprocessPdfGroups.groups)) {
-      let nfiles = files.filter(x => okSet.has(x[0]));
-      if (nfiles.length === 0) continue;
-      groups[k] = nfiles;
-    }
-  }
-  
+export function reprocess(decisionDefinition: DslResult, reprocessPdfGroups: PdfGroups): PdfDecision[] 
+{ 
   // Build file list
   const newPdfs = [];
   const pdfMap = new Map<number, PdfDecision>();
-  for (const [, files] of Object.entries(groups)) {
+  for (const [, files] of Object.entries(reprocessPdfGroups.groups)) {
     for (const f of files) {
       if (pdfMap.has(f[0])) continue;
       const dec = {
@@ -64,7 +45,7 @@ export function reprocess(
         pat: new RegExp(p.pat, f.caseInsensitive ? 'i' : undefined),
         check: p.check,
     }));
-    for (const [k, files] of Object.entries(groups)) {
+    for (const [k, files] of Object.entries(reprocessPdfGroups.groups)) {
       let matched = false;
       // Do any of our filter's patterns match this message?
       let filesSubset = files;
@@ -73,7 +54,7 @@ export function reprocess(
         const parts = new Map<string, Array<number>>();
         for (const [id, suffix] of [['sum', '_sum'], ['nan', '_nan'],
             ['count', '']]) {
-          let filesWithMsg = groups[k + suffix];
+          let filesWithMsg = reprocessPdfGroups.groups[k + suffix];
           if (filesWithMsg === undefined) {
             if (['sum', 'nan'].indexOf(k.split('_').pop()!) !== -1) {
               // If we can't find this, this is NOT a number, but likely a
