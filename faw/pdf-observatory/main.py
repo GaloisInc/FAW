@@ -466,6 +466,137 @@ async def _init_check_pdfs():
         await kick_asets_if_inserted()
 
 
+async def get_decisions(cache, options):
+    """
+    Get decisions given a set of options.
+
+    Args:
+        cache: A cache instance for documents
+        options: {subsetSize, subsetRegex, subsetPartition}.
+
+    NOTE: We take a cache instance as input. It is possible to avoid this
+          by (say) using a global cache, and this may well be fine, it
+          seemed reasonable to let the "clients" of this functionality
+          have some control over the behavior of the cache.
+    """
+    groups = {}
+    files = []
+    r = {'groups': groups, 'files': files}
+
+    start = time.monotonic()
+    print(f'Loading decisions for {options}')
+
+    cursor = fetch_statsbyfile(cache, options)
+    async for gg in cursor:
+        for g in gg:
+            gid = len(files)
+            files.append(g['_id'])
+            for k, v in g.items():
+                if k.startswith('_'):
+                    continue
+                grp = groups.get(k)
+                if grp is None:
+                    groups[k] = grp = []
+                grp.append([gid, v])
+
+    print(f'...Decisions packaged in {time.monotonic() - start:.2f}s')
+
+    return r
+
+
+async def fetch_statsbyfile(cache, options, match_id=None):
+    """Async generator which yields from `statsbyfile` according to the
+    working subsetting options in `options`.
+
+    For efficiency, yields batches rather than individual documents! This
+    cuts overhead by as much as 50% due to the way async works in python.
+
+    Args:
+        options:
+            cache: A cache instance for documents
+            analysis_set_id: Analysis set to use for returning results
+            file_ids?: Optional list of file IDs to restrict results.
+        match_id: Document id to return.
+    """
+
+    assert 'analysis_set_id' in options
+
+    # Check the cache -- if analysis set has been updated, then we must bust
+    # the cache
+    adoc = await app_mongodb_conn['as_metadata'].find_one({
+            '_id': options['analysis_set_id']})
+
+    def dict_hash(vdict):
+        '''hash dictionary elements reliably'''
+        r = []
+        for k, v in sorted(vdict.items(), key=lambda m: m[0]):
+            if isinstance(v, dict):
+                r.append((k, dict_hash(v)))
+            else:
+                r.append((k, v))
+        return tuple(r)
+    fresh_key = (
+            # Hashable elements describing this analysis set's state
+            adoc.get('status_done_time'),
+            await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
+            dict_hash(adoc.get('parser_versions_done', [{}, {}])[1]))
+    option_kv = [(k, v) for k, v in options.items()]
+    option_kv = [(k, v) if k != 'file_ids' else (k, tuple(sorted(v)))
+                 for k, v in option_kv]
+    cache_key = (*option_kv, match_id)
+
+    try:
+        v = cache.get(cache_key)
+    except TypeError:
+        raise TypeError(cache_key)
+    if v is not None:
+        if v[0] == fresh_key:
+            # Cache data is up-to-date
+            print(f'Using cache for {adoc["_id"]} / {fresh_key}')
+            for row in v[1]:
+                yield row
+            return
+
+    # Else, update cache
+    data_to_cache = []
+
+    cursor_db = app_mongodb_conn['as_c_' + options['analysis_set_id']]
+    # Faster to convert from new format to old inline.
+    # Goes from 50s down to 28s at 100k documents.
+    pipeline = [
+            {'$replaceRoot': {'newRoot': {'$mergeObjects': [
+                {'_id': '$_id'},
+                {'$arrayToObject': '$f'},
+            ]}}},
+    ]
+    if options.get('file_ids'):
+        pipeline.insert(0, {'$match': {'_id': {'$in': options['file_ids']}}})
+    if match_id is not None:
+        pipeline.insert(0, {'$match': {'_id': match_id}})
+    cursor = cursor_db.aggregate(pipeline)
+
+    doc_sz = 0
+    while True:
+        n_fetch = 10 if doc_sz == 0 else 1 + int(128e6 / doc_sz)
+        docs = await cursor.to_list(n_fetch)
+        if not docs:
+            break
+        yield docs
+        data_to_cache.append(docs)
+
+        if doc_sz == 0:
+            doc_sz = asizeof.asizeof(docs) / len(docs)
+
+        # Manual conversion
+        # g_new = {'_id': g['_id']}
+        # for o in g['f']:
+        #    g_new[o['k']] = o['v']
+        # yield g_new
+
+    # OK, iteration finished, add to cache
+    cache[cache_key] = (fresh_key, data_to_cache)
+
+
 class Client(vuespa.Client):
     async def vuespa_on_open(self):
         pass
@@ -716,28 +847,9 @@ class Client(vuespa.Client):
         Args:
             options: {subsetSize, subsetRegex, subsetPartition}.
         """
-        groups = {}
-        files = []
-        r = {'groups': groups, 'files': files}
-
-        start = time.monotonic()
-        print(f'Loading decisions for {options}')
-        cursor = self._statsbyfile_cursor(options)
-        async for gg in cursor:
-            for g in gg:
-                gid = len(files)
-                files.append(g['_id'])
-                for k, v in g.items():
-                    if k.startswith('_'): continue
-                    grp = groups.get(k)
-                    if grp is None:
-                        groups[k] = grp = []
-                    grp.append([gid, v])
-
-        print(f'...Decisions packaged in {time.monotonic() - start:.2f}s')
-
-        return r
-
+        if not hasattr(self, '_statsbyfile_cursor_cache'):
+            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100, ttl=5 * 60)
+        return await get_decisions(self._statsbyfile_cursor_cache, options)
 
     @contextlib.asynccontextmanager
     async def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
@@ -835,89 +947,9 @@ class Client(vuespa.Client):
                 file_ids?: Optional list of file IDs to restrict results.
             match_id: Document id to return.
         """
-
-        assert 'analysis_set_id' in options
-
-        # Check the cache -- if analysis set has been updated, then we must bust
-        # the cache
-        adoc = await app_mongodb_conn['as_metadata'].find_one({
-                '_id': options['analysis_set_id']})
-
-        def dict_hash(vdict):
-            '''hash dictionary elements reliably'''
-            r = []
-            for k, v in sorted(vdict.items(), key=lambda m: m[0]):
-                if isinstance(v, dict):
-                    r.append((k, dict_hash(v)))
-                else:
-                    r.append((k, v))
-            return tuple(r)
-        fresh_key = (
-                # Hashable elements describing this analysis set's state
-                adoc.get('status_done_time'),
-                await app_mongodb_conn['as_c_' + options['analysis_set_id']].estimated_document_count(),
-                dict_hash(adoc.get('parser_versions_done', [{}, {}])[1]))
         if not hasattr(self, '_statsbyfile_cursor_cache'):
-            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100,
-                    ttl=5 * 60)
-        cache = self._statsbyfile_cursor_cache
-        option_kv = [(k, v) for k, v in options.items()]
-        option_kv = [(k, v) if k != 'file_ids' else (k, tuple(sorted(v)))
-                for k, v in option_kv]
-        cache_key = (*option_kv, match_id)
-        try:
-            v = cache.get(cache_key)
-        except TypeError:
-            raise TypeError(cache_key)
-        if v is not None:
-            if v[0] == fresh_key:
-                # Cache data is up-to-date
-                print(f'Using cache for {adoc["_id"]} / {fresh_key}')
-                for row in v[1]:
-                    yield row
-                return
-
-        # Else, update cache
-        data_to_cache = []
-
-        cursor_db = app_mongodb_conn['as_c_' + options['analysis_set_id']]
-        # Faster to convert from new format to old inline.
-        # Goes from 50s down to 28s at 100k documents.
-        pipeline = [
-                {'$replaceRoot': {'newRoot': {'$mergeObjects': [
-                    {'_id': '$_id'},
-                    {'$arrayToObject': '$f'},
-                ]}}},
-        ]
-        if options.get('file_ids'):
-            pipeline.insert(0, {'$match': {'_id': {'$in': options['file_ids']}}})
-        if match_id is not None:
-            pipeline.insert(0, {'$match': {'_id': match_id}})
-        cursor = cursor_db.aggregate(pipeline)
-
-        doc_sz = 0
-        doc_sz_n = 0
-
-        while True:
-            n_fetch = 10 if doc_sz == 0 else 1 + int(128e6 / doc_sz)
-            docs = await cursor.to_list(n_fetch)
-            if not docs:
-                break
-            yield docs
-            data_to_cache.append(docs)
-
-            if doc_sz == 0:
-                doc_sz = asizeof.asizeof(docs) / len(docs)
-
-            # Manual conversion
-            #g_new = {'_id': g['_id']}
-            #for o in g['f']:
-            #    g_new[o['k']] = o['v']
-            #yield g_new
-
-        # OK, iteration finished, add to cache
-        cache[cache_key] = (fresh_key, data_to_cache)
-
+            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100, ttl=5 * 60)
+        return await fetch_statsbyfile(self._statsbyfile_cursor_cache, options, match_id)
 
     async def api_clear_db(self):
         if not app_production:
