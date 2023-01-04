@@ -2,6 +2,7 @@
     "name": "galois-file-analysis-workbench",
     "version": "0.1.0",
     "private": true,
+    "type": "module",
     "dependencies": {
       "pegjs": "^0.10.0",
       "pug": "^3.0.2",

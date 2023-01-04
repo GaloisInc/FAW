@@ -257,6 +257,14 @@ def main():
                 + [
                     '-c', 'cd /home/pdf-observatory/ui && npm install'
                 ])
+                
+        # We also install the npm modules required for the CI support nodejs app
+        subprocess.check_call(['docker', 'run', '--rm', '--entrypoint',
+                '/bin/bash']
+                + extra_flags
+                + [
+                    '-c', 'cd /home/pdf-observatory/ci && npm install && npm run build'
+                ])
 
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
@@ -745,6 +753,9 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
             RUN cd /home/pdf-observatory/ui \
+                && npm install \
+                && npm run build
+            RUN cd /home/pdf-observatory/ci \
                 && npm install \
                 && npm run build
             ''')

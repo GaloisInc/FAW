@@ -27,6 +27,7 @@ import re
 import shlex
 import shutil
 import strictyaml
+import subprocess
 import sys
 import tempfile
 import time
@@ -127,6 +128,7 @@ def config_web(app, pdf_dir):
     app.router.add_routes([
             web.get('/file_download/{file:.+}', _config_web_file_download_handler),
             web.get('/file_list', _config_web_file_list_handler),
+            web.post('/decisions', _config_web_decisions_handler),
     ])
 
 
@@ -164,6 +166,36 @@ async def _config_web_file_download_handler(req):
 async def _config_web_file_list_handler(req):
     file_list = list(_walk_pdf_files())
     return web.Response(text='\n'.join(file_list))
+
+
+async def _config_web_decisions_handler(req):
+    params = await req.post()
+    analysis_set_id = params['analysis_set_id']
+    decision_dsl = params['dsl']
+
+    options = {'analysis_set_id': analysis_set_id}
+    pdfGroups = await get_decisions(options)
+
+    parameters = {'groups': pdfGroups, 'dsl': decision_dsl}
+    parametersJson = json.dumps(parameters)
+
+    print("Calling from: " + os.path.join(etl_path, 'pdf-observatory', 'ci'))
+    # print("With data\n" + parametersJson)
+
+    proc = subprocess.Popen(
+        ['node', '--experimental-specifier-resolution=node', '.'],
+        bufsize=-1,
+        cwd=os.path.join(etl_path, 'pdf-observatory', 'ci'),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout, stderr = proc.communicate(input=bytes(parametersJson, 'utf-8'))
+    if proc.wait() != 0:
+        raise ValueError(f"non-zero exit: {stderr.decode('utf-8')}")
+
+    pdfDecisions = json.loads(stdout.decode('utf-8'))
+    return web.json_response(pdfDecisions)
 
 
 async def _config_check_loop():
@@ -465,19 +497,19 @@ async def _init_check_pdfs():
                 raise NotImplementedError(ctype)
         await kick_asets_if_inserted()
 
+# A global cache for document information primarily for use by
+# `get_decisions` and `fetch_statsbyfile`.
+document_cache = cachetools.TTLCache(maxsize=100, ttl=5 * 60)
 
-async def get_decisions(cache, options):
+
+async def get_decisions(options):
     """
     Get decisions given a set of options.
 
     Args:
-        cache: A cache instance for documents
-        options: {subsetSize, subsetRegex, subsetPartition}.
+        options: See `fetch_statsbyfile` for details.
 
-    NOTE: We take a cache instance as input. It is possible to avoid this
-          by (say) using a global cache, and this may well be fine, it
-          seemed reasonable to let the "clients" of this functionality
-          have some control over the behavior of the cache.
+    NOTE: We make use of the global `document_cache` instance.
     """
     groups = {}
     files = []
@@ -486,7 +518,7 @@ async def get_decisions(cache, options):
     start = time.monotonic()
     print(f'Loading decisions for {options}')
 
-    cursor = fetch_statsbyfile(cache, options)
+    cursor = fetch_statsbyfile(options)
     async for gg in cursor:
         for g in gg:
             gid = len(files)
@@ -504,7 +536,7 @@ async def get_decisions(cache, options):
     return r
 
 
-async def fetch_statsbyfile(cache, options, match_id=None):
+async def fetch_statsbyfile(options, match_id=None):
     """Async generator which yields from `statsbyfile` according to the
     working subsetting options in `options`.
 
@@ -513,10 +545,11 @@ async def fetch_statsbyfile(cache, options, match_id=None):
 
     Args:
         options:
-            cache: A cache instance for documents
             analysis_set_id: Analysis set to use for returning results
             file_ids?: Optional list of file IDs to restrict results.
         match_id: Document id to return.
+
+    NOTE: We make use of the global `document_cache` instance.
     """
 
     assert 'analysis_set_id' in options
@@ -525,6 +558,8 @@ async def fetch_statsbyfile(cache, options, match_id=None):
     # the cache
     adoc = await app_mongodb_conn['as_metadata'].find_one({
             '_id': options['analysis_set_id']})
+    if adoc is None:
+        raise ValueError(f"Failed to fetch analysis set {repr(options['analysis_set_id'])}")
 
     def dict_hash(vdict):
         '''hash dictionary elements reliably'''
@@ -546,7 +581,7 @@ async def fetch_statsbyfile(cache, options, match_id=None):
     cache_key = (*option_kv, match_id)
 
     try:
-        v = cache.get(cache_key)
+        v = document_cache.get(cache_key)
     except TypeError:
         raise TypeError(cache_key)
     if v is not None:
@@ -594,7 +629,7 @@ async def fetch_statsbyfile(cache, options, match_id=None):
         # yield g_new
 
     # OK, iteration finished, add to cache
-    cache[cache_key] = (fresh_key, data_to_cache)
+    document_cache[cache_key] = (fresh_key, data_to_cache)
 
 
 class Client(vuespa.Client):
@@ -845,11 +880,9 @@ class Client(vuespa.Client):
     async def api_decisions_get(self, options):
         """
         Args:
-            options: {subsetSize, subsetRegex, subsetPartition}.
+            options: See documentation for `get_decisions` and `fetch_statsbyfile`
         """
-        if not hasattr(self, '_statsbyfile_cursor_cache'):
-            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100, ttl=5 * 60)
-        return await get_decisions(self._statsbyfile_cursor_cache, options)
+        return await get_decisions(options)
 
     @contextlib.asynccontextmanager
     async def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
@@ -947,9 +980,8 @@ class Client(vuespa.Client):
                 file_ids?: Optional list of file IDs to restrict results.
             match_id: Document id to return.
         """
-        if not hasattr(self, '_statsbyfile_cursor_cache'):
-            self._statsbyfile_cursor_cache = cachetools.TTLCache(maxsize=100, ttl=5 * 60)
-        return await fetch_statsbyfile(self._statsbyfile_cursor_cache, options, match_id)
+        async for v in fetch_statsbyfile(options, match_id):
+            yield v
 
     async def api_clear_db(self):
         if not app_production:
