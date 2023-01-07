@@ -129,6 +129,7 @@ def main():
             + ['-e', f'FAW_CONTAINER_NAME={faw_container_name}']
             + ['-e', f'FAW_HOST_CI_LOG_DIR={CI_CONTAINER_LOG_PATH_HOST}']
             + ['--name', cname]
+            + ['--add-host', 'host.docker.internal:host-gateway']
             + ['-it', '--rm', imgname]
             + command_line
             # + ['/bin/bash']
