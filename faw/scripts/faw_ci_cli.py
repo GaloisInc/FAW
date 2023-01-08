@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import json
 import os
 import pathlib
 import subprocess
@@ -12,13 +13,24 @@ def main():
     """
     A client to interact with the CI infrastructure of FAW.
 
-    Currently the only feature available is to send updated configurations to a running CI instance. It is
-    generally expected that users work with the FAW directory tree to modify plugins/parsers. To send updated
-    configurations execute:
+    Currently the following features are available
+
+    * Send updated configurations to a running CI instance
+
+      It is generally expected that users work with the FAW directory tree to modify
+      plugins/parsers. To send updated configurations execute:
 
         python3 faw_ci_cli.py update-config <file or dir> <file or dir> ...
 
-    Each argument can be the path to a (presumably modified) configuration file or a plugin/parser folder.
+      Each argument can be the path to a (presumably modified) configuration file or
+      a plugin/parser folder.
+
+    * Process parsers/files and retrieve decisions from FAW according to a decision DSL.
+      To do that, execute:
+
+        python3 faw_ci_cli.py get-decisions <analysis-set-id> <dsl file>
+
+      The <analysis-set-id> must be the id of a pre-existing analysis set.
     """
 
     parser = argparse.ArgumentParser(
@@ -31,8 +43,26 @@ def main():
 
     subparsers = parser.add_subparsers(dest='subcommand', required=True)
     update_parser = subparsers.add_parser('update-config', help='Send updated configurations to the FAW CI instance')
-    update_parser.add_argument('file_or_dir', nargs='+', metavar='<FILE-OR-DIR>')
     update_parser.set_defaults(func=_handle_config_change)
+    update_parser.add_argument(
+        'file_or_dir', nargs='+',
+        help="Path to a plugin config file or a plugin directory",
+        metavar='<FILE OR DIR>'
+    )
+
+    decisions_parser = subparsers.add_parser('get-decisions', help='Compute and get decisions according to a decision DSL')
+    decisions_parser.set_defaults(func=_handle_get_decisions)
+    decisions_parser.add_argument('--format', action='store_true')
+    decisions_parser.add_argument(
+        'analysis_set_id',
+        help="Id of a pre-existing analysis set",
+        metavar='<ANALYSIS SET ID>'
+    )
+    decisions_parser.add_argument(
+        'decision_dsl_path',
+        help="Path to a decision dsl",
+        metavar='<DECISION DSL PATH>'
+    )
 
     args = parser.parse_args()
     args.func(args)
@@ -69,6 +99,27 @@ def _handle_config_change(args):
         subprocess.check_call([
             'curl', '-v', '-i', '-F', f'config=@{str(file_path)}', f'http://{args.host}:{args.port}/configuration'
         ])
+
+
+def _handle_get_decisions(args):
+    dsl_path = pathlib.Path(args.decision_dsl_path)
+    if not dsl_path.exists:
+        raise ValueError(f'{dsl_path} does not exist')
+    else:
+        dsl_path = dsl_path.absolute()
+
+    output = subprocess.check_output([
+        'curl', '-v',
+        '--data-urlencode', f'analysis_set_id={str(args.analysis_set_id)}',
+        '--data-urlencode', f'dsl@{str(dsl_path)}',
+        f'http://{args.host}:{args.port}/decisions'
+    ])
+
+    if args.format:
+        obj = json.loads(output)
+        print(json.dumps(obj, indent=2))
+    else:
+        print(output)
 
 
 if __name__ == '__main__':
