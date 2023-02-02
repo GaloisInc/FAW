@@ -1,267 +1,335 @@
 <template lang="pug">
-  .home
-    div(
-        v-if=" \
-          loadingStatus.files_max === 0 \
-          || loadingStatus.files_parsing \
-          || loadingStatus.files_err"
-        class="loadingStatusDialog"
+.home
+  .loadingStatusDialog(
+    v-if=" \
+      loadingStatus.files_max === 0 \
+      || loadingStatus.files_parsing \
+      || loadingStatus.files_err"
+  )
+    v-card(color="grey darken-1" dark)
+      v-card-text(style="padding-top: 0.5em;") {{loadingStatus.message}}
+        v-progress-linear(
+          :height="8"
+          :indeterminate="loadingStatus.files_parsing !== 0"
+          rounded
+          :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
+          :value="loadingStatus.files_parsing ? 100 : 0"
         )
-      v-card(color="grey darken-1" dark)
-        v-card-text(style="padding-top: 0.5em") {{loadingStatus.message}}
-          v-progress-linear(:height="8"
-              :indeterminate="loadingStatus.files_parsing !== 0"
-              rounded
-              :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
-              :value="loadingStatus.files_parsing ? 100 : 0")
-    .error(v-if="error" style="font-size: 4em; white-space: pre-wrap") ERROR - SEE CONSOLE
+  .error(v-if="error" style="font-size: 4em; white-space: pre-wrap") ERROR - SEE CONSOLE
 
-    v-expansion-panels(:multiple="true" :popout="true" :value="expansionPanels" :class="{colored: true}")
-      //- Filter configuration - collapsible
-      v-expansion-panel(:key="0")
-        v-expansion-panel-header Overview
-        v-expansion-panel-content
-          div(style="display: flex; flex-direction: row; flex-wrap: wrap")
-            v-tooltip(bottom :disabled="!!decisionDefinition")
-              template(v-slot:activator="{on}")
-                //- Wrap disabled button in div -> show tooltip when disabled.
-                div(v-on="on")
-                  v-btn.reprocess(
-                    @click="reprocess" :disabled="!decisionDefinition"
-                    ) Reprocess decisions
-              span(v-if="!decisionDefinition") Fix filter definition first.
-            v-btn.download(@click="downloadDecisions") Download decisions
-            v-tooltip(bottom)
-              template(v-slot:activator="{on}")
-                div(v-on="on")
-                  v-btn.download(@click="downloadFeatures") Download features
-              span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
-            v-dialog(v-model="resetDbDialog" persistent max-width="800")
-              template(v-slot:activator="{on}")
-                v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
-              v-card
-                v-card-title Reset entire DB, re-running all tools and parsers? (Disabled in production.)
-                v-card-actions(:style={'flex-wrap': 'wrap'})
-                  v-btn(@click="resetDbDialog=false") Cancel
-                  v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
+  v-expansion-panels.colored.expansion-panels(:multiple="true" :value="expansionPanels")
+    v-expansion-panel(:key="0")
+      v-expansion-panel-header Setup
+      v-expansion-panel-content
 
+        //- Analysis set config
+        AnalysisSetConfig(
+          :currentId.sync="analysisSetId"
+          :pipeCfg="config && config.pipelines"
+          @update="pdfGroupsDirty = true"
+        )
+
+        //- Filter DSL
+          NOTE: MUST BE VISIBLE on page load. Otherwise decisionCodeEditor has issues.
+        v-sheet(:elevation="3" style="padding: 1em; margin-block: 1em;")
           div
-            span(v-if="pdfGroupsDirty") Data is stale; press 'Reprocess' to download fresh data
-            span(v-else-if="pdfGroupsLoading") Data is loading...
-            span(v-else) Data is up-to-date
-          AnalysisSetConfig(:currentId.sync="analysisSetId"
-              :pipeCfg="config && config.pipelines"
-              @update="pdfGroupsDirty = true")
+            AceEditor(
+              ref="decisionCodeEditor"
+              v-model="decisionCode"
+              lang="yaml" /* for highlighting */
+              @init="decisionCodeEditorInit"
+              style="font-size: 1em"
+            )
+          div
+            checkmark(:status="decisionDefinition ? 'valid' : 'rejected'")
+            span compilation {{decisionDefinition ? 'succeeded' : 'failed'}}
 
-          v-expansion-panels(inset :style="{'margin-top': '1em'}")
-            v-expansion-panel
-              v-expansion-panel-header(:class="{'grey lighten-2': true}")
-                span
-                  span Decision Plugins
-                  span(v-if="fileFilters.length") {{' '}}(filtered)
-              v-expansion-panel-content
-                v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsDecision)"
-                    :key="pluginKey"
-                    @click="pluginDecisionView(pluginKey, {})") {{plugin.label}}
-                v-btn(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0") (Close current plugin)
-                div(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
-                  v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
-                  iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
-                details(v-show="pluginDecIframeSrc != null")
-                  summary Debugging stats
-                  JsonTree(:data="pluginDecDebug" :level="2")
+    v-expansion-panel(:key="1")
+      v-expansion-panel-header Results
+      v-expansion-panel-content
 
-          v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
-            div(v-if="fileFilters.length")
-              v-btn(v-for="f, fidx of fileFilters" :key="fidx" @click="fileFilterPopTo(fidx)") {{f[0]}}
-              v-btn(@click="fileFilterInvert()") (Invert last)
-            //- Allow selection of different things.
-            div(v-if="decisionDefinition")
-              v-radio-group(row v-model="decisionAspectSelected")
-                v-radio(v-for="o of decisionAspectAvailable.filter(x => x[1] !== 'filter-faw-custom' && x[1] !== 'filter-faw-errors')" :key="o[1]"
-                    :label="o[0]" :value="o[1]")
-                v-radio(label="(Custom Search)" :value="'filter-faw-custom'")
-                v-radio(label="(Workbench Errors)" :value="'filter-faw-errors'")
-            div(v-if="decisionAspectSelected === 'filter-faw-custom'"
-                style="display: flex; flex-direction: row; align-items: center")
-              v-text-field(label="Search Regex (press enter to reprocess)" v-on:keyup.enter="reprocess"
-                  v-model="decisionSearchCustom")
-              v-checkbox(v-model="decisionSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
-              v-btn(tile @click="reprocess" :disabled="!decisionDefinition" style="margin-left: 0.2em") Reprocess + Search
+        //- Action Buttons
+        div(style="display: flex; flex-direction: row; flex-wrap: wrap; margin-block: 1em")
+          v-tooltip(bottom :disabled="!!decisionDefinition")
+            template(v-slot:activator="{on}")
+              //- Wrap disabled button in div -> show tooltip when disabled.
+              div(v-on="on")
+                v-btn.reprocess(
+                  @click="reprocess"
+                  :disabled="!decisionDefinition"
+                  color="primary"
+                ) Reprocess decisions
+            span(v-if="!decisionDefinition") Fix filter definition first.
+          v-btn.download(@click="downloadDecisions") Download decisions
+          v-tooltip(bottom)
+            template(v-slot:activator="{on}")
+              div(v-on="on")
+                v-btn.download(@click="downloadFeatures") Download features
+            span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
+          //- TODO Reset button isn't correctly hidden in production
+          v-dialog(v-model="resetDbDialog" persistent max-width="800")
+            template(v-slot:activator="{on}")
+              v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
+            v-card
+              v-card-title Reset entire DB, re-running all tools and parsers? (Disabled in production.)
+              v-card-actions(:style="{'flex-wrap': 'wrap'}")
+                v-btn(@click="resetDbDialog=false") Cancel
+                v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
+        //- Intended to make this alert density="compact" variant="tonal", but this requires Vue 3
+        v-alert(
+          dense
+          :type="(filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
+        )
+          span(v-if="filtersModified") Filters have been modified; 'Reprocess' to update decisions
+          span(v-else-if="pdfGroupsDirty") Data is stale; 'Reprocess' to download fresh data
+          span(v-else-if="pdfGroupsLoading") Data is loading...
+          span(v-else) Data is up-to-date
 
-          //- Plot of file statuses
-          v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
-            div
-              v-checkbox(v-model="plotShow" label="Show plot?")
-            .plot-div(v-if="plotShow")
-              plot(v-if="pdfs.length && decisionDefinition"
-                v-model="pdfsSearchedUserAction"
-                :pdfs="pdfs"
-                :pdfsReference="pdfsReference"
-                :decisionDefinition="decisionDefinition"
-                :decisionAspectSelected="decisionAspectSelected")
-            ConfusionMatrix(v-if="pdfs.length"
-              @view="showFile($event)"
-              @filter-file-list="fileFilterAdd($event.name, new Set($event.files))"
+        //- Decision selector
+        v-sheet(:elevation="3" style="padding: 1em; margin-block: 1em;")
+          div(v-if="fileFilters.length")
+            v-btn(v-for="f, fidx of fileFilters" :key="fidx" @click="fileFilterPopTo(fidx)") {{f[0]}}
+            v-btn(@click="fileFilterInvert()") (Invert last)
+          //- Decision criterion selector
+          div(v-if="decisionDefinition")
+            v-select(
+              label="Decision Criterion"
+              v-model="decisionAspectSelected"
+              :items=" \
+                decisionAspectAvailable.filter( \
+                  x => x[1] !== 'filter-faw-custom' && x[1] !== 'filter-faw-errors' \
+                ).map(x => ({'title': x[0], 'value': x[1]})).concat([ \
+                  {'title': '(Custom Search)', 'value': 'filter-faw-custom'}, \
+                  {'title': '(Workbench Errors)', 'value': 'filter-faw-errors'} \
+                ]) \
+              "
+              item-text="title" /* In newer Vuetify versions this is spelled item-title */
+              item-value="value"
+            )
+          //- Custom Search Box
+          div(
+            v-if="decisionAspectSelected === 'filter-faw-custom'"
+            style="display: flex; flex-direction: row; align-items: center; gap: 1em"
+          )
+            v-text-field(
+              label="Search Regex (press enter to reprocess)"
+              v-on:keyup.enter="reprocess"
+              v-model="decisionSearchCustom"
+            )
+            v-checkbox(v-model="decisionSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
+            v-btn(tile @click="reprocess" :disabled="!decisionDefinition" style="margin-left: 0.2em") Reprocess + Search
+
+        //- Plot and table of file statuses
+        v-sheet(:elevation="3" style="padding: 1em; margin-block: 1em;")
+          div
+            v-checkbox(v-model="plotShow" label="Show plot?")
+          .plot-div(v-if="plotShow")
+            plot(
+              v-if="pdfs.length && decisionDefinition"
+              v-model="pdfsSearchedUserAction"
               :pdfs="pdfs"
               :pdfsReference="pdfsReference"
+              :decisionDefinition="decisionDefinition"
               :decisionAspectSelected="decisionAspectSelected"
-              :decisionAspectSelectedName="decisionAspectSelected === 'filter-faw-custom' ? 'Search: ' + decisionSearchCustom : decisionAspectSelected")
-
-            //- Global listing of reasons files failed
-            v-expansion-panels(:value="0" :popout="true" v-if="decisionAspectSelected.startsWith('filter-')")
-              v-expansion-panel(:key="0")
-                v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
-                v-expansion-panel-content
-                  .decision-reasons(style="padding-bottom: 1em;")
-                    v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
-                      v-radio(value="total" label="number of files rejected")
-                      v-radio(value="unique" label="uniquely rejected")
-                    v-virtual-scroll(
-                        :bench="10"
-                        :items="failReasons.get(decisionAspectSelected) || []"
-                        height="200"
-                        item-height="25"
-                        )
-                      template(v-slot="{item}")
-                        v-menu(offset-y max-width="700" :key="item[0] + decisionAspectSelected + decisionSearchCustom")
-                          template(v-slot:activator="{on}")
-                            .decision-reason(v-on="on")
-                              checkmark(status="rejected")
-                              span {{item[0]}}: {{item[1][0].size + item[1][1].size}} / {{item[1][1].size}}
-                          v-list
-                            v-list-item(style="flex-wrap: wrap")
-                              v-btn(@click="fileFilterAdd(item[0], new Set([...Array.from(item[1][0]), ...Array.from(item[1][1])]))") Filter in FAW
-                              v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
-                              v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
-                              v-btn(v-clipboard="() => JSON.stringify([...Array.from(item[1][1]), ...Array.from(item[1][0])])") (Copy file list as JSON)
-                            v-list-item(v-for="ex of [...sliceIterable(item[1][1], 0, 10), ...sliceIterable(item[1][0], 0, 10)].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
-
-      v-expansion-panel(:key="1")
-        //-
-          NOTE: MUST BE VISIBLE on page load. Otherwise decisionCodeEditor has issues.
-        v-expansion-panel-header Filters
-        v-expansion-panel-content
-          v-sheet(:elevation="3" style="padding: 1em; margin: 1em")
-            div
-              AceEditor(ref="decisionCodeEditor"
-                  v-model="decisionCode"
-                  lang="yaml"
-                  @init="decisionCodeEditorInit"
-                  style="font-size: 1em"
-                  )
-            div
-              checkmark(:status="decisionDefinition ? 'valid' : 'rejected'")
-              span compilation {{decisionDefinition ? 'succeeded' : 'failed'}}
-
-      //- File listing
-      v-expansion-panel(:key="3")
-        v-expansion-panel-header Files
-        v-expansion-panel-content
-          .file-lists
-            v-list(dense)
-              v-subheader
-                span(style="white-space: pre-wrap") Current decisions -!{' '}
-                Stats(:pdfs="pdfs" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
-              v-list-item-group(mandatory)
-                v-list-item(
-                    v-for="p, ip of pdfsToShow"
-                    :key="p.testfile"
-                    @click="fileSelected = ip; scrollToFileDetails()"
-                    :class="{changed: p.changed, \
-                        'v-item--active': fileSelected === ip, \
-                        'v-list-item--active': fileSelected === ip}"
+            )
+          ConfusionMatrix(
+            v-if="pdfs.length"
+            @view="showFile($event)"
+            @filter-file-list="fileFilterAdd($event.name, new Set($event.files))"
+            :pdfs="pdfs"
+            :pdfsReference="pdfsReference"
+            :decisionAspectSelected="decisionAspectSelected"
+            :decisionAspectSelectedName="decisionAspectSelected === 'filter-faw-custom' ? 'Search: ' + decisionSearchCustom : decisionAspectSelected"
+          )
+        //- Global listing of reasons files failed
+        v-expansion-panels(:value="0" v-if="decisionAspectSelected.startsWith('filter-')")
+          v-expansion-panel(:key="0")
+            v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
+            v-expansion-panel-content
+              .decision-reasons(style="padding-bottom: 1em;")
+                v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
+                  v-radio(value="total" label="number of files rejected")
+                  v-radio(value="unique" label="uniquely rejected")
+                v-virtual-scroll(
+                    :bench="10"
+                    :items="failReasons.get(decisionAspectSelected) || []"
+                    height="200"
+                    item-height="25"
                     )
-                  v-list-item-content
-                    v-list-item-title
-                      //- checkmark(:status="p.status")
-                      span {{p[decisionAspectSelected]}}&nbsp;
-                      span {{p.testfile}}
-                v-list-item
-                  v-list-item-content
-                    v-list-item-title
-                      span(v-if="pdfs.length > pdfsToShowMax") ...{{pdfs.length - pdfsToShowMax}} other files processed
-                      v-autocomplete(
-                          v-model="pdfsSearchedUserAction"
-                          :clearable="true"
-                          :items="pdfs"
-                          item-text="testfile"
-                          return-object
-                          prepend-icon="mdi-database-search"
-                          placeholder="Show specific file...")
-            div(style="display: inline-block")
-              v-btn(title="By default, the 'Reference Decisions' are initial decisions from page load.  Click this to switch to showing prior decision, and again to use the current results as the baseline."
-                  @click="makeBaseline"
-                  :color="holdReferences ? 'primary' : ''") -&gt;
-            v-list(dense)
-              v-subheader
-                span(style="white-space: pre-wrap") Reference decisions -!{' '}
-                Stats(:pdfs="pdfsReference" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
-              v-list-item-group()
-                v-list-item(v-for="p of pdfsToShowReference" :key="p.testfile")
-                  v-list-item-content
-                    v-list-item-title
-                      //- checkmark(:status="p.status")
-                      span {{p[decisionAspectSelected]}}&nbsp;
-                      span {{p.testfile}}
-            v-file-input(
-              placeholder="Upload file input"
-              hint="Upload saved decisions as reference"
-              accept=".json"
-              v-model="pdfsReferenceFile"
-              :error-messages="pdfsReferenceFileError"
-              @change="uploadPdfsReference"
-              dense
-              full-width
-              persistent-hint
-              show-size
-              style="grid-area: 2/3"
+                  template(v-slot="{item}")
+                    v-menu(offset-y max-width="700" :key="item[0] + decisionAspectSelected + decisionSearchCustom")
+                      template(v-slot:activator="{on}")
+                        .decision-reason(v-on="on")
+                          checkmark(status="rejected")
+                          span {{item[0]}}: {{item[1][0].size + item[1][1].size}} / {{item[1][1].size}}
+                      v-list
+                        v-list-item(style="flex-wrap: wrap")
+                          v-btn(@click="fileFilterAdd(item[0], new Set([...Array.from(item[1][0]), ...Array.from(item[1][1])]))") Filter in FAW
+                          v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
+                          v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
+                          v-btn(v-clipboard="() => JSON.stringify([...Array.from(item[1][1]), ...Array.from(item[1][0])])") (Copy file list as JSON)
+                        v-list-item(v-for="ex of [...sliceIterable(item[1][1], 0, 10), ...sliceIterable(item[1][0], 0, 10)].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
+
+        //- Decision plugins
+        v-expansion-panels(style="margin-top: 1em")
+        v-expansion-panel
+          v-expansion-panel-header.grey.lighten-2
+            span
+              span Decision Plugins
+              span(v-if="fileFilters.length") {{' '}}(filtered)
+          v-expansion-panel-content
+            div(style="display: flex; align-items: center; gap: 1em")
+              v-select(
+                label="Decision Plugin"
+                v-model="selectedDecisionPlugin"
+                :items="Object.entries(uiPluginsDecision).map(([pluginKey, plugin]) => ({'title': plugin.label, 'value': pluginKey}))"
+                item-text="title" /* In newer Vuetify versions this is spelled item-title */
+                item-value="value"
+                @input="pluginDecisionView"
               )
-            v-btn(@click="dslReplaceForReferences" color="primary"
-                style="grid-area: 3/3"
-                title="Replace DSL with closest approximation of reference decisions based on available tools.  Note that order of outputs determines which of false positives or false negatives are minimized."
-                ) Rationalizer (replaces DSL)
+              v-btn(
+                v-show="pluginDecIframeSrc != null || pluginDecIframeLoading"
+                @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0; selectedDecisionPlugin = null"
+                size="large"
+              ) Close Plugin
+            div(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
+              v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
+              iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
+            details(v-show="pluginDecIframeSrc != null")
+              summary Debugging stats
+              JsonTree(:data="pluginDecDebug" :level="2")
 
-          //- Big margin-bottom to prevent scroll-back when changing file selection
-          v-sheet(:elevation="3" style="margin-top: 1em; padding: 1em; margin-bottom: 50vh")
+    v-expansion-panel(:key="2")
+      v-expansion-panel-header Files
+      v-expansion-panel-content
+        .file-lists
+          v-list(dense)
             v-subheader
-              span Results for {{decisionSelected.testfile}}
-              span(v-if="decisionSelected.testfile")
-                span &nbsp;
-                a(:href="'/file_download/' + decisionSelected.testfile") (download)
-            v-tabs(v-model="dbView" grow)
-              v-tab(:key="DbView.Decision") Decision
-              v-tab(:key="DbView.Tools") Output - Tools
-              v-tab(:key="DbView.Parsers") Output - Parser
-            v-tabs-items(v-model="dbView" ref="detailView")
-              v-tab-item(:key="DbView.Decision")
-                v-expansion-panels(inset :style="{'margin-top': '1em'}")
-                  v-expansion-panel
-                    v-expansion-panel-header(:class="{'grey lighten-2': true}") File Detail Plugins
-                    v-expansion-panel-content
-                      v-btn(v-for="[pluginKey, plugin] of Object.entries(uiPluginsFileDetail)"
-                          :key="pluginKey"
-                          @click="pluginFileDetailView(pluginKey, {})") {{plugin.label}}
-                      v-btn(v-show="pluginIframeSrc != null || pluginIframeLoading" @click="pluginIframeSrc = null; pluginIframeLoading = 0") (Close current plugin)
-                      div(v-show="pluginIframeSrc != null || pluginIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
-                        v-progress-circular(v-show="pluginIframeLoading" :indeterminate="true")
-                        iframe(v-show="pluginIframeSrc != null" style="width: 100%; height: 100%" ref="pluginIframe")
-                FileFilterDetail(
-                    :decisionDefinition="decisionDefinition"
-                    :decisionSelected="decisionSelected"
-                    :decisionSelectedDsl="decisionSelectedDsl"
-                    :decisionReference="decisionReference"
-                    :asOptions="_pdfGroupsSubsetOptions()"
+              span(style="white-space: pre-wrap") Current decisions -!{' '}
+              Stats(:pdfs="pdfs" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
+            v-list-item-group(mandatory)
+              v-list-item(
+                v-for="p, ip of pdfsToShow"
+                :key="p.testfile"
+                @click="fileSelected = ip; scrollToFileDetails()"
+                :class="{changed: p.changed, \
+                  'v-item--active': fileSelected === ip, \
+                  'v-list-item--active': fileSelected === ip}"
+              )
+                v-list-item-content
+                  v-list-item-title
+                    //- checkmark(:status="p.status")
+                    span {{p[decisionAspectSelected]}}&nbsp;
+                    span {{p.testfile}}
+              v-list-item
+                v-list-item-content
+                  v-list-item-title
+                    span(v-if="pdfs.length > pdfsToShowMax") ...{{pdfs.length - pdfsToShowMax}} other files processed
+                    v-autocomplete(
+                      v-model="pdfsSearchedUserAction"
+                      :clearable="true"
+                      :items="pdfs"
+                      item-text="testfile"
+                      return-object
+                      prepend-icon="mdi-database-search"
+                      placeholder="Show specific file..."
                     )
-              v-tab-item(:key="DbView.Tools")
-                DbView(:pdf="decisionSelected.testfile" collection="rawinvocations")
-              v-tab-item(:key="DbView.Parsers")
-                DbView(:pdf="decisionSelected.testfile" collection="invocationsparsed")
+          div(style="display: inline-block")
+            v-btn(
+              title="By default, the 'Reference Decisions' are initial decisions from page load.  Click this to switch to showing prior decision, and again to use the current results as the baseline."
+              @click="makeBaseline"
+              :color="holdReferences ? 'primary' : ''"
+            )
+              v-icon mdi-arrow-right
+          v-list(dense)
+            v-subheader
+              span(style="white-space: pre-wrap") Reference decisions -!{' '}
+              Stats(:pdfs="pdfsReference" :pdfsReference="pdfsReference" :decisionAspectSelected="decisionAspectSelected")
+            v-list-item-group()
+              v-list-item(v-for="p of pdfsToShowReference" :key="p.testfile")
+                v-list-item-content
+                  v-list-item-title
+                    //- checkmark(:status="p.status")
+                    span {{p[decisionAspectSelected]}}&nbsp;
+                    span {{p.testfile}}
+          v-file-input(
+            placeholder="Upload file input"
+            hint="Upload saved decisions as reference"
+            accept=".json"
+            v-model="pdfsReferenceFile"
+            :error-messages="pdfsReferenceFileError"
+            @change="uploadPdfsReference"
+            dense
+            full-width
+            persistent-hint
+            show-size
+            style="grid-area: 2/3"
+          )
+          v-btn(
+            @click="dslReplaceForReferences" color="primary"
+            style="grid-area: 3/3"
+            title="Replace DSL with closest approximation of reference decisions based on available tools.  Note that order of outputs determines which of false positives or false negatives are minimized."
+          ) Rationalizer (replaces DSL)
+
+        //- Big margin-bottom to prevent scroll-back when changing file selection
+        v-sheet(:elevation="3" style="margin-top: 1em; padding: 1em; margin-bottom: 50vh")
+          v-subheader
+            span Results for {{decisionSelected.testfile}}
+            span(v-if="decisionSelected.testfile")
+              span &nbsp;
+              a(:href="'/file_download/' + decisionSelected.testfile") (download)
+          v-expansion-panels(style="margin-bottom: 1em")
+            v-expansion-panel
+              v-expansion-panel-header.grey.lighten-2 File Detail Plugins
+              v-expansion-panel-content
+                div(style="display: flex; align-items: center; gap: 1em")
+                  v-select(
+                    label="File Plugin"
+                    v-model="selectedFilePlugin"
+                    :items="Object.entries(uiPluginsFileDetail).map(([pluginKey, plugin]) => ({'title': plugin.label, 'value': pluginKey}))"
+                    item-text="title" /* In newer Vuetify versions this is spelled item-title */
+                    item-value="value"
+                    @input="pluginFileDetailView"
+                  )
+                  v-btn(
+                    v-show="pluginIframeSrc != null || pluginIframeLoading"
+                    @click="pluginIframeSrc = null; pluginIframeLoading = 0; selectedFilePlugin = null"
+                    size="large"
+                  ) Close Plugin
+                div(
+                  v-show="pluginIframeSrc != null || pluginIframeLoading"
+                  style="border: solid 1px #000; position: relative; height: 95vh"
+                )
+                  v-progress-circular(v-show="pluginIframeLoading" :indeterminate="true")
+                  iframe(v-show="pluginIframeSrc != null" style="width: 100%; height: 100%" ref="pluginIframe")
+          v-tabs(v-model="dbView" grow)
+            v-tab(:key="DbView.Decision") Decision
+            v-tab(:key="DbView.Tools") Output - Tools
+            v-tab(:key="DbView.Parsers") Output - Parser
+          v-tabs-items(v-model="dbView" ref="detailView")
+            v-tab-item(:key="DbView.Decision")
+              FileFilterDetail(
+                :decisionDefinition="decisionDefinition"
+                :decisionSelected="decisionSelected"
+                :decisionSelectedDsl="decisionSelectedDsl"
+                :decisionReference="decisionReference"
+                :asOptions="_pdfGroupsSubsetOptions()"
+              )
+            v-tab-item(:key="DbView.Tools")
+              DbView(:pdf="decisionSelected.testfile" collection="rawinvocations")
+            v-tab-item(:key="DbView.Parsers")
+              DbView(:pdf="decisionSelected.testfile" collection="invocationsparsed")
 
 </template>
 
 <style lang="scss">
   @import '~vuetify/src/styles/settings/_colors.scss';
+
+  html, body, #app {
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: auto;
+  }
 
   .loadingStatusDialog {
     position: fixed;
@@ -279,6 +347,7 @@
 
   .home {
     width: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
     align-content: flex-start;
@@ -300,11 +369,18 @@
     }
 
     .reprocessdb {
+      color: #fff !important;
+      background-color: map-get($cyan, 'base') !important;
     }
 
     .resetdb {
       color: #fff !important;
       background-color: map-get($red, 'base') !important;
+    }
+
+    .expansion-panels { /* Only matches top-level expansion panels */
+      flex: 1 1 auto;
+      overflow-y: scroll;
     }
 
     .v-expansion-panels.colored > .v-expansion-panel > .v-expansion-panel-header {
@@ -432,7 +508,7 @@ export default Vue.extend({
   },
   data() {
     return {
-      analysisSetId: null as null|string,
+      analysisSetId: null as null | string,
       asData: {asets: [], parsers: []} as AsData,
       beforeDestroyFns: [] as Array<{(): any}>,
       config: null as any,
@@ -455,6 +531,7 @@ export default Vue.extend({
       failReasonsSort: 'total',
       fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
+      filtersModified: false as boolean,
       holdReferences: true,
       initReferences: false,
       loadingStatus: new LoadingStatus(),
@@ -489,6 +566,8 @@ export default Vue.extend({
       reprocessInnerInit: true,
       reprocessInnerPdfGroups: true,
       resetDbDialog: false,
+      selectedDecisionPlugin: null as any,
+      selectedFilePlugin: null as any,
       vuespaUrl: null as string|null,
     };
   },
@@ -740,6 +819,7 @@ export default Vue.extend({
       editor.setOption('tabSize', 2);
     },
     decisionCodeUpdated() {
+      this.filtersModified = true;
       if (this.decisionCodeUpdated_handled) {
         // This change to `decisionCode` was already handled.
         this.decisionCodeUpdated_handled = false;
@@ -1017,7 +1097,7 @@ export default Vue.extend({
         this.pdfsReference = this.pdfs;
       }
     },
-    pluginDecisionView(pluginKey: string, jsonArgs: {[key: string]: any}) {
+    pluginDecisionView(pluginKey: string, jsonArgs: {[key: string]: any} = {}) {
       if (this.pluginDecIframeLoading && this.pluginDecIframeLast === pluginKey) {
         return;
       }
@@ -1195,6 +1275,7 @@ export default Vue.extend({
           {pat: '_<<workbench: unhandled', check: null},
         ],
       });
+      this.filtersModified = false;
 
       // OK, everything needed fetched, go ahead and run decisions.
       this.reprocessInnerPdfGroups = false;

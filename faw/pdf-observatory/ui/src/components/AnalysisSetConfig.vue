@@ -1,5 +1,5 @@
 <template lang="pug">
-  v-sheet(:elevation="3" style="padding: 1em; margin: 1em;")
+  v-sheet(:elevation="3" style="padding: 1em; margin-block: 1em;")
     <!-- summary -->
     v-autocomplete(label="Analysis set" :items="asOptions"
         :value="currentId" @input="$emit('update:currentId', $event)")
