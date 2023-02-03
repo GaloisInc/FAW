@@ -1,0 +1,60 @@
+# Any line beginning with a hash is a comment.
+
+filters:
+  # Filters are defined as groups of regular expressions.
+
+  # Global notes --  permitting "FONT Arial[-,]" and "arialbd.ttf" makes a difference. but technically not base fonts.
+  # A more rigorous font line: #^parser\-xpdf\-pdffonts_FONT.*EMB no.*(?<!/([Cc]our\S*|[Hh]elve\S*|[Tt]imes\S*)\.ttf)$
+  # 2022-08-15: disabled qpdf-qpdf-check, looking only at qpdf-json, for better alignment
+
+  # parser-pdfbox-pdfbox-, which affects all universes, doesn't seem to factor in to Kudu's GS. Try adding it and
+  # both FN and FP blow up.
+
+  KuduFunctionA:
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-pdfbox-pdfbox-zz).*(?<!java.io.EOF)([Ee][Xx][Cc][Ee][Pp][Tt][Ii][Oo][Nn]|SEVERE)(?!: FeatureRecord array not alphabetically sorted)
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-pdfbox-pdfbox-zz).*(?<!pdf-etl-tool: |ungrouped )[Ee][Rr][Rr][Oo][Rr](?! and the output below|: Couldn't find a font|: No display font)
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-pdfbox-pdfbox-zz).*(?<!succeeded with |Syntax )[Ww][Aa][Rr][Nn][Ii][Nn][Gg](?!: /Type key should be /Page|: cmap format  subtable is empty|: dictionary has duplicated key|:\ :\ extraneous\ whitespace\ seen\ before\ xref|.*font cache|: Format  cmap table is not supported|: No Unicode mapping|: object has offset|.*PostScript name in font|: : reported number of objects|: Invalid ToUnicode CMap|: Using fallback font)
+    ^parser\-xpdf\-pdffonts_FONT(?! Arial[-,]).*EMB no.*(?<!/(arialbd|[Cc]our\S*|[Hh]elve\S*|[Tt]imes\S*)\.ttf)$
+
+  KuduFunctionB:
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-|parser-pdfbox-pdfbox-zz).*(?<!java.io.EOF)([Ee][Xx][Cc][Ee][Pp][Tt][Ii][Oo][Nn]|SEVERE)(?!: FeatureRecord array not alphabetically sorted)
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-|parser-pdfbox-pdfbox-zz).*(?<!pdf-etl-tool: |ungrouped )[Ee][Rr][Rr][Oo][Rr](?! and the output below|: Couldn't find a font|: No display font)
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-|parser-pdfbox-pdfbox-zz).*(?<!succeeded with |Syntax )[Ww][Aa][Rr][Nn][Ii][Nn][Gg](?!: /Type key should be /Page|: cmap format  subtable is empty|: dictionary has duplicated key|:\ :\ extraneous\ whitespace\ seen\ before\ xref|.*font cache|: Format  cmap table is not supported|: No Unicode mapping|: object has offset|.*PostScript name in font|: : reported number of objects|: Invalid ToUnicode CMap|: Using fallback font)
+    ^parser\-xpdf\-pdffonts_FONT(?! Arial[-,]).*EMB no.*(?<!/(arialbd|[Cc]our\S*|[Hh]elve\S*|[Tt]imes\S*)\.ttf)$
+  KuduFunctionC:
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-zz|parser-pdfbox-pdfbox-zz|parser-pdfminer-dumppdf).*(?<!java.io.EOF)([Ee][Xx][Cc][Ee][Pp][Tt][Ii][Oo][Nn]|SEVERE)(?!: FeatureRecord array not alphabetically sorted)
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-zz|parser-pdfbox-pdfbox-zz|parser-pdfminer-dumppdf).*(?<!pdf-etl-tool: |ungrouped )[Ee][Rr][Rr][Oo][Rr](?! and the output below|: Couldn't find a font|: No display font)
+    ^(parser-xpdf-|parser-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-zz|parser-pdfbox-pdfbox-zz|parser-pdfminer-dumppdf).*(?<!succeeded with |Syntax )[Ww][Aa][Rr][Nn][Ii][Nn][Gg](?!: /Type key should be /Page|: cmap format  subtable is empty|: dictionary has duplicated key|:\ :\ extraneous\ whitespace\ seen\ before\ xref|.*font cache|: Format  cmap table is not supported|: No Unicode mapping|: object has offset|.*PostScript name in font|: : reported number of objects|: Invalid ToUnicode CMap|: Using fallback font)
+    ^parser\-xpdf\-pdffonts_FONT(?! Arial[-,]).*EMB no.*(?<!/(arialbd|[Cc]our\S*|[Hh]elve\S*|[Tt]imes\S*)\.ttf)$
+  KuduFunctionAll:
+    ^(parser-xpdf-|parser-qpdf-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-zz|parser-pdfbox-pdfbox-zz|parser-pdfminer-dumppdf).*(?<!java.io.EOF)([Ee][Xx][Cc][Ee][Pp][Tt][Ii][Oo][Nn]|SEVERE)(?!: FeatureRecord array not alphabetically sorted)
+    ^(parser-xpdf-|parser-qpdf-qpdf-|parser-mupdf-|parser-kuda-tika-|parser-poppler-zz|parser-pdfbox-pdfbox-zz|parser-pdfminer-dumppdf).*(?<!pdf-etl-tool: |ungrouped )[Ee][Rr][Rr][Oo][Rr](?! and the output below|: Couldn't find a font|: No display font|: overflow reading bit stream)
+    ^(parser-xpdf-|parser-qpdf-qpdf-json|parser-mupdf-|parser-kuda-tika-|parser-poppler-zz|parser-pdfbox-pdfbox-zz|parser-pdfminer-dumppdf).*(?<!succeeded with |Syntax )[Ww][Aa][Rr][Nn][Ii][Nn][Gg](?!: /Type key should be /Page|: cmap format  subtable is empty|: dictionary has duplicated key|:\ :\ extraneous\ whitespace\ seen\ before\ xref|.*font cache|: Format  cmap table is not supported|: ignoring CMap range|: No Unicode mapping|: object has offset|.*PostScript name in font|: page  has shared identifier entries|: end of first page section|: linearized file contains an uncompressed object|: shared object : in hint table|: hint table = ;|: : reported number of objects|: Invalid ToUnicode CMap|: stream keyword followed by extraneous whitespace|: Using fallback font)
+    ^parser\-xpdf\-pdffonts_FONT(?! Arial[-,]).*EMB no.*(?<!/(arialbd|[Cc]our\S*|[Hh]elve\S*|[Tt]imes\S*)\.ttf)$
+    ^parser-poppler.*Syntax Warning: Invalid least
+    ^parser-poppler-pdftoppm_Syntax Error: Could not find start of jpeg data$
+  PdfHsDriver:
+    ^pdf-hs-driver_<<workbench: Exit code 0>>
+  Schizo:
+    ^schizo-test-schizo-test_Max RMSE
+      sum > 0.4
+  SchizoText:
+    ^schizo-text-test-schizo-text-test_\w+ to \w+
+      sum < 0.5
+  JpegIssues:
+    [Jj][Pp][Ee][Gg]
+outputs:
+  # Outputs are defined as boolean expressions over matching regular expression groups
+  status:
+    "valid" is !KuduFunctionAll
+    "rejected" else
+  statusA:
+    "valid" is !KuduFunctionA
+    "rejected" else
+  statusB:
+    "valid" is !KuduFunctionB
+    "rejected" else
+  statusC:
+    "valid" is !KuduFunctionC
+    "rejected" else
+
