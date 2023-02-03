@@ -257,6 +257,14 @@ def main():
                 + [
                     '-c', 'cd /home/pdf-observatory/ui && npm install'
                 ])
+                
+        # We also install the npm modules required for the CI support nodejs app
+        subprocess.check_call(['docker', 'run', '--rm', '--entrypoint',
+                '/bin/bash']
+                + extra_flags
+                + [
+                    '-c', 'cd /home/pdf-observatory/ci && npm install && npm run build'
+                ])
 
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
@@ -331,8 +339,10 @@ def main():
         open_browser_thread.daemon = True
         open_browser_thread.start()
 
-    # Start the webserver for the endpoint
-    server_thread = start_server(config)
+    # Start the webserver for the endpoint, passing along the
+    # config directory for the distribution and the port at
+    # which the FAW server would be accessible (from the host)
+    server_thread = start_server(config, port)
 
     # To ensure that we kill the FAW container (which we are just
     # about to start) on exiting, including during abnormal exits,
@@ -745,6 +755,9 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
             RUN cd /home/pdf-observatory/ui \
+                && npm install \
+                && npm run build
+            RUN cd /home/pdf-observatory/ci \
                 && npm install \
                 && npm run build
             ''')
@@ -1208,12 +1221,12 @@ def _check_build_stage_change_and_update(
         logging.info(f"Removed Container - {new_container_id}")
 
 
-def start_server(config_dir):
+def start_server(config_dir, faw_port):
     """
     Start a server and create an endpoint to upload config tars.
     """
 
-    from aiohttp import web
+    from aiohttp import web, request
 
     class ServerThread(threading.Thread):
 
@@ -1223,9 +1236,17 @@ def start_server(config_dir):
             self.app = web.Application(debug=True)
             self.app.add_routes([
                 web.post('/configuration', self._update_config),
-                web.put('/configuration', self._update_config)
+                web.put('/configuration', self._update_config),
+                web.post('/decisions', self._get_decisions)
             ])
             self.runner = web.AppRunner(self.app)
+            
+            # NOTE: The FAW server is in a different container, BUT due to the way we run
+            # that container, it should be accessible on the host of this container at a
+            # configurable port. We can access the host machine using special hostname 
+            # "host.docker.internal" as we are running *THIS* container with the appropriate
+            # `add-host` invocation (for Linux)
+            self.faw_url = f'http://host.docker.internal:{faw_port}'
 
             # logging.basicConfig(level=logging.DEBUG)
 
@@ -1259,6 +1280,22 @@ def start_server(config_dir):
                 t.extractall(config_dir)
 
             return web.json_response({'status': 'success'})
+
+        async def _get_decisions(self, req):
+            # We are going to send the same request to FAW server and
+            # stream out the response
+            data = await req.post()
+            async with request('POST', f"{self.faw_url}/decisions", data=data) as resp:
+                out_resp = web.StreamResponse()
+                out_resp.content_type = resp.content_type
+                await out_resp.prepare(req)
+                
+                while content := await resp.content.read(4096):
+                    await out_resp.write(content)
+                await out_resp.write_eof()
+                
+                return out_resp
+
 
     # Run it in a thread
     t = ServerThread()

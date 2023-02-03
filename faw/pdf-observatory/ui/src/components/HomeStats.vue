@@ -4,7 +4,7 @@
 
 <script lang="ts">
 
-import {PdfDecision} from './common';
+import {PdfDecision} from '@/common/common';
 
 import Vue from 'vue';
 

@@ -4,9 +4,9 @@
 
 <script lang="ts">
 import Vue from "vue";
-import { PdfDecision } from "./common";
+import { PdfDecision } from "@/common/common";
 import * as d3 from "d3";
-import { DslResult } from "../dsl";
+import { DslResult } from "@/common/dsl";
 
 type StatusId = number;
 

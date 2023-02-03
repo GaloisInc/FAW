@@ -1,4 +1,3 @@
-
 // Class mimicking Kudu expected output
 export type PdfDecision = {
   info: string[],
