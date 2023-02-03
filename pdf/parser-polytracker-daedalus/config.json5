@@ -1,7 +1,7 @@
 {
   parsers: {
     "daedalus-file-cavities": {
-      version: 'polytracker-daedalus-v1.3',
+      version: 'polytracker-daedalus-v1.3 daedalus 21e7f705',
       exec: ['python3', 'main.py', '<inputFile>'],
       timeout: 60,
       parse: {
@@ -36,7 +36,9 @@
           "RUN ./ghcup install ghc 8.10.7 && ./ghcup install cabal 3.6",
           "ENV PATH=$PATH:/root/.ghcup/bin",
           "WORKDIR /tmp",
-          "RUN git clone --recursive https://github.com/GaloisInc/daedalus.git",
+          "RUN git clone --recursive https://github.com/GaloisInc/daedalus.git \
+            && cd /tmp/daedalus \
+            && git checkout 21e7f70510d1413641d764258a4187dd7b343ccc",
           "WORKDIR /tmp/daedalus",
           "RUN cabal update",
           "WORKDIR /tmp/daedalus/formats/pdf/new/c++",

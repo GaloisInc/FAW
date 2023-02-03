@@ -1,0 +1,154 @@
+#! /usr/bin/env python3
+
+"""Wraps ``pdf-dom`` to provide iterative investigation of a PDF, and create
+an HTML report.
+"""
+
+import argparse
+import base64
+import html
+import json
+import pyjson5
+import re
+import subprocess
+import sys
+import urllib.parse
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('fname')
+    ap.add_argument('workbench_url')
+    ap.add_argument('json_arguments')
+    args = ap.parse_args()
+
+    args.json_arguments = json.loads(args.json_arguments)
+    try:
+        args.json_arguments = json.loads(urllib.parse.unquote(
+                args.json_arguments.get('args', '{}')))
+    except json.decoder.JSONDecodeError:
+        print(repr(args.json_arguments), file=sys.stderr)
+        raise
+
+    header = ''
+    cmd = ['/opt/daedalus/pdf-dom', args.fname]
+
+    if 'obj' in args.json_arguments:
+        cmd.append('--pp')
+        cmd.extend(['--obj', str(args.json_arguments['obj'])])
+        cmd.extend(['--gen', str(args.json_arguments['gen'])])
+        header = 'Object'
+    else:
+        cmd.append('--xref')
+        header = 'Xref table'
+
+    p = subprocess.Popen(cmd,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    p.wait()
+
+    stdout = stdout.decode()
+    # Ugh, they merged stdout and the JSON output
+    delim = re.search(r'^(\[| ?{)', stdout, flags=re.M)
+    if delim is not None:
+        stdout = delim.group(1) + stdout[delim.end():]
+    try:
+        obj_out = pyjson5.decode(stdout)
+    except pyjson5.Json5IllegalCharacter:
+        raise ValueError(f'Not JSON:\n\n{stdout}')
+
+    # Make HTML report
+    print('<!DOCTYPE html>\n<html>')
+    print('<head><style type="text/css">')
+    print(r'''
+            .array {
+                display: flex;
+                flex-direction: column;
+            }
+            .array > div {
+                margin-left: 1em;
+            }
+            .cont {
+                display: flex;
+            }
+            .cont > .key {
+            }
+            .cont > .value {
+                margin-left: 1em;
+                flex-grow: 1;
+            }
+            a {
+                color: blue;
+                cursor: pointer;
+            }
+            a:hover {
+                text-decoration: underline;
+            }
+            ''')
+    print('</style></head>')
+    print('<body>')
+    print(f'{header} <br />')
+
+    def a_for_workbench(next_json_args):
+        urlargs = 'args=' + urllib.parse.quote(json.dumps(next_json_args))
+        url = html.escape(f'{args.workbench_url}redetail?{urlargs}')
+        print(f'<a onclick="req = new XMLHttpRequest(); req.open(\'get\', \'{url}\', true); req.send()">')
+
+    if args.json_arguments.get('history'):
+        hist_args = {
+                'history': args.json_arguments['history'][:-1],
+                **args.json_arguments['history'][-1],
+        }
+        a_for_workbench(hist_args)
+        print('&lt;&lt;&lt; back</a>')
+
+    def handle(o, keyname=None):
+        closer = []
+        if isinstance(o, dict):
+            if o is not obj_out and 'obj' in o and 'gen' in o:
+                # PDF object, make it a link
+                args_cur = args.json_arguments.copy()
+                args_cur.pop('history', None)
+                history_next = (args.json_arguments.get('history', [])
+                        + [args_cur])
+                a_for_workbench({'obj': o['obj'], 'gen': o['gen'],
+                        'history': history_next})
+                closer.append('</a>')
+            print('<div class="array">{<div>')
+            for k, v in o.items():
+                print(f'<div class="cont">')
+                print(f'<div class="key">')
+                handle(k)
+                print(f'</div><div class="value">')
+                handle(v, keyname=k)
+                print(f'</div></div>')
+
+            if keyname == 'stream':
+                # Decode body
+                print(f'<div class="cont"><div class="key">body_decoded</div>')
+                print(f'<div class="value">')
+                print(html.escape(base64.b64decode(o['body']).decode('latin1')))
+                print(f'</div></div>')
+
+            print('</div>}</div>')
+        elif isinstance(o, list):
+            print('<div class="array">[<div>')
+            for i, v in enumerate(o):
+                print(f'<div class="cont"><div class="key">[{i}]</div><div class="value">')
+                handle(v)
+                print(f'</div></div>')
+            print('</div>]</div>')
+        elif isinstance(o, (str, int, float)):
+            print(html.escape(repr(o)))
+        elif o is None:
+            print('null')
+        else:
+            print(html.escape('Unhandled: ' + repr(o)))
+        print(''.join(closer))
+    handle(obj_out)
+
+    print('</body></html>')
+
+
+if __name__ == '__main__':
+    main()
+

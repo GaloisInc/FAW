@@ -21,6 +21,9 @@ faw_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(faw_dir, 'faw/ci'))
 from ci_container_service import get_faw_container_name, get_faw_image_name, get_default_image_tag
 
+# Ensure docker BUILDKIT is enabled:
+os.environ['DOCKER_BUILDKIT'] = '1'
+
 
 # These variables are a bit strange, but they exist to make distribution easier.
 # Basically, this script is copied and these variables are overwritten

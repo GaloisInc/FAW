@@ -1,0 +1,62 @@
+{
+  // IMPORTANT: if changing commit, bump `version` AND build stage `VERSION`!
+  parsers: {
+    'pdf-hs-driver': {
+      exec: ['/opt/daedalus/pdf-hs-driver', '--faw', '<inputFile>'],
+      version: 'pdf-hs-driver 21e7f705',
+      parse: {
+        type: 'regex-counter',
+        version: '2',
+        stderr: {},
+        stdout: {
+          '^INFO.*$': {
+            'nameGroup': '',
+          },
+          '^WARNING: *(.*)': {
+            'nameGroup': 'WARNING: \\1',
+            'nameReplace': {'[0-9]+': '<INT>'},
+          },
+          '^ERROR: *(.*)': {
+            'nameGroup': 'ERROR: \\1',
+            'nameReplace': {'[0-9]+': '<INT>'},
+          },
+          '.*': {
+            'nameReplace': {'[0-9]+': '<INT>'},
+          },
+        },
+      },
+    },
+  },
+  file_detail_views: {
+    'pdf-dom': {
+      label: 'pdf-dom',
+      type: 'program_to_html',
+      exec: ['./pdf-dom-wrapper', '<inputFile>', '<workbenchApiUrl>', '<jsonArguments>'],
+    },
+  },
+  build: {
+    stages: {
+      pdf_hs_driver: {
+        from: 'haskell:8.8',
+        copy_output: {
+          '/home/pdf-dom': '/opt/daedalus/pdf-dom',
+          '/home/pdf-hs-driver': '/opt/daedalus/pdf-hs-driver',
+        },
+        commands: [
+          'WORKDIR /home',
+          'RUN git clone https://github.com/GaloisInc/DaeDaLus daedalus \
+            && cd daedalus \
+            && git checkout 21e7f70510d1413641d764258a4187dd7b343ccc',
+          'WORKDIR /home/daedalus',
+          'RUN --mount=type=cache,target=/root/.cabal \
+            --mount=type=cache,target=/home/daedalus/dist-newstyle \
+            cabal update \
+            && git submodule update --init \
+            && cabal build exe:pdf-hs-driver exe:pdf-dom \
+            && cp `cabal exec which -- pdf-hs-driver` /home/pdf-hs-driver \
+            && cp `cabal exec which -- pdf-dom` /home/pdf-dom',
+        ],
+      },
+    },
+  },
+}

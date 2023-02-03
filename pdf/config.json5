@@ -108,53 +108,8 @@
     },
 
     // May also specify a plaintext file to avoid needed to format as JSON5:
-    // decision_default: {file: 'file_path_relative_to_config.json5'},
-    decision_default: '\
-# Any line beginning with a hash is a comment.  \n\
-filters:  \n\
-  # Filters are defined as groups of regular expressions.  \n\
-  \n\
-  PdfiumError:  \n\
-    ^pdfium_.*unsuccessful  \n\
-    ^pdfium_.*bad  \n\
-  \n\
-  MutoolCleanAccept:  \n\
-    ^mutool-clean_.*<<workbench:\ Exit\ code\ 0>>  \n\
-  MutoolCleanError:  \n\
-    ^mutool-clean_.*<<workbench:\ Exit\ code\ (?!0)  \n\
-    ^mutool-clean_.*[Ee]rror(?!: cannot recognize version marker)  \n\
-    ^mutool\-clean_warning:\ ignoring\ object\ with\ invalid\ object\ number\ \\(\ \ R\\)  \n\
-  MutoolConvertAccept:  \n\
-    ^mutool-convert_.*<<workbench:\ Exit\ code\ 0>>  \n\
-  MutoolDrawAccept:  \n\
-    ^mutool-draw_.*<<workbench:\ Exit\ code\ 0>>  \n\
-  PdfiumAccept:  \n\
-    ^pdfium_<<workbench:\ Exit\ code\ 0>>$  \n\
-  PdfdriverAccept:  \n\
-    ^pdf-hs-driver_<<workbench:\ Exit\ code\ 0>>$  \n\
-  PdftotextError:  \n\
-    ^pdftotext_Syntax Error  \n\
-  XrefRebuildNeeded:  \n\
-    ^pdftocairo\-pdf_Internal\ Error:\ xref\ num\ \-\ not\ found\ but\ needed\,\ try\ to\ reconstruct<a>  \n\
-  \n\
-  Unsafe:  \n\
-    ^polyfile_mimetype: (?!application/pdf)  \n\
-    ^schizo-test-schizo-test_Max RMSE  \n\
-      sum > 0.4  \n\
-    ^schizo-text-test-schizo-text-test_\\w+ to \\w+  \n\
-      sum < 0.5  \n\
-    ^pdffonts_Unembedded font  \n\
-  \n\
-outputs:  \n\
-  \n\
-  status:  \n\
-    "valid" is !MutoolCleanError & !Unsafe & !PdfiumError & !XrefRebuildNeeded & !PdftotextError  \n\
-    #"valid" is !MutoolCleanError  \n\
-    "rejected" else  \n\
-  status-strict:  \n\
-    "rejected" is PdfiumError | PdftotextError | !MutoolDrawAccept | !MutoolConvertAccept | !MutoolCleanAccept | Unsafe | !PdfdriverAccept  \n\
-    "valid" else  \n\
-  ',
+    // decision_default: {file: 'file_path_relative_to_config.txt'},
+    decision_default: {file: 'dsl.txt'},
 
     decision_views: {
         /** Example decision process which documents API.
