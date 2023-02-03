@@ -116,8 +116,36 @@
               v-on:keyup.enter="reprocess"
               v-model="decisionSearchCustom"
             )
-            v-checkbox(v-model="decisionSearchInsensitive" label="Case-insensitive" style="margin-left: 0.2em")
-            v-btn(tile @click="reprocess" :disabled="!decisionDefinition" style="margin-left: 0.2em") Reprocess + Search
+            v-checkbox(v-model="decisionSearchInsensitive" label="Case-insensitive")
+            v-btn(tile @click="reprocess" :disabled="!decisionDefinition") Reprocess + Search
+          //- Listing of reasons files failed
+          v-expansion-panels(:value="0" v-if="decisionAspectSelected.startsWith('filter-')")
+            v-expansion-panel(:key="0")
+              v-expansion-panel-header.grey.lighten-2 All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
+              v-expansion-panel-content
+                .decision-reasons
+                  v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
+                    v-radio(value="total" label="number of files rejected")
+                    v-radio(value="unique" label="uniquely rejected")
+                  v-virtual-scroll(
+                    :bench="10"
+                    :items="failReasons.get(decisionAspectSelected) || []"
+                    style="max-height: 200px"
+                    item-height="25"
+                  )
+                    template(v-slot="{item}")
+                      v-menu(offset-y max-width="700" :key="item[0] + decisionAspectSelected + decisionSearchCustom")
+                        template(v-slot:activator="{on}")
+                          .decision-reason(v-on="on")
+                            checkmark(status="rejected")
+                            span {{item[0]}}: {{item[1][0].size + item[1][1].size}} / {{item[1][1].size}}
+                        v-list
+                          v-list-item(style="flex-wrap: wrap")
+                            v-btn(@click="fileFilterAdd(item[0], new Set([...Array.from(item[1][0]), ...Array.from(item[1][1])]))") Filter in FAW
+                            v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
+                            v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
+                            v-btn(v-clipboard="() => JSON.stringify([...Array.from(item[1][1]), ...Array.from(item[1][0])])") (Copy file list as JSON)
+                          v-list-item(v-for="ex of [...sliceIterable(item[1][1], 0, 10), ...sliceIterable(item[1][0], 0, 10)].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
 
         //- Plot and table of file statuses
         v-sheet(:elevation="3" style="padding: 1em; margin-block: 1em;")
@@ -141,34 +169,6 @@
             :decisionAspectSelected="decisionAspectSelected"
             :decisionAspectSelectedName="decisionAspectSelected === 'filter-faw-custom' ? 'Search: ' + decisionSearchCustom : decisionAspectSelected"
           )
-        //- Global listing of reasons files failed
-        v-expansion-panels(:value="0" v-if="decisionAspectSelected.startsWith('filter-')")
-          v-expansion-panel(:key="0")
-            v-expansion-panel-header All reasons files affected filter: {{decisionAspectSelected.substring(7)}}
-            v-expansion-panel-content
-              .decision-reasons(style="padding-bottom: 1em;")
-                v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
-                  v-radio(value="total" label="number of files rejected")
-                  v-radio(value="unique" label="uniquely rejected")
-                v-virtual-scroll(
-                    :bench="10"
-                    :items="failReasons.get(decisionAspectSelected) || []"
-                    height="200"
-                    item-height="25"
-                    )
-                  template(v-slot="{item}")
-                    v-menu(offset-y max-width="700" :key="item[0] + decisionAspectSelected + decisionSearchCustom")
-                      template(v-slot:activator="{on}")
-                        .decision-reason(v-on="on")
-                          checkmark(status="rejected")
-                          span {{item[0]}}: {{item[1][0].size + item[1][1].size}} / {{item[1][1].size}}
-                      v-list
-                        v-list-item(style="flex-wrap: wrap")
-                          v-btn(@click="fileFilterAdd(item[0], new Set([...Array.from(item[1][0]), ...Array.from(item[1][1])]))") Filter in FAW
-                          v-btn(v-clipboard="() => regexEscape(item[0])") (Copy regex to clipboard)
-                          v-btn(v-clipboard="() => '^' + regexEscape(item[0]) + '$'") (with ^$)
-                          v-btn(v-clipboard="() => JSON.stringify([...Array.from(item[1][1]), ...Array.from(item[1][0])])") (Copy file list as JSON)
-                        v-list-item(v-for="ex of [...sliceIterable(item[1][1], 0, 10), ...sliceIterable(item[1][0], 0, 10)].slice(0, 10)" :key="ex" @click="showFile(ex)") {{ex}}
 
         //- Decision plugins
         v-expansion-panels(style="margin-top: 1em")
@@ -386,6 +386,10 @@
     .v-expansion-panels.colored > .v-expansion-panel > .v-expansion-panel-header {
       color: #fff;
       background-color: var(--v-primary-base);
+    }
+
+    .v-expansion-panel-header.grey.v-expansion-panel-header--active {
+      min-height: 48px; /* Same as inactive expansion panels */
     }
 
     .v-window {
