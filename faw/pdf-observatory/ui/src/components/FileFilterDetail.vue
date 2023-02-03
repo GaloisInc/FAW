@@ -68,8 +68,8 @@
 import Vue from 'vue';
 
 import CheckmarkComponent from '@/components/CheckmarkComponent.vue';
-import {PdfDecision, sortByReject} from '@/components/common';
-import {DslResult} from '@/dsl';
+import {PdfDecision, sortByReject} from '@/common/common';
+import {DslResult} from '@/common/dsl';
 import {regexEscape} from '@/util';
 
 export default Vue.extend({

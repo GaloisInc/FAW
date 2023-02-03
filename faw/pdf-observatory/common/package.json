@@ -1,0 +1,44 @@
+{
+    "name": "galois-file-analysis-workbench",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+      "pegjs": "^0.10.0",
+      "pug": "^3.0.2",
+      "pug-plain-loader": "^1.1.0"
+    },
+    "devDependencies": {
+      "eslint": "^6.8.0",
+      "typescript": "~4.1.5"
+    },
+    "eslintConfig": {
+      "root": false,
+      "env": {
+        "node": true
+      },
+      "plugins": [
+        "@typescript-eslint"
+      ],
+      "extends": [
+        "eslint:recommended"
+      ],
+      "rules": {
+        "no-console": "off",
+        "no-constant-condition": "off",
+        "no-inner-declarations": "off",
+        "no-unused-vars": "off",
+        "@typescript-eslint/no-unused-vars": [
+          "error",
+          {
+            "args": "none"
+          }
+        ]
+      }
+    },
+    "browserslist": [
+      "> 1%",
+      "last 2 versions"
+    ]
+  }
+  
