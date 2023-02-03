@@ -27,7 +27,6 @@ import re
 import shlex
 import shutil
 import strictyaml
-import subprocess
 import sys
 import tempfile
 import time
@@ -179,19 +178,19 @@ async def _config_web_decisions_handler(req):
     parameters = {'groups': pdfGroups, 'dsl': decision_dsl}
     parametersJson = json.dumps(parameters)
 
-    print("Calling from: " + os.path.join(etl_path, 'pdf-observatory', 'ci'))
+    # print("Calling from: " + os.path.join(etl_path, 'pdf-observatory', 'ci', 'dist'))
     # print("With data\n" + parametersJson)
 
-    proc = subprocess.Popen(
-        ['node', '--experimental-specifier-resolution=node', '.'],
-        bufsize=-1,
-        cwd=os.path.join(etl_path, 'pdf-observatory', 'ci'),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    proc = await asyncio.create_subprocess_exec(
+        'node', '--experimental-specifier-resolution=node', '.',
+        #bufsize=-1,
+        cwd=os.path.join(etl_path, 'pdf-observatory', 'ci', 'dist'),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = proc.communicate(input=bytes(parametersJson, 'utf-8'))
-    if proc.wait() != 0:
+    stdout, stderr = await proc.communicate(input=bytes(parametersJson, 'utf-8'))
+    if await proc.wait() != 0:
         raise ValueError(f"non-zero exit: {stderr.decode('utf-8')}")
 
     pdfDecisions = json.loads(stdout.decode('utf-8'))
