@@ -4,14 +4,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install basic tools including Python
 RUN apt-get update && apt-get install -y curl python3 python3-pip wget
 
-# Install the python packages we need
-COPY requirements.txt /tmp/requirements.txt
-RUN pip3 install -r /tmp/requirements.txt
-
 # Install docker in the container, mainly for the cli
 # TODO: Is there a better way to get the cli in there?
 USER root
 RUN curl -fsSL https://get.docker.com | sh
+
+# Install the python packages we need
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install -r /tmp/requirements.txt
 
 # Next we will also install the S6-overlay primarily for logging purposes
 COPY faw/s6-overlay-amd64.tar.gz /tmp/

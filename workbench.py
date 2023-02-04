@@ -69,7 +69,8 @@ def main():
     args = parse_args()
 
     # Compute all the mount paths for the CI container
-    mount_paths = compute_mount_paths(args.config_dir, args.file_dir)
+    mount_paths = compute_mount_paths(args.config_dir, args.file_dir,
+            [args.copy_mongo_from, args.copy_mongo_to])
     mount_paths_as_args = list(
         itertools.chain.from_iterable((("-v", f"{src}:{target}") for (src, target) in mount_paths))
     )
@@ -138,17 +139,18 @@ def main():
             # + ['/bin/bash']
         )
 
-        # Pop open the UI for the user
-        def open_browser():
-            import time, webbrowser
-            time.sleep(1.5)
-            try:
-                webbrowser.open(f'http://localhost:{args.port}')
-            except ex:
-                traceback.print_exc()
-        open_browser_thread = threading.Thread(target=open_browser)
-        open_browser_thread.daemon = True
-        open_browser_thread.start()
+        if not (args.copy_mongo_from or args.copy_mongo_to):
+            # Pop open the UI for the user
+            def open_browser():
+                import time, webbrowser
+                time.sleep(1.5)
+                try:
+                    webbrowser.open(f'http://localhost:{args.port}')
+                except ex:
+                    traceback.print_exc()
+            open_browser_thread = threading.Thread(target=open_browser)
+            open_browser_thread.daemon = True
+            open_browser_thread.start()
 
         print('Command: ', command)
         subprocess.run(command)
@@ -327,7 +329,7 @@ def container_name(args):
     return f"{faw_container_name}-ci"
 
 
-def compute_mount_paths(config_dir, file_dir):
+def compute_mount_paths(config_dir, file_dir, maybe_file_list):
     """
     Compute the absolute path of directories we need to mount in the CI container.
     Returns a list where each one is a tuple of source and target paths.
@@ -360,6 +362,15 @@ def compute_mount_paths(config_dir, file_dir):
     # which makes it difficult to delete
     os.makedirs(CI_CONTAINER_LOG_PATH_HOST, exist_ok=True)
     paths.append((CI_CONTAINER_LOG_PATH_HOST, CI_CONTAINER_LOG_PATH_CONTAINER))
+
+    # Mount any potential files' folders s.t. the CI system can read/write those
+    # files.
+    for f in maybe_file_list:
+        # Quick way to count out URLs... not great
+        if f and f.strip() and ':' not in f:
+            f_dir = os.path.dirname(os.path.abspath(f))
+            assert os.path.lexists(f_dir), f'parent folder must exist: {f_dir}'
+            paths.append((f_dir, f_dir))
 
     return paths
 

@@ -360,6 +360,10 @@ def main():
         server_thread.stop_server()
         server_thread.join(3)
 
+        # Without this sleep, the script exits before the logging script has an
+        # opportunity to collect error messages. So, wait a bit before exiting
+        time.sleep(3)
+
     atexit.register(on_exit)
 
     # Launch the FAW container with the appropriate command line
@@ -1022,7 +1026,7 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                     pass
 
                 client = motor.motor_asyncio.AsyncIOMotorClient(
-                        f'mongodb://127.0.0.1:{dummy_mongo_port}')
+                        f'mongodb://host.docker.internal:{dummy_mongo_port}')
                 try:
                     await asyncio.wait_for(client.list_databases(),
                             timeout=10)
@@ -1060,7 +1064,6 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                         raise ValueError('Mongorestore crashed')
                 else:
                     logging.info(f'Restoring from running mongod.')
-                    raise NotImplementedError
                     # Restore backup from remote source
                     mongo_host, mongo_db = copy_mongo_from.split('/', 1)
                     client = motor.motor_asyncio.AsyncIOMotorClient(
@@ -1069,7 +1072,7 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                     client_db = client[mongo_db]
 
                     dest = motor.motor_asyncio.AsyncIOMotorClient(
-                            'mongodb://127.0.0.1:27015')
+                            'mongodb://host.docker.internal:27015')
                     await dest.drop_database(db_name)
                     dest_db = dest[db_name]
 
@@ -1085,17 +1088,6 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                             if not batch:
                                 return
 
-                            # Fix 2020-02-03: bson.errors.InvalidDocument: key 'Error opening PDF file.' must not contain '.'
-                            if col == 'invocationsparsed':
-                                for b in batch:
-                                    to_fix = []
-                                    for k in b['result'].keys():
-                                        if '.' in k:
-                                            to_fix.append(k)
-
-                                    for k in to_fix:
-                                        b['result'][k.replace('.', '')] = b['result'].pop(k)
-
                             try:
                                 await dest_col.insert_many(batch)
                             except bson.errors.InvalidDocument:
@@ -1104,15 +1096,20 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
                                 raise
                             copied[0] += len(batch)
                             batch.clear()
-                        async for doc in client_col.find():
-                            batch.append(doc)
-                            if len(batch) >= 1024:
-                                await dump_batch()
+                        cursor = client_col.find()
+                        while True:
+                            doc_batch = await cursor.to_list(128)
+                            if not doc_batch:
+                                break
+                            for doc in doc_batch:
+                                batch.append(doc)
+                                if len(batch) >= 1024:
+                                    await dump_batch()
                         await dump_batch()
                         logging.info(f'...copied {copied[0]}')
             if copy_mongo_to is not None:
                 # Restore to file
-                logging.info('Backing up database.', file=sys.stderr)
+                logging.info('Backing up database.')
                 assert os.path.isabs(copy_mongo_to), copy_mongo_to
                 pr = await asyncio.create_subprocess_exec(
                         'docker', 'exec', '-i',

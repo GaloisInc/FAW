@@ -6,3 +6,7 @@ pyjson5
 schema
 aiohttp
 
+# These are required for e.g. copy-mongo-from/to
+motor
+pymongo
+
