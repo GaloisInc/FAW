@@ -1044,6 +1044,7 @@ class Client(vuespa.Client):
             def postproc(d):
                 d['result'] = {dr['k']: dr['v'] for dr in d['result']}
         elif collection == 'statsbyfile':
+            # This is now a virtual collection; select data from relevant places
             if other_options and other_options.get('as_only'):
                 cursor = self._statsbyfile_cursor(as_options, match_id=pdf)
                 cursor_batched = True

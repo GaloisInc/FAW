@@ -3,6 +3,7 @@
 import argparse
 import os
 import subprocess
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--image-tag', help="Image tag for the faw container")
@@ -23,6 +24,9 @@ try:
     else:
         r = subprocess.run(['s6-svwait', '-U', '-t', str(args.wait_time * 1000), '/var/run/s6/services/ci-container/'])
 finally:
+    # Give it a moment more before killing the logging process, s.t. we gather
+    # any straggling messages.
+    time.sleep(1.)
     p_log.kill()
     p_log.wait()
 
