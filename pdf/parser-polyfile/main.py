@@ -10,7 +10,7 @@ def main():
     ap.add_argument('fpath')
     args = ap.parse_args()
 
-    stdout = subprocess.run(['polyfile', args.fpath],
+    stdout = subprocess.run(['polyfile', '--format', 'json', args.fpath],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL).stdout
 

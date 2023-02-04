@@ -4,7 +4,7 @@
       exec: ['python3', 'main.py', '<inputFile>'],
       // Keep DB version on old version; no need to reprocess all 1M+ eval3
       // files
-      version: 'polyfile-v0.5.0',
+      version: 'polyfile-v0.5.0-faw1',
       parse: {
         type: 'regex-counter',
         version: '1',

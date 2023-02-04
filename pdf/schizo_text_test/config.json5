@@ -1,7 +1,7 @@
 {
   file_detail_views: {
     schizo: {
-        label: 'Schizophrenic Text Comparison',
+        label: 'Text Differential Comparison',
         type: 'program_to_html',
         exec: ['./main.py', '<inputFile>', '--html'],
     },
