@@ -75,7 +75,6 @@
               v-card-actions(:style="{'flex-wrap': 'wrap'}")
                 v-btn(@click="resetDbDialog=false") Cancel
                 v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
-        //- Intended to make this alert density="compact" variant="tonal", but this requires Vue 3
         v-alert(
           dense
           :type="(filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
@@ -171,33 +170,33 @@
           )
 
         //- Decision plugins
-        v-expansion-panels(style="margin-top: 1em")
-        v-expansion-panel
-          v-expansion-panel-header.grey.lighten-2
-            span
-              span Decision Plugins
-              span(v-if="fileFilters.length") {{' '}}(filtered)
-          v-expansion-panel-content
-            div(style="display: flex; align-items: center; gap: 1em")
-              v-select(
-                label="Decision Plugin"
-                v-model="selectedDecisionPlugin"
-                :items="Object.entries(uiPluginsDecision).map(([pluginKey, plugin]) => ({'title': plugin.label, 'value': pluginKey}))"
-                item-text="title" /* In newer Vuetify versions this is spelled item-title */
-                item-value="value"
-                @input="pluginDecisionView"
-              )
-              v-btn(
-                v-show="pluginDecIframeSrc != null || pluginDecIframeLoading"
-                @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0; selectedDecisionPlugin = null"
-                size="large"
-              ) Close Plugin
-            div(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
-              v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
-              iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
-            details(v-show="pluginDecIframeSrc != null")
-              summary Debugging stats
-              JsonTree(:data="pluginDecDebug" :level="2")
+        v-expansion-panels
+          v-expansion-panel
+            v-expansion-panel-header.grey.lighten-2
+              span
+                span Decision Plugins
+                span(v-if="fileFilters.length") {{' '}}(filtered)
+            v-expansion-panel-content
+              div(style="display: flex; align-items: center; gap: 1em")
+                v-select(
+                  label="Decision Plugin"
+                  v-model="selectedDecisionPlugin"
+                  :items="Object.entries(uiPluginsDecision).map(([pluginKey, plugin]) => ({'title': plugin.label, 'value': pluginKey}))"
+                  item-text="title" /* In newer Vuetify versions this is spelled item-title */
+                  item-value="value"
+                  @input="pluginDecisionView"
+                )
+                v-btn(
+                  v-show="pluginDecIframeSrc != null || pluginDecIframeLoading"
+                  @click="pluginDecIframeSrc = null; pluginDecIframeLoading = 0; selectedDecisionPlugin = null"
+                  size="large"
+                ) Close Plugin
+              div(v-show="pluginDecIframeSrc != null || pluginDecIframeLoading" style="border: solid 1px #000; position: relative; height: 95vh")
+                v-progress-circular(v-show="pluginDecIframeLoading" :indeterminate="true")
+                iframe(v-show="pluginDecIframeSrc != null" style="width: 100%; height: 100%" ref="pluginDecIframe")
+              details(v-show="pluginDecIframeSrc != null")
+                summary Debugging stats
+                JsonTree(:data="pluginDecDebug" :level="2")
 
     v-expansion-panel(:key="2")
       v-expansion-panel-header Files
@@ -849,7 +848,7 @@ export default Vue.extend({
       try {
         this.decisionDefinition = dslParser.parse(this.decisionCode) as DslResult;
       }
-      catch (e) {
+      catch (e: any) {
         if (!e.location) throw e;
         let starter = this.decisionCode.slice(e.location.start.offset);
         starter = starter.split('\n', 1)[0];
@@ -1153,7 +1152,7 @@ export default Vue.extend({
           }
           this.pdfs = Object.freeze(decisions);
         }
-        catch (e) {
+        catch (e: any) {
           if (this.pluginDecIframeLoading !== loadKey) return;
           const retryArgs = JSON.stringify(jsonArgs);
           this.pluginDecIframeSrc = `<!DOCTYPE html><html>
@@ -1200,7 +1199,7 @@ export default Vue.extend({
           this.pluginIframeSrc = r.result;
           this.pluginIframeSrcMimeType = r.mimetype;
         }
-        catch (e) {
+        catch (e: any) {
           if (this.pluginIframeLoading !== loadKey) {
             // User aborted this load.
             return;
