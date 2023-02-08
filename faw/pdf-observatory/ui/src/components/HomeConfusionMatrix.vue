@@ -16,7 +16,7 @@
                   )  {{counts[di][ri].toFixed(1)}}%
             v-list
               v-list-item
-                v-btn(@click="$emit('filter-file-list', {name: fileFilterListName(di, ri), files: examples[di][ri]})") Filter in FAW
+                v-btn(@click="$emit('filter-file-list', {name: fileFilterListName(di, ri), files: examples[di][ri]})") Add File Set Filter
                 v-btn(v-clipboard="() => JSON.stringify(examples[di][ri])") (Copy file list as JSON)
                 v-btn(@click="$emit('view', randomInList(examples[di][ri]))") (View random file)
                 span(style="margin-left: 0.25em") {{examples[di][ri].length}} files
