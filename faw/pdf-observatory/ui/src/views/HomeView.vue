@@ -139,8 +139,22 @@ mixin confusion-matrix
 
           v-sheet(:elevation="3" style="margin-block: 1em; padding: 1em")
             div(v-if="fileFilters.length")
-              v-btn(v-for="f, fidx of fileFilters" :key="fidx" @click="fileFilterPopTo(fidx)") {{f[0]}}
-              v-btn(@click="fileFilterInvert()") (Invert last)
+              span File Set Filters (Cumulative)
+              v-btn(
+                v-if="(fileFilters.length < 2) || !fileFilters[fileFilters.length - 2].skipped"
+                @click="fileFilterInvert()"
+                style="margin-inline: 1em"
+              ) Invert last filter
+              .file-filters
+                v-btn.file-filter(
+                  v-for="{name, skipped, files}, filterIndex in fileFilters"
+                  @click="fileFilterPopTo(filterIndex)"
+                  :title="(skipped ? 'Filter skipped due to later inversion;\\n' : '') + 'Click to delete this and subsequent filters'"
+                )
+                  v-icon mdi-delete-outline
+                  span(
+                    :class="{'file-filter-skipped': skipped}"
+                  ) {{name}}
             //- Decision criterion selector (and search)
             +decision-criterion-selector
             //- Listing of reasons files failed
@@ -448,6 +462,38 @@ mixin confusion-matrix
       padding: 0.25em 0.1em;
 
       > summary {
+      }
+    }
+
+    .file-filters {
+      max-height: 10em;
+      overflow-y: auto;
+      padding: 1em;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.25em;
+      .file-filter {
+        justify-self: start;
+        margin-left: 20px;  /* Size of icon */
+        position: relative;
+        cursor: pointer;
+        .v-btn__content {
+          position: revert;
+        }
+        .v-icon {
+          position: absolute;
+          right: 100%;
+          color: transparent;
+        }
+      }
+      .file-filter-skipped {
+        opacity: 0.5;
+      }
+      .file-filter:hover,
+      .file-filter:hover ~ .file-filter {
+        span, .v-icon {
+          color: #a00;
+        }
       }
     }
 
@@ -1148,7 +1194,7 @@ export default Vue.extend({
       this.asyncTry(async () => {this.reprocess()});
     },
     fileFilterAdd(name: string, files: Set<string>) {
-      this.fileFilters.push([name, files]);
+      this.fileFilters.push({'name': name, 'skipped': false, 'files': files});
     },
     fileFilterInvert() {
       if (this.fileFilters.length === 0) {
@@ -1159,13 +1205,29 @@ export default Vue.extend({
       let prev: FileFilterData;
       if (this.fileFilters.length > 1) {
         prev = this.fileFilters[this.fileFilters.length - 2];
+        if (prev.skipped) {
+          // last is the inversion of prev. We can just drop last instead of adding a new filter
+          this.fileFilters.pop()
+          prev.skipped = false;
+          return;
+        }
       }
       else {
-        prev = ['(all)', new Set(this.pdfGroups.files)];
+        prev = {
+          'name': '(all)',
+          'skipped': true,
+          'files': new Set(this.pdfGroups.files)
+        };
       }
 
-      this.fileFilters.push([last[0] + ' (inverted)',
-          new Set([...prev[1]].filter(x => !last[1].has(x)))]);
+      this.fileFilters.push(
+        {
+          "name": last.name + ' (inverted)',
+          "skipped": false,
+          "files": new Set([...prev.files].filter(x => !last.files.has(x)))
+        }
+      );
+      last.skipped = true;
     },
     fileFilterLatest(): undefined|FileFilterData {
       if (this.fileFilters.length === 0) return;
@@ -1173,6 +1235,10 @@ export default Vue.extend({
     },
     fileFilterPopTo(idx: number) {
       this.fileFilters.splice(idx, this.fileFilters.length);
+      if (this.fileFilters.length > 0) {
+        const last = this.fileFilters[this.fileFilters.length - 1]
+        last.skipped = false;
+      }
     },
     makeBaseline() {
       this.holdReferences = !this.holdReferences;
@@ -1383,7 +1449,7 @@ export default Vue.extend({
       // Narrow down to only groups pertaining to selected files
       let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
       if (this.fileFilters.length > 0) {
-        const fset = this.fileFilterLatest()![1];
+        const fset = this.fileFilterLatest()!.files;
         let okSet = new Set();
         for (const [fi, f] of this.pdfGroups.files.entries()) {
           if (fset.has(f)) okSet.add(fi);
@@ -1644,7 +1710,7 @@ export default Vue.extend({
       if (filter) {
         // Include restricted list of file ids, if needed
         if (this.fileFilters.length > 0) {
-          r.file_ids = Array.from(this.fileFilterLatest()![1]);
+          r.file_ids = Array.from(this.fileFilterLatest()!.files);
         }
       }
       return r;
