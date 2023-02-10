@@ -122,15 +122,19 @@ mixin confusion-matrix
                 div(v-on="on")
                   v-btn.download(@click="downloadFeatures") Download features
               span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
-            //- TODO Reset button isn't correctly hidden in production
-            v-dialog(v-model="resetDbDialog" persistent max-width="800")
+            v-dialog(
+              v-if="debugModeEnabled"
+              v-model="resetDbDialog"
+              persistent
+              max-width="800"
+            )
               template(v-slot:activator="{on}")
-                v-btn.resetdb(v-on="on") Reset Entire DB (may take awhile)
+                v-btn.resetdb(v-on="on") Reset Entire DB
               v-card
-                v-card-title Reset entire DB, re-running all tools and parsers? (Disabled in production.)
+                v-card-title Reset entire DB, re-running all tools and parsers?
                 v-card-actions(:style="{'flex-wrap': 'wrap'}")
                   v-btn(@click="resetDbDialog=false") Cancel
-                  v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB
+                  v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB (may take awhile)
           +stale-decisions-alert
 
           v-sheet(:elevation="3" style="margin-block: 1em; padding: 1em")
@@ -592,6 +596,7 @@ export default Vue.extend({
       config: null as any,
       dbView: DbView.Decision,
       DbView: DbView,
+      debugModeEnabled: (process.env.VUE_APP_DEBUG == 'true') as boolean,
       decisionAspectSelected: 'status' as string,
       decisionCode: dslDefault,
       decisionCodeTimeout: null as any,

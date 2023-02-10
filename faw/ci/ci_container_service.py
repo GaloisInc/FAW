@@ -121,9 +121,11 @@ def main():
             "database. In that case, always happens AFTER the effect of "
             "`--copy-mongo-from`, so this still overwrites the local database.")
     parser.add_argument('--production', action='store_true',
-            help="Developer option on by default: mount source code over docker image, for "
+            help="Disable developer mode (mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
-            "container for profiling purposes.")
+            "container for profiling purposes.).")
+    parser.add_argument('--debug', action='store_true',
+            help="Enable controls for debugging the FAW backend (e.g. a DB reset button).")
 
     if not STATIC_BUILD:
         parser.add_argument('--build-mode', action='store_true',
@@ -143,6 +145,7 @@ def main():
     copy_mongo_from = args.copy_mongo_from
     copy_mongo_to = args.copy_mongo_to
     development = not args.production
+    debug = args.debug
     build_mode = 'build_mode' in vars(args) and args.build_mode
     running_as_service = 'service' in vars(args) and args.service
 
@@ -154,7 +157,8 @@ def main():
 
     if build_mode:
         # Exit before building image, which can be expensive
-        assert not development, "Build cannot use --development"
+        assert not development, "Build must use --production"
+        assert not args.debug, "Build cannot use --debug"
 
     if IMAGE_TAG is None:
         config = args.config_dir
@@ -196,8 +200,8 @@ def main():
         development = False
 
     # Check that observatory image is loaded / built
-    _check_image(development=development, config=config, config_data=config_data,
-            build_dir=build_dir, build_faw_dir=build_faw_dir)
+    _check_image(development=development, debug=debug, config=config,
+            config_data=config_data, build_dir=build_dir, build_faw_dir=build_faw_dir)
 
     # If we are in build mode, we have no more work to do in the CI container
     if build_mode:
@@ -268,7 +272,7 @@ def main():
 
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
-        def watch_for_config_changes(development=development, config_dir=config,
+        def watch_for_config_changes(development=development, debug=debug, config_dir=config,
             build_dir=build_dir, build_faw_dir=build_faw_dir, docker_id=docker_id):
             # Where, in the docker container, to dump the new config
             cfg_dst = '/home/config.json'
@@ -297,7 +301,7 @@ def main():
                         # Check if build stages have changed and handle if necessary
                         _check_build_stage_change_and_update(
                             new_config=new_config, old_config=last_config,
-                            development=development, config_dir=config_dir,
+                            development=development, debug=debug, config_dir=config_dir,
                             build_dir=build_dir, build_faw_dir=build_faw_dir,
                             current_docker_id=docker_id
                         )
@@ -333,7 +337,7 @@ def main():
             import webbrowser
             try:
                 webbrowser.open(f'http://localhost:{port}')
-            except ex:
+            except Exception:
                 traceback.print_exc()
         open_browser_thread = threading.Thread(target=open_browser)
         open_browser_thread.daemon = True
@@ -658,7 +662,7 @@ def _check_config_file(config, build_dir):
     return config_data
 
 
-def _check_image(development, config,  config_data, build_dir, build_faw_dir):
+def _check_image(development, debug, config, config_data, build_dir, build_faw_dir):
     """Ensure that the docker image is loaded, if we are using a packaged
     version, or rebuild latest, if using a development version.
 
@@ -693,7 +697,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
     assert config_data is not None, 'required --config?'
 
     # Generate the contents for the dockerfile
-    dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir)
+    dockerfile_contents = _create_dockerfile_contents(development, debug, config, config_data, build_dir, build_faw_dir)
     logging.info('='*79)
     logging.info(dockerfile_contents)
     logging.info('='*79)
@@ -705,7 +709,7 @@ def _check_image(development, config,  config_data, build_dir, build_faw_dir):
     # Return the tag for the build
     return img_tag
 
-def _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir):
+def _create_dockerfile_contents(development, debug, config, config_data, build_dir, build_faw_dir):
     dockerfile = []
     dockerfile_middle = []
     dockerfile_final = []
@@ -895,7 +899,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
                 mkdir -p /etc/cont-init.d \
                 && echo -e '#! /bin/sh\nmkdir -p /var/log/observatory\nchown -R nobody:nogroup /var/log/observatory' > /etc/cont-init.d/observatory \
                 && mkdir /etc/services.d/observatory \
-                    && echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json 2>&1' >> /etc/services.d/observatory/run \
+                    && echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "127.0.0.1:27017/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} ${{OBS_DEBUG}} --config ../config.json 2>&1' >> /etc/services.d/observatory/run \
                     && chmod a+x /etc/services.d/observatory/run \
                 && mkdir /etc/services.d/observatory/log \
                     && echo -e '#! /usr/bin/execlineb -P\nlogutil-service /var/log/observatory' > /etc/services.d/observatory/log/run \
@@ -933,6 +937,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             ENV LANG C.UTF-8
             ENV DB observatory-default-data
             ENV OBS_PRODUCTION "{'--production' if not development else ''}"
+            ENV OBS_DEBUG "{'--debug' if debug else ''}"
             ENTRYPOINT ["/init"]
             ''')
 
@@ -1137,7 +1142,8 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
 
 
 def _check_build_stage_change_and_update(
-    *, new_config, old_config, development, config_dir, build_dir, build_faw_dir, current_docker_id
+    *, new_config, old_config, development, debug, config_dir, build_dir,
+    build_faw_dir, current_docker_id
 ):
     logging.info(f"Checking for stage updates ...")
 
@@ -1168,8 +1174,8 @@ def _check_build_stage_change_and_update(
 
     # To build a new image, first create the dockerfile contents
     dockerfile_contents = _create_dockerfile_contents(
-        development=development, config=config_dir, config_data=new_config,
-        build_dir=build_dir, build_faw_dir=build_faw_dir
+        development=development, debug=debug, config=config_dir,
+        config_data=new_config, build_dir=build_dir, build_faw_dir=build_faw_dir
     )
 
     # We need to collect all the outputs from the updated stages in some place

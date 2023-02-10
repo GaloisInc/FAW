@@ -60,11 +60,13 @@ etl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 @click.option('--production/--no-production', default=False,
         help="Specify to use pre-built version of UI, rather than building "
             "on the fly and using Vue's hot reload functionality.")
+@click.option('--debug/--no-debug', default=False,
+        help="Enable controls for debugging the backend.")
 @click.option('--config', type=str, required=True,
         help="(Required) Path to .json defining this observatory deployment.")
 @click.option('--quit-after-config/--no-quit-after-config', default=False)
-def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
-        quit_after_config):
+def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, debug,
+        config, quit_after_config):
     """Run the PDF observatory on the given mongodb instance and database,
     providing a UI.
 
@@ -97,6 +99,9 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
 
     app_docker = in_docker
     app_production = production
+
+    if debug:
+        os.environ["VUE_APP_DEBUG"] = "true"
 
     mhost_port, db = app_mongodb.split('/')
     mhost, mport = mhost_port.split(':')
