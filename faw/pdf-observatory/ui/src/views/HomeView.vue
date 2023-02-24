@@ -339,8 +339,7 @@ mixin confusion-matrix
                     iframe(v-show="pluginIframeSrc != null" style="width: 100%; height: 100%" ref="pluginIframe")
             v-tabs(v-model="dbView" grow)
               v-tab(:key="DbView.Decision") Decision
-              v-tab(:key="DbView.Tools") Output - Tools
-              v-tab(:key="DbView.Parsers") Output - Parser
+              v-tab(:key="DbView.Combined") Output
             v-tabs-items(v-model="dbView" ref="detailView")
               v-tab-item(:key="DbView.Decision")
                 FileFilterDetail(
@@ -350,10 +349,8 @@ mixin confusion-matrix
                   :decisionReference="decisionReference"
                   :asOptions="_pdfGroupsSubsetOptions()"
                 )
-              v-tab-item(:key="DbView.Tools")
-                DbView(:pdf="decisionSelected.testfile" collection="rawinvocations")
-              v-tab-item(:key="DbView.Parsers")
-                DbView(:pdf="decisionSelected.testfile" collection="invocationsparsed")
+              v-tab-item(:key="DbView.Combined")
+                CombinedDbView(:pdf="decisionSelected.testfile")
     //- Decisions Focus Panel
     v-expansion-panels(style="max-height: 50%")
       v-expansion-panel.fixed(ref="decisionsFocusPanel")
@@ -456,6 +453,10 @@ mixin confusion-matrix
       box-shadow: rgba(0, 0, 0, 0.2) 0px -3px 3px -3px;
     }
 
+    .v-input {
+      margin-top: 0; /* Override an ugly default */
+    }
+
     details {
       cursor: pointer;
       user-select: none;
@@ -497,10 +498,8 @@ mixin confusion-matrix
       }
     }
 
-    > div {
-      display: inline-block;
-      margin-left: auto;
-      margin-right: auto;
+    .v-alert {
+      margin: 0;  /* Override an ugly default */
     }
 
     .reprocessdb {
@@ -602,6 +601,7 @@ import CirclePlotComponent from '@/components/circle-plot.vue';
 import ConfusionMatrixComponent from '@/components/HomeConfusionMatrix.vue';
 import StatsComponent from '@/components/HomeStats.vue';
 import DbViewComponent from '@/components/DbView.vue';
+import CombinedDbViewComponent from '@/components/CombinedDbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
 
 import { PdfGroups, FileFilterData, reprocess as reprocessCommon } from '@/common/processor'
@@ -611,6 +611,7 @@ export enum DbView {
   Tools = 1,
   Parsers = 2,
   Stats = 3,
+  Combined = 4,
 }
 
 
@@ -630,6 +631,7 @@ export default Vue.extend({
     checkmark: CheckmarkComponent,
     ConfusionMatrix: ConfusionMatrixComponent,
     DbView: DbViewComponent,
+    CombinedDbView: CombinedDbViewComponent,
     FileFilterDetail: FileFilterDetailComponent,
     plot: CirclePlotComponent,
     Stats: StatsComponent,
