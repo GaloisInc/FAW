@@ -41,7 +41,7 @@
                     'RUN \
                         mkdir -p /parsec \
                         && cd /parsec && git clone https://gitlab.special-circumstanc.es/hammer/hammer.git \
-                        && cd /parsec/hammer && git checkout origin/master && scons && scons install \
+                        && cd /parsec/hammer && git checkout tags/nightly_20220505 && scons && scons install \
                         && cd /parsec && git clone https://gitlab.special-circumstanc.es/pesco/pdf.git \
                         && cd /parsec/pdf && git checkout tags/2022-08-31_RELEASE && make pdf \
                     ',

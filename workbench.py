@@ -210,7 +210,7 @@ def parse_args():
     # the command line arguments interestingly.
     faw_dir = os.path.dirname(os.path.abspath(__file__))
     build_mode = (os.path.split(os.path.relpath(args.file_dir, faw_dir))[0] == 'build')
-    if build_mode and not args.production or args.debug:
+    if build_mode and (not args.production or args.debug):
         assert args.production, "Build must use --production and cannot use --debug"
     args.build_mode = build_mode
 

@@ -2,6 +2,8 @@ FROM ubuntu:20.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install basic tools including Python
+# Note: This will install python3.8, the default python version on ubuntu 20.04
+# We'd need to bump ubuntu or add channels to get newer python
 RUN apt-get update && apt-get install -y curl python3 python3-pip wget
 
 # Install docker in the container, mainly for the cli
