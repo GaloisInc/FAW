@@ -148,6 +148,7 @@ mixin confusion-matrix
               .file-filters
                 v-btn.file-filter(
                   v-for="{name, skipped, files}, filterIndex in fileFilters"
+                  :key="filterIndex"
                   @click="fileFilterPopTo(filterIndex)"
                   :title="(skipped ? 'Filter skipped due to later inversion;\\n' : '') + 'Click to delete this and subsequent filters'"
                 )
@@ -1370,14 +1371,14 @@ export default Vue.extend({
       if (!this.config) return [];
       const pluginOptions: Array<{"title": string, "value": string}> = [];
       //Object.entries(uiPluginsDecision).map(([pluginKey, plugin]) => ({'title': plugin.label, 'value': pluginKey}))"
-      for (const [pluginKey, plugin] of Object.entries(this.config[category])) {
+      for (const [pluginKey, plugin] of Object.entries(this.config[category]) as [string, any][]) {
         pluginOptions.push({"title": plugin.label, "value": pluginKey});
       }
       for (const aset of this.asData.asets) {
         for (const [pk] of Object.entries(aset.pipelines)) {
           // Renamed / deleted
           if (!this.config.pipelines[pk]) continue;
-          for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][category])) {
+          for (const [ppk, ppv] of Object.entries(this.config.pipelines[pk][category]) as [string, any][]) {
             const pluginKey = `${aset.id}!${pk}!${ppk}`;
             pluginOptions.push({"title": `${pk} -- ${ppv.label} [${aset.id}]`, "value": pluginKey});
           }
