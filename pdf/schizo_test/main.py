@@ -38,6 +38,13 @@ tools = [
                 '<inputFile>',
                 lambda dname: os.path.join(dname, 'pdftoppm')],
         },
+        {
+            'name': 'xpdf-pdftoppm',
+            'exec': ['/opt/xpdf/bin64/pdftoppm', '-r', str(DPI),
+                #'-cropbox',
+                '<inputFile>',
+                lambda dname: os.path.join(dname, 'xpdf-pdftoppm')],
+        },
 ]
 
 def main():
@@ -92,6 +99,12 @@ def main():
                 existed.add(pagename)
 
                 pagepath = os.path.join(dname, pagename)
+                # TODO requires conversion (imagemagick installed on machine)
+                # // testing before commit.
+                if not pagepath.endswith('.png'):
+                    subprocess.check_call(['convert', pagepath, pagepath + '.png'])
+                    pagepath += '.png'
+
                 if html_out:
                     b64 = base64.b64encode(open(pagepath, 'rb').read())
                     b64 = b64.decode('latin1')
@@ -203,11 +216,11 @@ def img_diff(pageno, base, base_tool, img, img_tool, html_out):
             and abs(img.shape[1] - base.shape[1]) < 2
             and img.shape[2] == base.shape[2]):
         if img.shape[0] < base.shape[0]:
-            img = np.concat((img, np.zeros(base.shape[0] - img.shape[0], img.shape[1], img.shape[2])), 0)
+            img = np.concatenate((img, np.zeros((base.shape[0] - img.shape[0], img.shape[1], img.shape[2]))), 0)
         elif img.shape[0] > base.shape[0]:
             img = img[:base.shape[0]]
         if img.shape[1] < base.shape[1]:
-            img = np.concat((img, np.zeros(img.shape[0], base.shape[1] - img.shape[1], img.shape[2])), 1)
+            img = np.concatenate((img, np.zeros((img.shape[0], base.shape[1] - img.shape[1], img.shape[2]))), 1)
         elif img.shape[1] > base.shape[1]:
             img = img[:, :base.shape[1]]
 

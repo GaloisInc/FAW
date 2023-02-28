@@ -51,6 +51,7 @@
     stages: {
       final: {
         commands: [
+          'RUN apt-get update && apt-get install -y imagemagick',
           'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
           'RUN pip3 install --upgrade pip \
             && pip3 install -r {disttarg}/requirements.txt',

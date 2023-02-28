@@ -22,12 +22,15 @@ def main():
     args = ap.parse_args()
 
     args.json_arguments = json.loads(args.json_arguments)
-    try:
-        args.json_arguments = json.loads(urllib.parse.unquote(
-                args.json_arguments.get('args', '{}')))
-    except json.decoder.JSONDecodeError:
-        print(repr(args.json_arguments), file=sys.stderr)
-        raise
+    if args.json_arguments is not None:
+        try:
+            args.json_arguments = json.loads(urllib.parse.unquote(
+                    args.json_arguments.get('args', '{}')))
+        except json.decoder.JSONDecodeError:
+            print(repr(args.json_arguments), file=sys.stderr)
+            raise
+    else:
+        args.json_arguments = {}
 
     header = ''
     cmd = ['/opt/daedalus/pdf-dom', args.fname]
