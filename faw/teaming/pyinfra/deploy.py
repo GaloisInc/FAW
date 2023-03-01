@@ -79,7 +79,7 @@ if 'web_host' in host.groups:
     host_script = rf'''
 #! /bin/bash
 set -e
-echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} ${{OBS_DEBUG}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
+echo -e '#! /bin/bash\ncd /home/pdf-observatory\npython3 main.py /home/pdf-files "{webhost}:{config.port_mongo}/${{DB}}" --in-docker --port 8123 ${{OBS_PRODUCTION}} --config ../config.json --hostname {webhost} 2>&1' > /etc/services.d/observatory/run
 chmod a+x /etc/services.d/observatory/run
 echo -e '#! /bin/bash\ncd /home/dist\n/home/pdf-observatory/dask-worker-runner --contact-host "{host.name}" --contact-first-port {config.port_dask_worker} localhost:8786 2>&1' > /etc/services.d/dask-worker/run
 chmod a+x /etc/services.d/dask-worker/run

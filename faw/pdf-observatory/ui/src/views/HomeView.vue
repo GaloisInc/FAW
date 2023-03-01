@@ -122,19 +122,6 @@ mixin confusion-matrix
                 div(v-on="on")
                   v-btn.download(@click="downloadFeatures") Download features
               span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
-            v-dialog(
-              v-if="debugModeEnabled"
-              v-model="resetDbDialog"
-              persistent
-              max-width="800"
-            )
-              template(v-slot:activator="{on}")
-                v-btn.resetdb(v-on="on") Reset Entire DB
-              v-card
-                v-card-title Reset entire DB, re-running all tools and parsers?
-                v-card-actions(:style="{'flex-wrap': 'wrap'}")
-                  v-btn(@click="resetDbDialog=false") Cancel
-                  v-btn(@click="reset(); resetDbDialog=false") Reset Entire DB (may take awhile)
           +stale-decisions-alert
 
           v-sheet(:elevation="3" style="margin-block: 1em; padding: 1em")
@@ -155,7 +142,7 @@ mixin confusion-matrix
                   v-icon mdi-delete-outline
                   span(
                     :class="{'file-filter-skipped': skipped}"
-                  ) {{name}}
+                  ) [{{files.size}} Files] {{name}}
             //- Decision criterion selector (and search)
             +decision-criterion-selector
             //- Listing of reasons files failed
@@ -508,11 +495,6 @@ mixin confusion-matrix
       background-color: map-get($cyan, 'base') !important;
     }
 
-    .resetdb {
-      color: #fff !important;
-      background-color: map-get($red, 'base') !important;
-    }
-
     .v-window {
       width: 100%;
       .v-window-item {
@@ -697,7 +679,6 @@ export default Vue.extend({
       pluginDecIframeSrc: null as string|null,
       reprocessInnerInit: true,
       reprocessInnerPdfGroups: true,
-      resetDbDialog: false,
       selectedDecisionPlugin: null as any,
       selectedFilePlugin: null as any,
       vuespaUrl: null as string|null,
@@ -1370,7 +1351,6 @@ export default Vue.extend({
     pluginOptionsInCategory(category: string): Array<{"title": string, "value": string}> {
       if (!this.config) return [];
       const pluginOptions: Array<{"title": string, "value": string}> = [];
-      //Object.entries(uiPluginsDecision).map(([pluginKey, plugin]) => ({'title': plugin.label, 'value': pluginKey}))"
       for (const [pluginKey, plugin] of Object.entries(this.config[category]) as [string, any][]) {
         pluginOptions.push({"title": plugin.label, "value": pluginKey});
       }
@@ -1485,16 +1465,6 @@ export default Vue.extend({
         this.initReferences = true;
         this.pdfsReference = this.pdfs;
       }
-    },
-    async reset() {
-      /** Resets ALL processing. */
-      this.pdfs = [];
-      this.pdfsDslLast = [];
-      this.pdfsReference = [];
-      this.asyncTry(async () => {
-        await this.$vuespa.call('clear_db');
-        this.pdfGroupsDirty = true;
-      });
     },
     scrollToFileDetails() {
       // Show the user that a new file has been searched

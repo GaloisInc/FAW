@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import traceback
 import threading
 
 # Keep track of the directory containing the FAW
@@ -146,7 +147,7 @@ def main():
                 time.sleep(1.5)
                 try:
                     webbrowser.open(f'http://localhost:{args.port}')
-                except ex:
+                except Exception:
                     traceback.print_exc()
             open_browser_thread = threading.Thread(target=open_browser)
             open_browser_thread.daemon = True
@@ -199,8 +200,6 @@ def parse_args():
             help="Disable developer mode (mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
             "container for profiling purposes.).")
-    parser.add_argument('--debug', action='store_true',
-            help="Enable controls for debugging the FAW backend (e.g. a DB reset button).")
 
     args = parser.parse_args()
     if IMAGE_TAG is None and CONFIG_FOLDER is not None:
@@ -210,8 +209,8 @@ def parse_args():
     # the command line arguments interestingly.
     faw_dir = os.path.dirname(os.path.abspath(__file__))
     build_mode = (os.path.split(os.path.relpath(args.file_dir, faw_dir))[0] == 'build')
-    if build_mode and (not args.production or args.debug):
-        assert args.production, "Build must use --production and cannot use --debug"
+    if build_mode and not args.production:
+        assert args.production, "Build must use --production"
     args.build_mode = build_mode
 
     return args
@@ -306,8 +305,6 @@ def to_script_args(args):
         arglist.append(f"--copy-mongo-to={args.copy_mongo_to}")
     if args.production:
         arglist.append('--production')
-    if args.debug:
-        arglist.append('--debug')
     if args.build_mode:
         arglist.append('--build-mode')
 
