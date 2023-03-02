@@ -368,7 +368,7 @@ def main():
 
     # Launch the FAW container with the appropriate command line
     volume_mount_params = [
-        '-v', f'{pdf_dir}:/home/pdf-files',
+        '-v', f'{pdf_dir}:/home/pdf-files:ro',
         '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db'
     ]
 
