@@ -14,7 +14,15 @@ _c = pymongo.MongoClient()
 db = _c[os.environ['DB']]
 
 
-def clear_database():
+def clear_database(*, confirm_destructive_operation=False):
+    """Erase the database, triggering re-parsing of all files."""
+    if not confirm_destructive_operation:
+        print(
+            "Database not cleared! Pass `confirm_destructive_operation=True` "
+            "to really clear the database. This will trigger re-parsing all "
+            "files, which may take a long time."
+        )
+        return
     # Hardcoded port corresponds to (8123 + 2);
     # If run in docker, the FAW server will listen on this port
     conn = multiprocessing.connection.Client(('localhost', 8125))

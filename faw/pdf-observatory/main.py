@@ -37,7 +37,7 @@ app_docker = False
 app_hostname = None
 app_hostport = None
 
-app_init = None  # Looks unused
+app_init = None
 app_mongodb = None
 app_mongodb_conn = None
 app_pdf_dir = None
@@ -112,8 +112,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     app_init = loop.create_task(init_check_pdfs())
     loop.create_task(faw_analysis_set.main_loop(app_mongodb_conn,
             app_config, _get_api_info))
-    if not production:
-        loop.run_in_executor(None, _listen_for_clear_db_signal, port + 2, loop)
+    loop.run_in_executor(None, _listen_for_clear_db_signal, port + 2, loop)
     vuespa.VueSpa('ui', Client, host=host, port=port,
             development=not production,
             config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
