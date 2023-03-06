@@ -25,7 +25,6 @@
     "@types/d3-selection": "^1.4.1",
     "@types/pegjs": "^0.10.1",
     "@vue/cli": "^4.5.12",
-    "@vue/cli-plugin-eslint": "~4.5.15",
     "@vue/cli-plugin-router": "^4.5.15",
     "@vue/cli-plugin-typescript": "~4.5.15",
     "@vue/cli-service": "~4.5.15",
@@ -48,7 +47,9 @@
       "@typescript-eslint"
     ],
     "extends": [
-      "plugin:vue/recommended"
+      "eslint:recommended",
+      "plugin:vue/recommended",
+      "@vue/eslint-config-typescript"
     ],
     "rules": {
       "no-console": "off",
