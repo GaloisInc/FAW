@@ -1,10 +1,12 @@
 bokeh >= 2.1.1
 cachetools
+click==7.*
 dask[complete] == 2022.1.0
 jupyter-server-proxy
 motor
 psutil
 pyjson5
+pymongo  # exposes bson, gridfs, pymongo
 pympler
 requests
 strictyaml

@@ -13,20 +13,17 @@ import click
 import collections
 import contextlib
 import functools
-import importlib.util
 import ujson as json
-import math
 import mimetypes
 import motor.motor_asyncio
+import multiprocessing.connection
 import os
 import pickle
 import psutil
 import pymongo
 import pympler.asizeof as asizeof
 import re
-import shlex
 import shutil
-import strictyaml
 import sys
 import tempfile
 import time
@@ -115,10 +112,37 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     app_init = loop.create_task(init_check_pdfs())
     loop.create_task(faw_analysis_set.main_loop(app_mongodb_conn,
             app_config, _get_api_info))
+    loop.run_in_executor(None, _listen_for_clear_db_signal, port + 2, loop)
     vuespa.VueSpa('ui', Client, host=host, port=port,
             development=not production,
             config_web_callback=functools.partial(config_web, pdf_dir=pdf_dir)
             ).run()
+
+
+def _listen_for_clear_db_signal(port: int, loop: asyncio.AbstractEventLoop):
+    """Schedule a DB clear on the given loop when contacted on the given port.
+
+    For communication with the FAW CLI, which (in development mode) can clear
+    the DB.
+
+    Blocks, so should be run in another thread.
+    """
+    # No need for real auth since the docker container won't expose this port
+    listener = multiprocessing.connection.Listener(('localhost', port))
+    while True:
+        # Expect only a single message from a client, since the CLI
+        # process is ephemeral
+        conn = listener.accept()
+        msg = conn.recv()
+        if msg == 'clear_database':
+            try:
+                # Run `_clear_db` in the main thread's event loop
+                future = asyncio.run_coroutine_threadsafe(_clear_db(), loop)
+                # Block until done
+                future.result()
+                conn.send('done')
+            finally:
+                conn.close()
 
 
 def config_web(app, pdf_dir):
@@ -195,6 +219,16 @@ async def _config_web_decisions_handler(req):
 
     pdfDecisions = json.loads(stdout.decode('utf-8'))
     return web.json_response(pdfDecisions)
+
+
+async def _clear_db():
+    print('Aborting any running DB task')
+    _db_abort_process()
+    print('Dropping DB')
+    await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
+    print('Running new initialization task')
+    _db_reprocess()
+    print('DB reset complete')
 
 
 async def _config_check_loop():
@@ -981,14 +1015,6 @@ class Client(vuespa.Client):
         """
         async for v in fetch_statsbyfile(options, match_id):
             yield v
-
-    async def api_clear_db(self):
-        if not app_production:
-            _db_abort_process()
-            await app_mongodb_conn.client.drop_database(app_mongodb_conn.name)
-            _db_reprocess()
-        else:
-            raise Exception('Reset DB not allowed for Production runs.')
 
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.

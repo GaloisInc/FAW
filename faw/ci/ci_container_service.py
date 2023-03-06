@@ -121,9 +121,9 @@ def main():
             "database. In that case, always happens AFTER the effect of "
             "`--copy-mongo-from`, so this still overwrites the local database.")
     parser.add_argument('--production', action='store_true',
-            help="Developer option on by default: mount source code over docker image, for "
+            help="Disable developer mode (mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
-            "container for profiling purposes.")
+            "container for profiling purposes.).")
 
     if not STATIC_BUILD:
         parser.add_argument('--build-mode', action='store_true',
@@ -154,7 +154,7 @@ def main():
 
     if build_mode:
         # Exit before building image, which can be expensive
-        assert not development, "Build cannot use --development"
+        assert not development, "Build must use --production"
 
     if IMAGE_TAG is None:
         config = args.config_dir
@@ -333,7 +333,7 @@ def main():
             import webbrowser
             try:
                 webbrowser.open(f'http://localhost:{port}')
-            except ex:
+            except Exception:
                 traceback.print_exc()
         open_browser_thread = threading.Thread(target=open_browser)
         open_browser_thread.daemon = True
@@ -658,7 +658,7 @@ def _check_config_file(config, build_dir):
     return config_data
 
 
-def _check_image(development, config,  config_data, build_dir, build_faw_dir):
+def _check_image(development, config, config_data, build_dir, build_faw_dir):
     """Ensure that the docker image is loaded, if we are using a packaged
     version, or rebuild latest, if using a development version.
 
@@ -1137,7 +1137,8 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
 
 
 def _check_build_stage_change_and_update(
-    *, new_config, old_config, development, config_dir, build_dir, build_faw_dir, current_docker_id
+    *, new_config, old_config, development, config_dir, build_dir,
+    build_faw_dir, current_docker_id
 ):
     logging.info(f"Checking for stage updates ...")
 
@@ -1168,8 +1169,9 @@ def _check_build_stage_change_and_update(
 
     # To build a new image, first create the dockerfile contents
     dockerfile_contents = _create_dockerfile_contents(
-        development=development, config=config_dir, config_data=new_config,
-        build_dir=build_dir, build_faw_dir=build_faw_dir
+        development=development, config=config_dir,
+        config_data=new_config, build_dir=build_dir,
+        build_faw_dir=build_faw_dir
     )
 
     # We need to collect all the outputs from the updated stages in some place

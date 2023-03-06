@@ -7,7 +7,11 @@ export type PdfGroups = {
   files: Array<string>
 };
 
-export type FileFilterData = [string, Set<string>];
+export type FileFilterData = {
+  name: string,
+  skipped: boolean,
+  files: Set<string>,
+};
 
 
 export function reprocess(decisionDefinition: DslResult, reprocessPdfGroups: PdfGroups): PdfDecision[] 

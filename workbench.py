@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import traceback
 import threading
 
 # Keep track of the directory containing the FAW
@@ -146,7 +147,7 @@ def main():
                 time.sleep(1.5)
                 try:
                     webbrowser.open(f'http://localhost:{args.port}')
-                except ex:
+                except Exception:
                     traceback.print_exc()
             open_browser_thread = threading.Thread(target=open_browser)
             open_browser_thread.daemon = True
@@ -196,9 +197,9 @@ def parse_args():
             "database. In that case, always happens AFTER the effect of "
             "`--copy-mongo-from`, so this still overwrites the local database.")
     parser.add_argument('--production', action='store_true',
-            help="Developer option on by default: mount source code over docker image, for "
+            help="Disable developer mode (mount source code over docker image, for "
             "Vue.js hot reloading. Also includes `sys_ptrace` capability to docker "
-            "container for profiling purposes.")
+            "container for profiling purposes.).")
 
     args = parser.parse_args()
     if IMAGE_TAG is None and CONFIG_FOLDER is not None:
@@ -209,7 +210,7 @@ def parse_args():
     faw_dir = os.path.dirname(os.path.abspath(__file__))
     build_mode = (os.path.split(os.path.relpath(args.file_dir, faw_dir))[0] == 'build')
     if build_mode and not args.production:
-        assert args.production, "Build cannot use --development"
+        assert args.production, "Build must use --production"
     args.build_mode = build_mode
 
     return args
