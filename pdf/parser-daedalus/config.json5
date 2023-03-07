@@ -48,6 +48,13 @@
             && cd daedalus \
             && git checkout 21e7f70510d1413641d764258a4187dd7b343ccc',
           'WORKDIR /home/daedalus',
+          // Clear caches, if needed
+          // 2023-03-07 During production deployment, saw a failure in DaeDaLus
+          // build process. Clearing this run-mount cache fixed it, so leaving
+          // this here as a comment.
+          //'RUN --mount=type=cache,target=/root/.cabal \
+          //  --mount=type=cache,target=/home/daedalus/dist-newstyle \
+          //  rm -rf /home/daedalus/dist-newstyle/*',
           'RUN --mount=type=cache,target=/root/.cabal \
             --mount=type=cache,target=/home/daedalus/dist-newstyle \
             cabal update \
