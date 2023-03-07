@@ -757,13 +757,15 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             FROM base AS ui-builder
             # Install npm locally, only for the build.
             RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
+            COPY {build_faw_dir}/faw/pdf-observatory/common /home/pdf-observatory/common
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
             RUN cd /home/pdf-observatory/ui \
                 && npm install \
                 && npm run build
-            RUN cd /home/pdf-observatory/ci \
-                && npm install \
-                && npm run build
+            # We do not use CI in production
+            #RUN cd /home/pdf-observatory/ci \
+            #    && npm install \
+            #    && npm run build
             ''')
 
     # Always install observatory component dependencies as first part of final
