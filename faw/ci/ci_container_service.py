@@ -383,7 +383,9 @@ def main():
         '--log-driver', 'none',
         '--name', docker_id,
         '-e', f'DB={db_name}',
-        '-p', f'{port}:8123'
+        '-p', f'{port}:8123',
+        # Disable core dumps
+        '--ulimit', 'core=0',
     ] + volume_mount_params + extra_flags
 
     logging.info(f"FAW command line: {faw_command_line}")

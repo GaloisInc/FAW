@@ -64,6 +64,8 @@ docker_flags = ['docker', 'run', '-d',
         '--log-driver', 'none',
         '--name', docker_container,
         '-e', f'DB={user}-faw-db',
+        # Disable core dumps
+        '--ulimit', 'core=0',
 ]
 docker_flags_cmd = []
 if 'web_host' in host.groups:
