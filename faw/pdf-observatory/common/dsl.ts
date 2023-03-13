@@ -5,14 +5,22 @@ import peg from 'pegjs';
 export const dslDefault = `# Loading...`;
 
 export interface DslResult {
+  extraFeatures: Array<DslExtraFeature>;
   filters: Array<DslFilter>;
   outputs: Map<string, DslOutput>;
+}
+
+export interface DslExtraFeature {
+  featureText: string;
+  all: boolean;
+  caseInsensitive: boolean;
+  patterns: Array<DslFilterPattern>;
 }
 
 export interface DslFilter {
   name: string;
   all: boolean;
-  caseInsensitive?: boolean;
+  caseInsensitive: boolean;
   patterns: Array<DslFilterPattern>;
 }
 
@@ -65,11 +73,20 @@ function generateDslParser() {
       }
 
       start
-        = WS_INIT filters:filters_expr WS_LINES outputs:outputs_expr WS_LINES WS_MAYBE COMMENT?
-            { return { filters: filters, outputs: outputs }; }
+        = WS_INIT extraFeatures:extra_features_expr WS_LINES filters:filters_expr WS_LINES outputs:outputs_expr WS_LINES WS_MAYBE COMMENT?
+            { return { extraFeatures: extraFeatures, filters: filters, outputs: outputs }; }
+
+      extra_features_expr
+        = (
+            "features:" WS_LINES
+            &{ return indentPush(); }
+            inner:(INDENT extra_features_def+)?
+            &{ indentPop(); return inner; }
+            { return inner[1]; }
+          ) / ( "" { return []; } )
 
       filters_expr
-        = "filters:" WS_LINES &{ return indentPush(); } inner:(INDENT filters_defs+)? &{ indentPop(); return inner; }
+        = "filters:" WS_LINES &{ return indentPush(); } inner:(INDENT filters_def+)? &{ indentPop(); return inner; }
             { return inner[1]; }
 
       regex_flags
@@ -78,17 +95,26 @@ function generateDslParser() {
 
       regex_flag
         = "i" {
-          return {caseInsensitive: true}; }
+          return { caseInsensitive: true }; }
 
-      filters_defs
+      extra_features_def
+        = INDENT_CHECK featureText:feature_text re:regex_flags all:(WS "all")? ":"
+            WS_LINES
+            &{ return indentPush(); }
+            inner:(INDENT filters_pattern+)?
+            &{ indentPop(); return inner; } {
+              return { featureText: featureText, all: !!all, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
+
+      feature_text
+        = $[A-Za-z0-9_\\-=+<>()\\[\\],.?; ]+
+
+      filters_def
         = INDENT_CHECK name:filter_name re:regex_flags all:(WS "all")? ":"
             WS_LINES
             &{ return indentPush(); }
             inner:(INDENT filters_pattern+)?
             &{ indentPop(); return inner; } {
-              let r = { name: name, all: !!all, patterns: inner[1] };
-              if (re.caseInsensitive) r.caseInsensitive = true;
-              return r; }
+              return { name: name, all: !!all, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
 
       filter_name
         = leader:[A-Z] trailer:ID_CHARS { return leader + trailer; }

@@ -336,6 +336,7 @@ mixin confusion-matrix
                   :decisionSelectedDsl="decisionSelectedDsl"
                   :decisionReference="decisionReference"
                   :asOptions="_pdfGroupsSubsetOptions()"
+                  :extraFeaturesByFile="extraFeaturesByFile"
                 )
               v-tab-item(:key="DbView.Combined")
                 CombinedDbView(:pdf="decisionSelected.testfile")
@@ -587,7 +588,7 @@ import DbViewComponent from '@/components/DbView.vue';
 import CombinedDbViewComponent from '@/components/CombinedDbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
 
-import { PdfGroups, FileFilterData, reprocess as reprocessCommon } from '@/common/processor'
+import { PdfGroups, reprocess as reprocessCommon } from '@/common/processor'
 
 export enum DbView {
   Decision = 0,
@@ -605,6 +606,14 @@ export class LoadingStatus {
   files_err: number = 0;
   message: string = '<Loading>';
 }
+
+
+export type FileFilterData = {
+  name: string,
+  skipped: boolean,
+  files: Set<string>,
+};
+
 
 export default Vue.extend({
   name: 'HomeView',
@@ -638,6 +647,7 @@ export default Vue.extend({
       decisionSearchCustom: '',
       decisionSearchInsensitive: true,
       decisionSelectedDsl: {} as PdfDecision,
+      extraFeaturesByFile: new Map<string, string[]>(),
       error: false as any,
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
@@ -1099,6 +1109,7 @@ export default Vue.extend({
             dd.filters.push({
                 name: filtName,
                 all: true,
+                caseInsensitive: false,
                 patterns: Array.from(messages).map(x => ({pat: x, check: null})),
             });
             vv[1] = {type: 'id', id1: filtName};
@@ -1264,8 +1275,15 @@ export default Vue.extend({
             refDecs = this.pdfsReference;
           }
           // Run plugin
-          const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey,
-              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
+          const r = await this.$vuespa.call(
+            'config_plugin_dec_run',
+            pluginKey,
+            this.vuespaUrl,
+            jsonArgs,
+            refDecs,
+            this._pdfGroupsSubsetOptions(true),
+            Object.fromEntries(this.extraFeaturesByFile),
+          );
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
           this.pluginDecDebug = r.debug;
@@ -1385,7 +1403,7 @@ export default Vue.extend({
         // Loading... we'll be back here.
         return;
       }
-      
+
       if (!this.reprocessInnerPdfGroups && this.pdfGroupsDirty) {
         // Limit to one repeat of cleaning pdfGroups
         this.reprocessInnerPdfGroups = true;
@@ -1393,7 +1411,7 @@ export default Vue.extend({
         // watcher for pdfGroups will trigger reprocess.
         return;
       }
-      
+
       const dd = this.decisionDefinition;
       if (dd === null) {
         throw new Error("reprocess() was triggered without valid decision spec?");
@@ -1408,7 +1426,7 @@ export default Vue.extend({
           patterns: [{pat: this.decisionSearchCustom, check: null}],
         });
       }
-      
+
       // Push workbench errors regardless
       dd.filters = dd.filters.filter(x => x.name !== 'faw-errors');
       dd.filters.push({
@@ -1428,7 +1446,7 @@ export default Vue.extend({
       if (!this.holdReferences) {
         this.pdfsReference = this.pdfs;
       }
-    
+
       // Narrow down to only groups pertaining to selected files
       let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
       if (this.fileFilters.length > 0) {
@@ -1445,15 +1463,17 @@ export default Vue.extend({
           groups[k] = nfiles;
         }
       }
-      
-      let pdfGroups: PdfGroups = {
+
+      const pdfGroups: PdfGroups = {
         groups: groups,
         files: this.pdfGroups.files
       };
-      
-      let newPdfs = reprocessCommon(dd, pdfGroups);
+
+      const reprocessResult = reprocessCommon(dd, pdfGroups);
+      const newPdfs = reprocessResult.decisions;
       this.pdfs = Object.freeze(newPdfs);
       this.pdfsDslLast = Object.freeze(newPdfs);
+      this.extraFeaturesByFile = reprocessResult.extraFeaturesByFile;
       this.reprocessPost();
     },
     reprocessPost() {

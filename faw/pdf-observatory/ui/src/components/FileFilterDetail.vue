@@ -69,7 +69,7 @@
 </style>
 
 <script lang="ts">
-import Vue from 'vue';
+import Vue, {PropType} from 'vue';
 
 import CheckmarkComponent from '@/components/CheckmarkComponent.vue';
 import {PdfDecision, sortByReject} from '@/common/common';
@@ -81,11 +81,12 @@ export default Vue.extend({
     checkmark: CheckmarkComponent,
   },
   props: {
-    asOptions: Object as () => any,  // Options for analysis set
-    decisionDefinition: Object as () => DslResult | null,
-    decisionSelected: Object as () => PdfDecision,
-    decisionSelectedDsl: Object as () => PdfDecision,
-    decisionReference: Object as () => PdfDecision,
+    asOptions: Object as PropType<any>,  // Options for analysis set
+    decisionDefinition: Object as PropType<DslResult | null>,
+    decisionSelected: Object as PropType<PdfDecision>,
+    decisionSelectedDsl: Object as PropType<PdfDecision>,
+    decisionReference: Object as PropType<PdfDecision>,
+    extraFeaturesByFile: Map as PropType<Map<string, string[]>>,
   },
   data() {
     return {
@@ -128,6 +129,10 @@ export default Vue.extend({
       if (tf) {
         const data = await this.$vuespa.call('load_db', tf, 'statsbyfile',
             this.asOptions, {as_only: this.fileStatsAsOnly});
+        const extraFeatures = this.extraFeaturesByFile.get(tf);
+        for (const extraFeature of (extraFeatures !== undefined ? extraFeatures : [])) {
+          data[0][extraFeature] = 1;
+        }
         // Prevent duplicates by re-setting the array whenever we get data
         this.fileStats.clear();
         this.fileStats.set('other', []);

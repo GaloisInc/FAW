@@ -24,7 +24,10 @@
       "dom",
       "dom.iterable",
       "scripthost"
-    ]
+    ],
+    "paths": {
+      "tslib" : ["../ui/node_modules/tslib/tslib.d.ts"]
+    },
   },
   "include": [
     "*.ts",

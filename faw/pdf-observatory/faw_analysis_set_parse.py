@@ -19,7 +19,6 @@ import tempfile
 import threading
 import time
 import traceback
-from typing import Dict, Tuple, Union
 
 # Trickery to import pieces of pdf-etl decision pipeline
 import importlib

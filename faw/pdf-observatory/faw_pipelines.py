@@ -16,10 +16,8 @@ import functools
 import json
 import subprocess
 import time
-import traceback
 
 async def pipeline_admin(exit_flag, app_config, api_info, aset_id):
-    import asyncio
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _pipeline_admin, exit_flag, app_config, api_info, aset_id)
 

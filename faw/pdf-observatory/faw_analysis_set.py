@@ -8,10 +8,10 @@ import faw_internal_util
 import faw_pipelines_util
 
 import asyncio
-import collections
 import dask.distributed
 import enum
 import pymongo
+import pymongo.collection
 import random
 import re
 import sys
@@ -398,6 +398,8 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
 
     Must be re-entrant.
 
+    Precondition: as_doc['status'] must not be UP_TO_DATE
+
     # issues/5975 -- dask_check_if_cancelled
     """
     # Convergent
@@ -438,6 +440,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
     # user downtime.
 
     if as_doc['status'] == AsStatus.REBUILD_IDS.value:
+        print('Rebuilding IDs...')
         # issues/5975
         if True: #with dask.distributed.worker_client():  # Secede from dask for long op
             as_create_id_collection(exit_flag, db, app_config, as_name, col_ids.name)
@@ -457,12 +460,13 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
             return
 
     if as_doc['status'] == AsStatus.REBUILD_DATA.value:
+        print('Rebuilding data indexes/markers...')
         _as_populate_ids_setup_col(col_ids)
         if not update_status(AsStatus.REBUILDING.value):
             return
 
-    ## Below this is AsStatus.REBUILDING
     if as_doc['status'] == AsStatus.REBUILDING.value:
+        print('Rerunning parsers...')
         # Stage 1 -- run pipeline parsers on files as needed
         _, pv_data = as_doc['parser_versions']
         _, pv_data_done = as_doc.get('parser_versions_done', [{}, {}])
@@ -492,9 +496,11 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
 
     # Finally, compiling
     # Collect parser information
+    print('Compiling parser info...')
     _as_populate_gather(exit_flag, as_doc, col_ids, col_dst)
 
     # Declare done
+    print('Up to date!')
     if not update_status(AsStatus.UP_TO_DATE.value):
         return
 
@@ -536,7 +542,9 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
 
     if not new_parsers:
         # Nothing to do
+        print('No new parsers; not rerunning any parsers')
         return True
+    print(f'Rerunning {len(new_parsers)} parsers')
 
     # Priority of this parser is number of files times number of parsers
     # required.
