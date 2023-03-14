@@ -38,7 +38,7 @@
                     v-btn(v-clipboard="() => regexEscape(k[0])") (Copy regex to clipboard)
                     v-btn(v-clipboard="() => '^' + regexEscape(k[0]) + '$'") (with ^$)
 
-    .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] for filters: passed 'all' or rejected by 'any'; click to copy to clipboard):
+    .decision-reasons Full listing of reasons (#[checkmark(:status="'valid'")] indicates a match for filters; click to copy to clipboard):
       div(style="display: flex; flex-direction: row; align-items: start; margin-bottom: -1.5em")
         span (
         v-checkbox(

@@ -12,14 +12,12 @@ export interface DslResult {
 
 export interface DslExtraFeature {
   featureText: string;
-  all: boolean;
   caseInsensitive: boolean;
   patterns: Array<DslFilterPattern>;
 }
 
 export interface DslFilter {
   name: string;
-  all: boolean;
   caseInsensitive: boolean;
   patterns: Array<DslFilterPattern>;
 }
@@ -98,23 +96,23 @@ function generateDslParser() {
           return { caseInsensitive: true }; }
 
       extra_features_def
-        = INDENT_CHECK featureText:feature_text re:regex_flags all:(WS "all")? ":"
+        = INDENT_CHECK featureText:feature_text re:regex_flags ":"
             WS_LINES
             &{ return indentPush(); }
             inner:(INDENT filters_pattern+)?
             &{ indentPop(); return inner; } {
-              return { featureText: featureText, all: !!all, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
+              return { featureText: featureText, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
 
       feature_text
         = $[A-Za-z0-9_\\-=+<>()\\[\\],.?; ]+
 
       filters_def
-        = INDENT_CHECK name:filter_name re:regex_flags all:(WS "all")? ":"
+        = INDENT_CHECK name:filter_name re:regex_flags ":"
             WS_LINES
             &{ return indentPush(); }
             inner:(INDENT filters_pattern+)?
             &{ indentPop(); return inner; } {
-              return { name: name, all: !!all, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
+              return { name: name, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
 
       filter_name
         = leader:[A-Z] trailer:ID_CHARS { return leader + trailer; }

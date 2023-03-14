@@ -47,7 +47,6 @@ export function reprocess(
     caseInsensitive: boolean,
     // Only used for saving info
     identifier: string,
-    conjunctive: boolean,
   ): Set<number> {
     const fileIndices = new Set<number>();
 
@@ -173,22 +172,11 @@ export function reprocess(
         }
       }
       if (matched) {
-        for (const [fileIndex, featureValue] of filesSubset) {
-          fileIndices.add(fileIndex);
-        }
-      }
-      if (conjunctive && !matched) {
-        // If we're matching all, then we want to note the set of PDFs for
-        // which any message did not match.
-        for (const [fileIndex, ] of filesSubset) {
-          decisionsByFileIndex.get(fileIndex)!.info.push(`'${identifier}' rejected '${message}'`);
-        }
-      }
-      else if (matched) {
         // If we're matching any, then we're interested in PDFs where any
         // message did match.
         for (const [fileIndex, ] of filesSubset) {
           decisionsByFileIndex.get(fileIndex)!.info.push(`'${identifier}' accepted '${message}'`);
+          fileIndices.add(fileIndex);
         }
       }
     }
@@ -201,7 +189,6 @@ export function reprocess(
       extraFeature.patterns,
       extraFeature.caseInsensitive,
       extraFeature.featureText,
-      extraFeature.all,
     );
     fileIndicesByExtraFeatureText.set(
       extraFeature.featureText, fileIndices
@@ -216,7 +203,7 @@ export function reprocess(
   const fileIndicesByFilterName = new Map<string, Set<number>>();
   for (const filter of decisionDefinition.filters) {
     const fileIndices = fileIndicesMatchingFilter(
-      filter.patterns, filter.caseInsensitive, filter.name, filter.all
+      filter.patterns, filter.caseInsensitive, filter.name
     );
     fileIndicesByFilterName.set(filter.name, fileIndices);
   }
