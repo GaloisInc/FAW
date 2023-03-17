@@ -74,7 +74,9 @@ export function reprocess(
               // So, act like no match.
               return new Set();
             }
-            throw new Error(`Could not find ${message + suffix}?`);
+            throw new Error(
+              `Could not evaluate check for \`${identifier}\` matching non-numeric message: ${message}`
+            );
           }
 
           const p = new Array<number>();
@@ -105,6 +107,11 @@ export function reprocess(
             const right = evalInner(check.id2);
             return left.map((l, i) => l >= right[i] ? 1 : 0);
           }
+          else if (check.type === '==') {
+            const left = evalInner(check.id1);
+            const right = evalInner(check.id2);
+            return left.map((l, i) => l == right[i] ? 1 : 0);
+          }
           else if (check.type === 'and') {
             const left = evalInner(check.id1);
             const right = evalInner(check.id2);
@@ -118,7 +125,10 @@ export function reprocess(
           else if (check.type === 'id') {
             const r = parts.get(check.id1);
             if (r === undefined) {
-              throw new Error(`No such numeric quantity? ${check.id1}`);
+              throw new Error(
+                `Could not evaluate check for ${identifier}: No such `
+                + `quantity ${check.id1} for message: ${message}`
+              );
             }
             return r;
           }
@@ -151,7 +161,9 @@ export function reprocess(
           }
 
           console.log(check);
-          throw new Error(`Check type ${check.type}`);
+          throw new Error(
+            `Could not evaluate check for ${identifier}: Unrecognized check type ${check.type}`
+          );
         };
 
         const r = evalInner(check);

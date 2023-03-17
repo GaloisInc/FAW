@@ -44,9 +44,12 @@ mixin reprocess-button
 mixin stale-decisions-alert
   v-alert(
     dense
-    :type="(filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
+    :type="filtersError ? 'error' : (filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
   )
-    span(v-if="filtersModified") Filters have been modified; 'Reprocess' to update decisions
+    span(v-if="filtersError") Filters could not be run; fix and 'Reprocess' to update decisions. 
+      br
+      span {{filtersError}}
+    span(v-else-if="filtersModified") Filters have been modified; 'Reprocess' to update decisions
     span(v-else-if="pdfGroupsDirty") Data is stale; 'Reprocess' to download fresh data
     span(v-else-if="pdfGroupsLoading") Data is loading...
     span(v-else) Data is up-to-date
@@ -346,8 +349,8 @@ mixin confusion-matrix
         v-expansion-panel-header.grey.lighten-2
           span
             v-icon(
-              v-if="filtersModified || pdfGroupsDirty || pdfGroupsLoading"
-              color="orange"
+              v-if="filtersError || filtersModified || pdfGroupsDirty || pdfGroupsLoading"
+              :color="(filtersError ? 'red' : 'orange')"
               style="margin-right: 1ch"
               small
             ) mdi-alert
@@ -655,6 +658,7 @@ export default Vue.extend({
       failReasonsSort: 'total',
       fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
+      filtersError: null as Error | null,
       filtersModified: false as boolean,
       holdReferences: true,
       initReferences: false,
@@ -1108,7 +1112,6 @@ export default Vue.extend({
             const filtName = filterPrefix + nextGroup++;
             dd.filters.push({
                 name: filtName,
-                all: true,
                 caseInsensitive: false,
                 patterns: Array.from(messages).map(x => ({pat: x, check: null})),
             });
@@ -1132,8 +1135,6 @@ export default Vue.extend({
         let header = k.name.slice();
         if (k.caseInsensitive)
           header += '/i';
-        if (k.all)
-          header += ' all';
         header += ':';
         add(header);
         indent += 1;
@@ -1421,7 +1422,6 @@ export default Vue.extend({
         dd.filters = dd.filters.filter(x => x.name !== 'faw-custom');
         dd.filters.push({
           name: 'faw-custom',
-          all: false,
           caseInsensitive: this.decisionSearchInsensitive,
           patterns: [{pat: this.decisionSearchCustom, check: null}],
         });
@@ -1431,7 +1431,6 @@ export default Vue.extend({
       dd.filters = dd.filters.filter(x => x.name !== 'faw-errors');
       dd.filters.push({
         name: 'faw-errors',
-        all: false,
         caseInsensitive: true,
         patterns: [
           {pat: '_<<workbench: Exit code missing', check: null},
@@ -1469,12 +1468,17 @@ export default Vue.extend({
         files: this.pdfGroups.files
       };
 
-      const reprocessResult = reprocessCommon(dd, pdfGroups);
-      const newPdfs = reprocessResult.decisions;
-      this.pdfs = Object.freeze(newPdfs);
-      this.pdfsDslLast = Object.freeze(newPdfs);
-      this.extraFeaturesByFile = reprocessResult.extraFeaturesByFile;
-      this.reprocessPost();
+      try {
+        const reprocessResult = reprocessCommon(dd, pdfGroups);
+        const newPdfs = reprocessResult.decisions;
+        this.pdfs = Object.freeze(newPdfs);
+        this.pdfsDslLast = Object.freeze(newPdfs);
+        this.extraFeaturesByFile = reprocessResult.extraFeaturesByFile;
+        this.reprocessPost();
+        this.filtersError = null;
+      } catch (error: unknown) {
+        this.filtersError = error as Error;
+      }
     },
     reprocessPost() {
       this.fileSelected = 0;
