@@ -55,9 +55,8 @@ export function reprocess(
       check: p.check,
     }));
     for (const [message, files] of filesWithMessages) {
-      let matched = false;
       // Do any of our filter's patterns match this message?
-      let filesSubset = files;
+      let filesSubset = new Set<number>();
 
       const evalCheck = (message: string, check: any): Set<number> => {
         const parts = new Map<string, Array<number>>();
@@ -176,20 +175,22 @@ export function reprocess(
           // check?
           if (r.check !== null) {
             const group = evalCheck(message, r.check);
-            if (group.size > 0) filesSubset = filesSubset.filter(x => group.has(x[0]));
-            else continue;
+            if (group.size > 0) {
+              // Merge `group` into `filesSubset`
+              group.forEach(filesSubset.add, filesSubset);
+            }
+          } else {
+            // Accept all matches; short-circuit
+            for (const [fileIndex, ] of files) {
+              filesSubset.add(fileIndex);
+            }
+            break;
           }
-          matched = true;
-          break;
         }
       }
-      if (matched) {
-        // If we're matching any, then we're interested in PDFs where any
-        // message did match.
-        for (const [fileIndex, ] of filesSubset) {
-          decisionsByFileIndex.get(fileIndex)!.info.push(`'${identifier}' accepted '${message}'`);
-          fileIndices.add(fileIndex);
-        }
+      for (const fileIndex of filesSubset) {
+        decisionsByFileIndex.get(fileIndex)!.info.push(`'${identifier}' accepted '${message}'`);
+        fileIndices.add(fileIndex);
       }
     }
     return fileIndices;

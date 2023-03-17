@@ -46,9 +46,10 @@ mixin stale-decisions-alert
     dense
     :type="filtersError ? 'error' : (filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
   )
-    span(v-if="filtersError") Filters could not be run; fix and 'Reprocess' to update decisions. 
+    span(v-if="filtersError")
+      | Filters could not be run; fix and 'Reprocess' to update decisions.
       br
-      span {{filtersError}}
+      | {{filtersError}}
     span(v-else-if="filtersModified") Filters have been modified; 'Reprocess' to update decisions
     span(v-else-if="pdfGroupsDirty") Data is stale; 'Reprocess' to download fresh data
     span(v-else-if="pdfGroupsLoading") Data is loading...
@@ -124,7 +125,9 @@ mixin confusion-matrix
               template(v-slot:activator="{on}")
                 div(v-on="on")
                   v-btn.download(@click="downloadFeatures") Download features
-              span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
+              span
+                | Downloads all features loaded in UI as a matrix of features x files;
+                | blank values indicate that a file does NOT have that feature.
           +stale-decisions-alert
 
           v-sheet(:elevation="3" style="margin-block: 1em; padding: 1em")
@@ -1478,6 +1481,7 @@ export default Vue.extend({
         this.filtersError = null;
       } catch (error: unknown) {
         this.filtersError = error as Error;
+        console.error(error);
       }
     },
     reprocessPost() {
