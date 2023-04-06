@@ -86,7 +86,7 @@ export default Vue.extend({
     decisionSelected: Object as PropType<PdfDecision>,
     decisionSelectedDsl: Object as PropType<PdfDecision>,
     decisionReference: Object as PropType<PdfDecision>,
-    extraFeaturesByFile: Map as PropType<Map<string, string[]>>,
+    extraFeaturesByFile: Object as PropType<{[filename:string]:string[]}>,
   },
   data() {
     return {
@@ -129,7 +129,7 @@ export default Vue.extend({
       if (tf) {
         const data = await this.$vuespa.call('load_db', tf, 'statsbyfile',
             this.asOptions, {as_only: this.fileStatsAsOnly});
-        const extraFeatures = this.extraFeaturesByFile.get(tf);
+        const extraFeatures = this.extraFeaturesByFile[tf];
         for (const extraFeature of (extraFeatures !== undefined ? extraFeatures : [])) {
           data[0][extraFeature] = 1;
         }

@@ -14,6 +14,7 @@ import collections
 import contextlib
 import functools
 import ujson as json
+import logging
 import mimetypes
 import motor.motor_asyncio
 import multiprocessing.connection
@@ -74,6 +75,8 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
 
     global app_config, app_config_path, app_docker, app_hostname, app_hostport, \
             app_init, app_mongodb, app_mongodb_conn, app_pdf_dir, app_production
+
+    logging.basicConfig()
 
     assert in_docker, 'Config specifying parsers must be in docker'
 

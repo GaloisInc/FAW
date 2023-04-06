@@ -653,7 +653,7 @@ export default Vue.extend({
       decisionSearchCustom: '',
       decisionSearchInsensitive: true,
       decisionSelectedDsl: {} as PdfDecision,
-      extraFeaturesByFile: new Map<string, string[]>(),
+      extraFeaturesByFile: {} as {[filename:string]: string[]},
       error: false as any,
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
@@ -1286,7 +1286,7 @@ export default Vue.extend({
             jsonArgs,
             refDecs,
             this._pdfGroupsSubsetOptions(true),
-            Object.fromEntries(this.extraFeaturesByFile),
+            this.extraFeaturesByFile,
           );
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
@@ -1476,7 +1476,9 @@ export default Vue.extend({
         const newPdfs = reprocessResult.decisions;
         this.pdfs = Object.freeze(newPdfs);
         this.pdfsDslLast = Object.freeze(newPdfs);
-        this.extraFeaturesByFile = reprocessResult.extraFeaturesByFile;
+        this.extraFeaturesByFile = Object.freeze(
+          Object.fromEntries(reprocessResult.extraFeaturesByFile)
+        );
         this.reprocessPost();
         this.filtersError = null;
       } catch (error: unknown) {

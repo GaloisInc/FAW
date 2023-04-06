@@ -10,6 +10,7 @@ import faw_pipelines_util
 import asyncio
 import dask.distributed
 import enum
+import logging
 import pymongo
 import pymongo.collection
 import random
@@ -22,6 +23,10 @@ _app_config = None
 _app_config_version = 0
 _app_force_stale = {}  # {'aset': True} for asets which have been modified in such
                        # a way that their current processing should be aborted.
+
+logger = logging.getLogger(__name__)
+# logger.setLevel(logging.DEBUG)  # uncomment to enable debug logging in this file
+
 
 class AsStatus(enum.Enum):
     UP_TO_DATE = ''
@@ -440,7 +445,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
     # user downtime.
 
     if as_doc['status'] == AsStatus.REBUILD_IDS.value:
-        print('Rebuilding IDs...')
+        logger.debug(f'{as_name}: Rebuilding IDs...')
         # issues/5975
         if True: #with dask.distributed.worker_client():  # Secede from dask for long op
             as_create_id_collection(exit_flag, db, app_config, as_name, col_ids.name)
@@ -460,13 +465,13 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
             return
 
     if as_doc['status'] == AsStatus.REBUILD_DATA.value:
-        print('Rebuilding data indexes/markers...')
+        logger.debug(f'{as_name}: Rebuilding data indexes/markers...')
         _as_populate_ids_setup_col(col_ids)
         if not update_status(AsStatus.REBUILDING.value):
             return
 
     if as_doc['status'] == AsStatus.REBUILDING.value:
-        print('Rerunning parsers...')
+        logger.debug(f'{as_name}: Rerunning parsers...')
         # Stage 1 -- run pipeline parsers on files as needed
         _, pv_data = as_doc['parser_versions']
         _, pv_data_done = as_doc.get('parser_versions_done', [{}, {}])
@@ -496,11 +501,11 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
 
     # Finally, compiling
     # Collect parser information
-    print('Compiling parser info...')
+    logger.debug(f'{as_name}: Compiling parser info...')
     _as_populate_gather(exit_flag, as_doc, col_ids, col_dst)
 
     # Declare done
-    print('Up to date!')
+    logger.debug(f'{as_name}: Up to date.')
     if not update_status(AsStatus.UP_TO_DATE.value):
         return
 
@@ -542,9 +547,9 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
 
     if not new_parsers:
         # Nothing to do
-        print('No new parsers; not rerunning any parsers')
+        logger.debug('No new parsers; not rerunning any parsers')
         return True
-    print(f'Rerunning {len(new_parsers)} parsers')
+    logger.debug(f'Rerunning {len(new_parsers)} parsers')
 
     # Priority of this parser is number of files times number of parsers
     # required.

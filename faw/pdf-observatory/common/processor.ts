@@ -173,18 +173,17 @@ export function reprocess(
         if (r.pat.test(message)) {
           // Do we need to constrain the matching set based on an auxiliary
           // check?
-          if (r.check !== null) {
-            const group = evalCheck(message, r.check);
-            if (group.size > 0) {
-              // Merge `group` into `filesSubset`
-              group.forEach(filesSubset.add, filesSubset);
-            }
-          } else {
+          if (r.check === null) {
             // Accept all matches; short-circuit
             for (const [fileIndex, ] of files) {
               filesSubset.add(fileIndex);
             }
             break;
+          }
+          const group = evalCheck(message, r.check);
+          if (group.size > 0) {
+            // Merge `group` into `filesSubset`
+            group.forEach(filesSubset.add, filesSubset);
           }
         }
       }
