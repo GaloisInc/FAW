@@ -114,6 +114,7 @@ def _handle_get_decisions(args):
         '--data-urlencode', f'dsl@{str(dsl_path)}',
         f'http://{args.host}:{args.port}/decisions'
     ])
+    output = output.decode()
 
     if args.format:
         obj = json.loads(output)

@@ -3,7 +3,6 @@
 
 import collections
 import pymongo
-import sys
 
 PipelineParserSpec = collections.namedtuple('PipelineParserSpec', ['pipe',
         'parser', 'aset'])

@@ -14,6 +14,7 @@ import collections
 import contextlib
 import functools
 import ujson as json
+import logging
 import mimetypes
 import motor.motor_asyncio
 import multiprocessing.connection
@@ -29,6 +30,7 @@ import tempfile
 import time
 import traceback
 import vuespa
+from typing import Dict, Any, List
 
 app_config = None
 app_config_loaded = None
@@ -73,6 +75,8 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
 
     global app_config, app_config_path, app_docker, app_hostname, app_hostport, \
             app_init, app_mongodb, app_mongodb_conn, app_pdf_dir, app_production
+
+    logging.basicConfig()
 
     assert in_docker, 'Config specifying parsers must be in docker'
 
@@ -532,6 +536,12 @@ async def _init_check_pdfs():
 
 # A global cache for document information primarily for use by
 # `get_decisions` and `fetch_statsbyfile`.
+# Keys:
+#  (*option_kv, match_id)
+# Values:
+#  List of lists of dict, where the dict contains:
+#   "_id": filename
+#   feature text: 1 if present, 0 otherwise
 document_cache = cachetools.TTLCache(maxsize=100, ttl=5 * 60)
 
 
@@ -613,10 +623,7 @@ async def fetch_statsbyfile(options, match_id=None):
                  for k, v in option_kv]
     cache_key = (*option_kv, match_id)
 
-    try:
-        v = document_cache.get(cache_key)
-    except TypeError:
-        raise TypeError(cache_key)
+    v = document_cache.get(cache_key)
     if v is not None:
         if v[0] == fresh_key:
             # Cache data is up-to-date
@@ -771,9 +778,21 @@ class Client(vuespa.Client):
                 raise NotImplementedError(plugin_def['type'])
 
 
-    async def api_config_plugin_dec_run(self, plugin_key, api_url, json_args,
-            reference_decisions, subset_options):
+    async def api_config_plugin_dec_run(
+        self,
+        plugin_key: str,
+        api_url: str,
+        json_args: Dict[str, Any],
+        reference_decisions: List[Dict[str, Any]],
+        subset_options: Dict[str, Any],
+        extra_features_by_file: Dict[str, List[str]],
+    ):
         """Runs a decision plugin.
+
+        Args:
+            extra_features_by_file:
+                Mapping from filename to additional features derived
+                from parser output. May not be complete.
         """
         timer = _Timer()
 
@@ -855,12 +874,26 @@ class Client(vuespa.Client):
                                     # optimization, saves ~16% on large
                                     # collections
                                     bytes_written = 0
-                                    async for dd in self._statsbyfile_cursor(
+                                    async for dd in fetch_statsbyfile(
                                             subset_options):
                                         if bytes_written > 500e6:
                                             await s.drain()
                                             bytes_written = 0
                                         for d in dd:
+                                            filename = d['_id']
+                                            extra_features = (
+                                                extra_features_by_file.get(
+                                                    filename, []
+                                                )
+                                            )
+                                            if extra_features:
+                                                d = {
+                                                    **d,
+                                                    **{
+                                                        feature: 1 for feature
+                                                        in extra_features
+                                                    },
+                                                }
                                             a = json.dumps(d, ensure_ascii=False
                                                     ).encode('utf-8')
                                             s.write(a)
@@ -921,7 +954,7 @@ class Client(vuespa.Client):
     async def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
             extra_api_info):
         if not api_url.endswith('/'):
-            api_url = api_url+ '/'
+            api_url = api_url + '/'
 
         template_vals = {
                 '<apiInfo>': lambda: json.dumps(_get_api_info(extra_api_info)),
@@ -999,23 +1032,6 @@ class Client(vuespa.Client):
                 else:
                     os.unlink(f)
 
-
-    async def _statsbyfile_cursor(self, options, match_id=None):
-        """Async generator which yields from `statsbyfile` according to the
-        working subsetting options in `options`.
-
-        For efficiency, yields batches rather than individual documents! This
-        cuts overhead by as much as 50% due to the way async works in python.
-
-        Args:
-            options:
-                analysis_set_id: Analysis set to use for returning results
-                file_ids?: Optional list of file IDs to restrict results.
-            match_id: Document id to return.
-        """
-        async for v in fetch_statsbyfile(options, match_id):
-            yield v
-
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.
 
@@ -1072,7 +1088,7 @@ class Client(vuespa.Client):
         elif collection == 'statsbyfile':
             # This is now a virtual collection; select data from relevant places
             if other_options and other_options.get('as_only'):
-                cursor = self._statsbyfile_cursor(as_options, match_id=pdf)
+                cursor = fetch_statsbyfile(as_options, match_id=pdf)
                 cursor_batched = True
                 as_options = None
             else:

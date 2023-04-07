@@ -44,9 +44,13 @@ mixin reprocess-button
 mixin stale-decisions-alert
   v-alert(
     dense
-    :type="(filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
+    :type="filtersError ? 'error' : (filtersModified || pdfGroupsDirty || pdfGroupsLoading) ? 'warning' : 'success'"
   )
-    span(v-if="filtersModified") Filters have been modified; 'Reprocess' to update decisions
+    span(v-if="filtersError")
+      | Filters could not be run; fix and 'Reprocess' to update decisions.
+      br
+      | {{filtersError}}
+    span(v-else-if="filtersModified") Filters have been modified; 'Reprocess' to update decisions
     span(v-else-if="pdfGroupsDirty") Data is stale; 'Reprocess' to download fresh data
     span(v-else-if="pdfGroupsLoading") Data is loading...
     span(v-else) Data is up-to-date
@@ -121,7 +125,9 @@ mixin confusion-matrix
               template(v-slot:activator="{on}")
                 div(v-on="on")
                   v-btn.download(@click="downloadFeatures") Download features
-              span Downloads all features loaded in UI as a matrix of features x files; blank values indicate that a file does NOT have that feature.
+              span
+                | Downloads all features loaded in UI as a matrix of features x files;
+                | blank values indicate that a file does NOT have that feature.
           +stale-decisions-alert
 
           v-sheet(:elevation="3" style="margin-block: 1em; padding: 1em")
@@ -336,6 +342,7 @@ mixin confusion-matrix
                   :decisionSelectedDsl="decisionSelectedDsl"
                   :decisionReference="decisionReference"
                   :asOptions="_pdfGroupsSubsetOptions()"
+                  :extraFeaturesByFile="extraFeaturesByFile"
                 )
               v-tab-item(:key="DbView.Combined")
                 CombinedDbView(:pdf="decisionSelected.testfile")
@@ -345,8 +352,8 @@ mixin confusion-matrix
         v-expansion-panel-header.grey.lighten-2
           span
             v-icon(
-              v-if="filtersModified || pdfGroupsDirty || pdfGroupsLoading"
-              color="orange"
+              v-if="filtersError || filtersModified || pdfGroupsDirty || pdfGroupsLoading"
+              :color="(filtersError ? 'red' : 'orange')"
               style="margin-right: 1ch"
               small
             ) mdi-alert
@@ -587,7 +594,7 @@ import DbViewComponent from '@/components/DbView.vue';
 import CombinedDbViewComponent from '@/components/CombinedDbView.vue';
 import FileFilterDetailComponent from '@/components/FileFilterDetail.vue';
 
-import { PdfGroups, FileFilterData, reprocess as reprocessCommon } from '@/common/processor'
+import { PdfGroups, reprocess as reprocessCommon } from '@/common/processor'
 
 export enum DbView {
   Decision = 0,
@@ -605,6 +612,14 @@ export class LoadingStatus {
   files_err: number = 0;
   message: string = '<Loading>';
 }
+
+
+export type FileFilterData = {
+  name: string,
+  skipped: boolean,
+  files: Set<string>,
+};
+
 
 export default Vue.extend({
   name: 'HomeView',
@@ -638,6 +653,7 @@ export default Vue.extend({
       decisionSearchCustom: '',
       decisionSearchInsensitive: true,
       decisionSelectedDsl: {} as PdfDecision,
+      extraFeaturesByFile: {} as {[filename:string]: string[]},
       error: false as any,
       expansionPanels: [0, 1, 2],
       // failReasons points from a filter name to an Array of [relevant message, [files failing non-uniquely, files uniquely failing]
@@ -645,6 +661,7 @@ export default Vue.extend({
       failReasonsSort: 'total',
       fileFilters: new Array<FileFilterData>(),
       fileSelected: 0,
+      filtersError: null as Error | null,
       filtersModified: false as boolean,
       holdReferences: true,
       initReferences: false,
@@ -1098,7 +1115,7 @@ export default Vue.extend({
             const filtName = filterPrefix + nextGroup++;
             dd.filters.push({
                 name: filtName,
-                all: true,
+                caseInsensitive: false,
                 patterns: Array.from(messages).map(x => ({pat: x, check: null})),
             });
             vv[1] = {type: 'id', id1: filtName};
@@ -1121,8 +1138,6 @@ export default Vue.extend({
         let header = k.name.slice();
         if (k.caseInsensitive)
           header += '/i';
-        if (k.all)
-          header += ' all';
         header += ':';
         add(header);
         indent += 1;
@@ -1264,8 +1279,15 @@ export default Vue.extend({
             refDecs = this.pdfsReference;
           }
           // Run plugin
-          const r = await this.$vuespa.call('config_plugin_dec_run', pluginKey,
-              this.vuespaUrl, jsonArgs, refDecs, this._pdfGroupsSubsetOptions(true));
+          const r = await this.$vuespa.call(
+            'config_plugin_dec_run',
+            pluginKey,
+            this.vuespaUrl,
+            jsonArgs,
+            refDecs,
+            this._pdfGroupsSubsetOptions(true),
+            this.extraFeaturesByFile,
+          );
           if (this.pluginDecIframeLoading !== loadKey) return;
           this.pluginDecIframeSrc = r.html;
           this.pluginDecDebug = r.debug;
@@ -1385,7 +1407,7 @@ export default Vue.extend({
         // Loading... we'll be back here.
         return;
       }
-      
+
       if (!this.reprocessInnerPdfGroups && this.pdfGroupsDirty) {
         // Limit to one repeat of cleaning pdfGroups
         this.reprocessInnerPdfGroups = true;
@@ -1393,7 +1415,7 @@ export default Vue.extend({
         // watcher for pdfGroups will trigger reprocess.
         return;
       }
-      
+
       const dd = this.decisionDefinition;
       if (dd === null) {
         throw new Error("reprocess() was triggered without valid decision spec?");
@@ -1403,17 +1425,15 @@ export default Vue.extend({
         dd.filters = dd.filters.filter(x => x.name !== 'faw-custom');
         dd.filters.push({
           name: 'faw-custom',
-          all: false,
           caseInsensitive: this.decisionSearchInsensitive,
           patterns: [{pat: this.decisionSearchCustom, check: null}],
         });
       }
-      
+
       // Push workbench errors regardless
       dd.filters = dd.filters.filter(x => x.name !== 'faw-errors');
       dd.filters.push({
         name: 'faw-errors',
-        all: false,
         caseInsensitive: true,
         patterns: [
           {pat: '_<<workbench: Exit code missing', check: null},
@@ -1428,7 +1448,7 @@ export default Vue.extend({
       if (!this.holdReferences) {
         this.pdfsReference = this.pdfs;
       }
-    
+
       // Narrow down to only groups pertaining to selected files
       let groups: {[message: string]: Array<[number, number]>} = this.pdfGroups.groups;
       if (this.fileFilters.length > 0) {
@@ -1445,16 +1465,26 @@ export default Vue.extend({
           groups[k] = nfiles;
         }
       }
-      
-      let pdfGroups: PdfGroups = {
+
+      const pdfGroups: PdfGroups = {
         groups: groups,
         files: this.pdfGroups.files
       };
-      
-      let newPdfs = reprocessCommon(dd, pdfGroups);
-      this.pdfs = Object.freeze(newPdfs);
-      this.pdfsDslLast = Object.freeze(newPdfs);
-      this.reprocessPost();
+
+      try {
+        const reprocessResult = reprocessCommon(dd, pdfGroups);
+        const newPdfs = reprocessResult.decisions;
+        this.pdfs = Object.freeze(newPdfs);
+        this.pdfsDslLast = Object.freeze(newPdfs);
+        this.extraFeaturesByFile = Object.freeze(
+          Object.fromEntries(reprocessResult.extraFeaturesByFile)
+        );
+        this.reprocessPost();
+        this.filtersError = null;
+      } catch (error: unknown) {
+        this.filtersError = error as Error;
+        console.error(error);
+      }
     },
     reprocessPost() {
       this.fileSelected = 0;

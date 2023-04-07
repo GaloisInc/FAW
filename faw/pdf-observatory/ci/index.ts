@@ -3,8 +3,8 @@
 import { readFileSync, writeFile } from 'fs'
 import { stdin as input, stdout as output, argv } from 'process'
 
-import { DslResult, DslExpression, dslParser } from './common/dsl'
-import { FileFilterData, reprocess } from './common/processor';
+import { DslResult, dslParser } from './common/dsl'
+import { reprocess } from './common/processor';
 
 //Parse the incoming data in to JSON and check for keys
 // Do this safely, per https://stackoverflow.com/a/40363010/160205
@@ -61,13 +61,13 @@ streamToPromise(input).then((inputData: any) => {
 
   //Reprocess decisions
   console.error('Reprocessing decisions ...');
-  var decisions = reprocess(dsl, pdfGroups)
+  var decisions = reprocess(dsl, pdfGroups).decisions;
   console.error('Reprocessing decisions ... Completed');
 
   //Write it out
   var result = JSON.stringify(decisions);
   console.error('Streaming out decisions ...');
-  writeFile(output.fd, result, (err) => {
+  output.write(result, (err) => {
     if (err) throw err;
     console.error('Streaming out decisions ... Completed');
   });
