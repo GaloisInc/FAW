@@ -67,7 +67,7 @@ streamToPromise(input).then((inputData: any) => {
   //Write it out
   var result = JSON.stringify(decisions);
   console.error('Streaming out decisions ...');
-  writeFile(output.fd, result, (err) => {
+  output.write(result, (err) => {
     if (err) throw err;
     console.error('Streaming out decisions ... Completed');
   });
