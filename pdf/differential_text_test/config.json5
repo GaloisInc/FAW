@@ -1,16 +1,16 @@
 {
   file_detail_views: {
-    schizo: {
+    differential: {
         label: 'Text Differential Comparison',
         type: 'program_to_html',
-        exec: ['./main.py', '<inputFile>', '--html'],
+        exec: ['./main.py', '<artifactInParserDirs pageText>', '--html'],
     },
   },
   parsers: {
-    'schizo-text-test': {
-      exec: ['./main.py', '<inputFile>'],
+    'differential-text-test': {
+      exec: ['./main.py', '<artifactInParserDirs pageText>'],
       timeout: 120,
-      version: 'schizo-6.7',
+      version: 'differential-6.8',
       parse: {
         type: 'regex-counter',
         version: '1',

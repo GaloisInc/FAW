@@ -1,16 +1,16 @@
 {
   file_detail_views: {
-    schizo: {
+    differential: {
         label: 'Visual Differential Comparison',
         type: 'program_to_html',
-        exec: ['./main.py', '<inputFile>', '--html'],
+        exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '--html'],
     },
   },
   parsers: {
-    'schizo-test': {
-      exec: ['./main.py', '<inputFile>'],
+    'differential-test': {
+      exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '<inputFile>'],
       timeout: 120,
-      version: 'schizo-test71',
+      version: 'differential-test72',
       parse: {
         type: 'regex-counter',
         version: '1',
@@ -25,7 +25,7 @@
             countGroup: 2,
             countAsNumber: true,
           },
-          '^Schizophrenic: .*': {
+          '^Differential: .*': {
             nameReplace: {
               '[0-9]': '',
             },

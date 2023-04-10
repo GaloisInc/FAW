@@ -1,24 +1,27 @@
 """Manages parsing within analysis sets.
 """
 
-import faw_analysis_set_util
-import faw_internal_util
-import faw_pipelines_util
-
-import dask.distributed
 import io
-import json
+import threading
+import dask.distributed
 import os
+import pathlib
 import psutil
 import pymongo
+import pymongo.collection
 import re
-import shutil
 import signal
 import subprocess
 import tempfile
-import threading
 import time
 import traceback
+from typing import Dict, Any, Optional, Set
+
+import faw_analysis_set_util
+import faw_internal_util
+import faw_pipelines_util
+import substitutions
+import parserartifacts
 
 # Trickery to import pieces of pdf-etl decision pipeline
 import importlib
@@ -246,6 +249,12 @@ def _dask_as_parse_file(app_config, api_info, doc):
     """Fetch the given file with API, and run required parser(s) on it.
 
     When done, remove specific versions from queue.
+
+    ``doc['parsers']``, if present, is the set of parser versions that
+    need to be run. Downstream parsers (in terms of artifact dependency)
+    should be included (assuming the config hasn't been updated since
+    this job was enqueued), but upstream parsers may not be, since their
+    DB records don't need to be updated.
     """
     db = faw_internal_util.mongo_api_info_to_db_conn(api_info['mongo'])
     col = db[COL_NAME]
@@ -253,9 +262,12 @@ def _dask_as_parse_file(app_config, api_info, doc):
 
     doc_id = doc['_id']
     doc_invname = f'/home/pdf-files/{doc_id}'
+    parser_parser_versions = {
+        k: v['parse']['version']
+        for k, v in app_config['parser_parsers_shared'].items()
+        if not v.get('disabled')
+    }
     parsers_done = {}  # {name: [tool, parser]}
-    parsers_to_run_tool = {}
-    parsers_to_run_parser = {}
 
     idle_compute = False
     if doc['parsers'].pop('idle_compute', None) is not None:
@@ -270,22 +282,21 @@ def _dask_as_parse_file(app_config, api_info, doc):
             raise ValueError("Could not find idle?")
         doc['parsers'].update(idle_parsers_doc['parser_versions'][1])
 
-    def get_cfg(k):
-        """Given a parser name `k`, resolve to relevant app_config"""
-        parser_pipeline_name = faw_analysis_set_util.deconstruct_pipeline_parser_name(k)
-        if parser_pipeline_name is None:
-            parser_config = app_config['parsers'][k]
-        else:
-            parser_config = (app_config['pipelines']
-                    [parser_pipeline_name.pipe]
-                    ['parsers']
-                    [parser_pipeline_name.parser])
-            parser_config = parser_config.copy()
-            parser_config['aset'] = parser_pipeline_name.aset
-            parser_config['pipeline'] = parser_pipeline_name.pipe
-        return parser_config
-
     parser_set = list(doc.get('parsers', {}).keys())
+    # parser_set may not include all upstream/downstream parsers to run
+    all_parser_configs = faw_analysis_set_util.lookup_all_parsers(
+        db=db, app_config=app_config
+    ) if parser_set else {}  # Not necessary if no parsers need running
+    artifact_dependency_graph = parserartifacts.ParserDependencyGraph(all_parser_configs)
+
+    # parsers that need to be run for artifacts (no rawinvocations DB update).
+    # May overlap with parsers_to_run_parser, though
+    parsers_upstream: Set[str] = set()
+    # parsers we need to update rawinvocations for
+    parsers_to_run_tool: Set[str] = set()
+    # parsers we need to update invocationsparsed for
+    parsers_to_run_parser: Set[str] = set()
+
     if parser_set:
         # Collect rawinvocations and invocationsparsed versions, if any
         rawinv = list(db['rawinvocations'].find(
@@ -327,56 +338,89 @@ def _dask_as_parse_file(app_config, api_info, doc):
         for k in parser_set:
             # Check version info -- not equal means it needs to run; equal means
             # it needs to be marked done
+            cfg = all_parser_configs.get(k, {})
             ver_db_info = versions_keyed.get(k, [[None, None], [], []])
             ver_db = ver_db_info[0]
             ver_cfg = doc['parsers'][k]
 
-            cfg = get_cfg(k)
-            if cfg.get('disabled'):
+            if cfg.get('disabled', False):
                 # We *do* want to unset based on version. A different version
                 # may not be disabled.
                 parsers_done[k] = ver_cfg
                 continue
 
-            if ver_db[0] != ver_cfg[0]:
-                parsers_to_run_tool[k] = ver_cfg[0]
-                parsers_to_run_parser[k] = ver_cfg[1]
-
-                # Delete matching tool documents
-                db['rawinvocations'].delete_many({'_id': {'$in': [
-                        v['_id'] for v in ver_db_info[1]]}})
-                db['invocationsparsed'].delete_many({'_id': {'$in': [
-                        v['_id'] for v in ver_db_info[2]]}})
-            elif ver_db[1] != ver_cfg[1]:
-                parsers_to_run_parser[k] = ver_cfg[1]
+            if ver_db[0] != ver_cfg[0]:  # tool versions
+                parsers_to_run_tool.add(k)
+                artifact_dependency_graph.add_parsers_downstream_from_parser(k, parsers_to_run_tool)
+                # We'll delete matching documents and add to parsers_to_run_parser after this loop
+            elif ver_db[1] != ver_cfg[1]:  # parse versions
+                parsers_to_run_parser.add(k)
                 db['invocationsparsed'].delete_many({'_id': {'$in': [
                         v['_id'] for v in ver_db_info[2]]}})
 
             # Regardless, need to set this as done when we've run everything
             parsers_done[k] = ver_cfg
 
+        parsers_to_run_parser |= parsers_to_run_tool
+        parsers_upstream = artifact_dependency_graph.parsers_upstream_from_parsers(
+            parsers_to_run_tool
+        ) - parsers_to_run_tool
+
+        parse_versions = {}
+        for k in parsers_to_run_parser | parsers_upstream:
+            if k in doc['parsers']:
+                parse_versions[k] = doc['parsers'][k][1]
+            else:  # version didn't change; use latest parse version from config
+                parse_versions[k] = {
+                    '': all_parser_configs[k]['parse']['version'],
+                    **parser_parser_versions,
+                }
+
+        # Delete existing documents for updated/downstream parsers
+        db['rawinvocations'].delete_many(
+            {'file': doc_invname, 'invoker.invName': {'$in': list(parsers_to_run_tool)}}
+        )
+        db['invocationsparsed'].delete_many(
+            {'file': doc_id, 'parser': {'$in': list(parsers_to_run_tool)}}
+        )
+
     if faw_internal_util.dask_check_if_cancelled():
         return
 
     tool_docs = {}
+    upstream_tool_docs = {}
     if parsers_to_run_tool:
         # We need the file for these
         api = faw_pipelines_util.Api(api_info)
-        with api.file_fetch(doc_id) as fpath:
-            for k, v in parsers_to_run_tool.items():
-                tool_doc = _as_run_tool(db['rawinvocations'],
-                        fpath, doc_invname,
-                        k, v,
-                        get_cfg(k), api_info,
-                        timeout_default=app_config['parserDefaultTimeout'])
+        with api.file_fetch(doc_id) as fpath, tempfile.TemporaryDirectory() as artifacts_root_dir:
+            # may raise graphlib.CycleError; caught by dask
+            for k in artifact_dependency_graph.sort_parsers(
+                parsers_to_run_tool | parsers_upstream
+            ):
+                tool_doc = as_run_tool(
+                    fpath=fpath,
+                    fpath_tool_name=doc_invname,
+                    parser_inv_name=k,
+                    parser_tool_version=all_parser_configs[k]['version'],
+                    parser_cfg=all_parser_configs[k],
+                    api_info=api_info,
+                    timeout_default=app_config['parserDefaultTimeout'],
+                    artifacts_root_dir=pathlib.Path(artifacts_root_dir),
+                )
                 if faw_internal_util.dask_check_if_cancelled():
                     return
 
-                if tool_doc is not None:
+                if k in parsers_to_run_tool and tool_doc is not None:
+                    db['rawinvocations'].insert_one(tool_doc)
+                if k in parsers_upstream:
+                    # tool_doc only kept for result comparison; should not affect
+                    # results for parsers also in parsers_to_run_parser
+                    upstream_tool_docs[k] = tool_doc
+                else:
                     tool_docs[k] = tool_doc
 
     # Don't need file, do need results
-    for k, v in parsers_to_run_parser.items():
+    for k in parsers_to_run_parser:
         tool_doc = tool_docs.get(k)
         if tool_doc is None:
             tool_doc = db['rawinvocations'].find_one({'file': doc_invname,
@@ -386,11 +430,58 @@ def _dask_as_parse_file(app_config, api_info, doc):
         def coll_resolver(name):
             _, name = name.rsplit('/', 1)
             return db[name]
-        parsers_config = {k: get_cfg(k)}
         pdf_etl_parse.handle_doc(tool_doc, coll_resolver, fname_rewrite=doc_id,
-                db_dst='/invocationsparsed', parse_version=v,
-                parsers_config=parsers_config,
+                db_dst='/invocationsparsed', parse_version=parse_versions[k],
+                parsers_config=all_parser_configs,
                 parser_parsers_shared=app_config['parser_parsers_shared'])
+
+        if faw_internal_util.dask_check_if_cancelled():
+            return
+
+    # If upstream parser results changed, add features (but don't replace old results)
+    for k in parsers_upstream:
+        tool_doc = upstream_tool_docs.get(k)
+        if tool_doc is None:
+            continue
+        updated_result_doc = pdf_etl_parse.parse_features(
+            tool_doc,
+            fname_rewrite=doc_id,
+            parse_version=parse_versions[k],
+            parsers_config=all_parser_configs,
+            parser_parsers_shared=app_config['parser_parsers_shared'],
+        )
+        prior_result_doc = db['invocationsparsed'].find_one(
+            {'file': doc_id, 'parser': k,
+             'version_tool': updated_result_doc['version_tool'],
+             'version_parse': updated_result_doc['version_parse']},
+        )
+        if prior_result_doc is None:
+            # Race condition; upstream doc/parser was deleted during parse.
+            # Fail so we can retry later
+            raise RuntimeError(f'Missing prior result doc for upstream parser {k} on {doc_id}')
+        new_features = []
+        if updated_result_doc['exitcode'] != prior_result_doc['exitcode']:
+            new_features.append(
+                '<<workbench: Later rerun for artifacts changed exitcode to '
+                f'{updated_result_doc["exitcode"]}>>'
+            )
+        if (
+            {record['k']: record['v'] for record in updated_result_doc['result']}
+            != {record['k']: record['v'] for record in prior_result_doc['result']}
+        ):
+            new_features.append(
+                '<<workbench: Later rerun for artifacts changed features>>'
+            )
+        # Don't duplicate these additional features
+        new_features = [
+            feature for feature in new_features
+            if {'k': feature, 'v': 1} not in prior_result_doc['result']
+        ]
+        if new_features:
+            db['invocationsparsed'].update_one(
+                {'_id': prior_result_doc['_id']},
+                {'$push': {'result': {'$each': [{'k': feature, 'v': 1} for feature in new_features]}}},
+            )
 
         if faw_internal_util.dask_check_if_cancelled():
             return
@@ -408,9 +499,22 @@ def _dask_as_parse_file(app_config, api_info, doc):
         col_obs.update_one({'_id': doc_id}, {'$set': {'idle_complete': True}})
 
 
-def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
-        parser_tool_version, parser_cfg, api_info, *, timeout_default):
-    """Re-implementation of pdf-etl-tool.
+def as_run_tool(
+    *,
+    fpath: str,
+    fpath_tool_name: str,
+    parser_inv_name: str,
+    parser_tool_version: Dict[str, str],
+    parser_cfg: Dict[str, Any],
+    api_info,
+    timeout_default,
+    artifacts_root_dir: pathlib.Path,
+) -> Optional[Dict[str, Any]]:
+    """Run a parser on one file, and return the result document.
+
+    Does not update the DB; that is up to the caller.
+    When running parsers just to produce artifacts, updating the DB
+    isn't necessary.
     """
 
     timeout = parser_cfg['timeout'] or timeout_default
@@ -426,53 +530,29 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
             },
     }
 
-    # Emulate args from pdf-etl-tool
-    temps = []
-    args = []
     try:
-        for e in parser_cfg['exec']:
-            # FIXME deduplicate these "<temp" things with `main.py`
-            if e == '<inputFile>':
-                args.append(fpath)
-            elif e == '<apiInfo>':
-                parser_api_info = api_info.copy()
-                if 'pipeline' in parser_cfg:
-                    parser_api_info['aset'] = parser_cfg['aset']
-                    parser_api_info['pipeline'] = parser_cfg['pipeline']
-                args.append(json.dumps(parser_api_info))
-            elif e.startswith('<tempFile'):
-                suffix = e[9:-1]
-                if suffix:
-                    assert suffix[0] == ' ', suffix
-                    assert ' ' not in suffix[1:], suffix
-                    suffix = suffix[1:]
-                    assert '"' not in suffix, suffix
-                temps.append(tempfile.NamedTemporaryFile(suffix=suffix, delete=False))
-                temps[-1].close()
-                args.append(temps[-1].name)
-            elif e.startswith('<tempPrefix'):
-                suffix = e[11:-1]
-                if suffix:
-                    assert suffix[0] == ' ', suffix
-                    assert ' ' not in suffix[1:], suffix
-                    suffix = suffix[1:]
-                    assert '"' not in suffix, suffix
-                temps.append([tempfile.NamedTemporaryFile(suffix=suffix, delete=False)])
-                temps[-1][0].close()
-                args.append(temps[-1][0].name)
-            elif e.startswith('<tempDir'):
-                suffix = e[8:-1]
-                if suffix:
-                    assert suffix[0] == ' ', suffix
-                    suffix = suffix[1:]
-                    assert ' ' not in suffix, suffix
-                    assert '"' not in suffix, suffix
-                temp = tempfile.mkdtemp(suffix=suffix)
-                temps.append([None, temp])
-                args.append(temp)
-            else:
-                args.append(e)
-
+        temp_root_dir = tempfile.TemporaryDirectory()
+        parser_api_info = api_info.copy()
+        if 'pipeline' in parser_cfg:
+            parser_api_info['aset'] = parser_cfg['aset']
+            parser_api_info['pipeline'] = parser_cfg['pipeline']
+        args = substitutions.subsitute_arguments(
+            parser_cfg['exec'],
+            [
+                *substitutions.common_substitutions(
+                    api_info=parser_api_info,
+                    temp_root=temp_root_dir.name,
+                ),
+                *substitutions.file_plugin_substitutions(
+                    filename=fpath,
+                    artifacts_root_dir=artifacts_root_dir,
+                ),
+                *substitutions.parser_substitutions(
+                    artifacts_root_dir=artifacts_root_dir,
+                    parser_name=parser_inv_name,
+                ),
+            ]
+        )
         t_start = time.monotonic()
         p = subprocess.Popen(args,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -522,8 +602,14 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         finished = False
         timed_out = False
         try:
-            # Subprocess may want to spawn dask workers; ensure it may
-            dask.distributed.secede()
+            dask.distributed.get_worker()
+            in_dask = True
+        except ValueError:
+            in_dask = False
+        try:
+            if in_dask:
+                # Subprocess may want to spawn dask workers; ensure it may
+                dask.distributed.secede()
 
             def reader(stream, buf):
                 for line in stream:
@@ -534,10 +620,10 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
             reader_err = threading.Thread(target=reader, args=(p.stderr, buf_err))
             reader_out.start()
             reader_err.start()
-            while not faw_internal_util.dask_check_if_cancelled():
+            while not in_dask or not faw_internal_util.dask_check_if_cancelled():
                 psutil_check()
                 try:
-                    # Timeout affects psutil measurements!
+                    # timeout = period of memory/CPU measurements
                     p.wait(timeout=0.1)
                 except subprocess.TimeoutExpired:
                     if time.monotonic() - t_start > timeout:
@@ -548,7 +634,8 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
                     finished = True
                     break
         finally:
-            dask.distributed.rejoin()
+            if in_dask:
+                dask.distributed.rejoin()
 
         # One final measurement if possible
         psutil_check()
@@ -570,44 +657,28 @@ def _as_run_tool(col_dst, fpath, fpath_tool_name, parser_inv_name,
         doc['result']['cpuUser'] = sum(p.user for p in psutil_cpu.values())
         doc['result']['cpuSystem'] = sum(p.system for p in psutil_cpu.values())
         doc['result']['cpuIowait'] = sum(p.iowait for p in psutil_cpu.values())
-        doc['result']['exitcode'] = p.wait()
-        paths = (
-                [(t.name if not isinstance(t, list) else t[1] if t[0] is None else t[0].name, '<tempFile>')
-                    for t in temps]
-                + [(fpath, '<inputFile>')])
+        doc['result']['exitcode'] = p.returncode
+        paths = [
+            (fpath, '<inputFile>'),
+            (temp_root_dir.name, '<tempDir>'),
+            (os.fspath(artifacts_root_dir), '<artifactRootDir>'),
+        ]
         doc['result']['stdoutRes'] = _trim_program_output(buf_out.getvalue(), paths)
         doc['result']['stderrRes'] = _trim_program_output(buf_err.getvalue(), paths)
         doc['result']['_cons'] = 'Timeout' if timed_out else 'GoodResult'
     finally:
-        for t in temps:
-            if isinstance(t, list):
-                if t[0] is None:
-                    # Dir
-                    shutil.rmtree(t[1])
-                else:
-                    tdir = os.path.dirname(t[0].name)
-                    tbase = os.path.basename(t[0].name)
-                    for f in os.listdir(tdir):
-                        if not f.startswith(tbase):
-                            continue
-                        f = os.path.join(tdir, f)
-                        if os.path.isdir(f):
-                            shutil.rmtree(f)
-                        else:
-                            os.unlink(f)
-            else:
-                os.unlink(t.name)
+        temp_root_dir.cleanup()
 
     exit_code = doc['result']['exitcode']
     if parser_cfg.get('mustSucceed') and exit_code != 0:
-        stderr = doc['result']['stderrRes']
-        raise ValueError(f'Parser {parser_inv_name} mustSucceed, but got {exit_code}\n\nstderr: {stderr}')
+        raise ValueError(
+            f'Parser {parser_inv_name} mustSucceed, but got {exit_code}\n\n'
+            f'stderr: {doc["result"]["stderrRes"]}'
+        )
 
-    if faw_internal_util.dask_check_if_cancelled():
-        return
+    if in_dask and faw_internal_util.dask_check_if_cancelled():
+        return None
 
-    # Write to db; return document
-    col_dst.insert_one(doc)
     return doc
 
 
@@ -625,4 +696,3 @@ def _trim_program_output(s, paths):
     for p, pname in paths:
         s = re.sub(re.escape(p), pname, s, flags=re.I)
     return s
-

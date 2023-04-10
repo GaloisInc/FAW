@@ -2,6 +2,7 @@
 leaving it unclear when global variables are valid.
 """
 
+import collections
 import faw_analysis_set_parse
 import faw_analysis_set_util
 import faw_internal_util
@@ -18,6 +19,8 @@ import re
 import sys
 import time
 import traceback
+
+import parserartifacts
 
 _app_config = None
 _app_config_version = 0
@@ -481,7 +484,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
             idle_aset = db['misc'].find_one({'_id': 'as_idle'})
             assert idle_aset is not None
             if not _as_populate_parsers(exit_flag, app_config, pv_data, pv_data_done,
-                    idle_aset, col_ids, col_parse):
+                    idle_aset, col_ids, col_parse, db):
                 # Failure -- abort without updating anything
                 return
         # On completion, assign `parser_versions_done` so we don't re-run
@@ -512,7 +515,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
 
 # issues/5975
 def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions_done,
-        idle_aset, col_ids, col_parse):
+        idle_aset, col_ids, col_parse, db):
     """Scan through documents which require additional parsing. Use the version
     that was specified when the ids were populated so that we have a nice,
     uniform parse across all files.
@@ -537,6 +540,7 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
     # batch.
 
     new_parsers = {}
+    new_parsers_tool_updated = set()
     for k, v in parser_versions.items():
         if parser_versions_done.get(k) != v and v is not None:
             # If idle processing is done, we do not need to run this parser,
@@ -544,11 +548,49 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
             idle_version = idle_aset.get('parser_versions_done', [{}, {}])[1].get(k)
             if idle_version != v:
                 new_parsers[k] = v
+                if idle_version is None or idle_version[0] != v[0]:
+                    new_parsers_tool_updated.add(k)
 
     if not new_parsers:
         # Nothing to do
         logger.debug('No new parsers; not rerunning any parsers')
         return True
+
+    # Also mark downstream parsers for rerun when tool version changed
+    if new_parsers_tool_updated:
+        # Parser versions not in this aset. Don't mutate the original
+        # parser_versions since the caller relies on it being aset-specific.
+        additional_parser_versions = {}
+        parser_versions = collections.ChainMap(
+            parser_versions, additional_parser_versions
+        )
+        all_parser_configs = faw_analysis_set_util.lookup_all_parsers(
+            db=db, app_config=app_config
+        )
+        downstream_parsers = parserartifacts.ParserDependencyGraph(
+            all_parser_configs
+        ).parsers_downstream_from_parsers(
+            new_parsers_tool_updated
+        )
+        parser_parser_versions = {
+            k: v['parse']['version']
+            for k, v in app_config['parser_parsers_shared'].items()
+            if not v.get('disabled')
+        }
+        num_updated = len(new_parsers)
+        for k in downstream_parsers:
+            if k not in parser_versions:
+                additional_parser_versions[k] = [
+                    {'': all_parser_configs[k]['version']},
+                    {
+                        '': all_parser_configs[k]['parse']['version'],
+                        **parser_parser_versions,
+                    }
+                ]
+            new_parsers[k] = parser_versions[k]
+        if len(new_parsers) - num_updated:
+            print(f'Adding {len(new_parsers) - num_updated} downstream parsers to rerun')
+
     logger.debug(f'Rerunning {len(new_parsers)} parsers')
 
     # Priority of this parser is number of files times number of parsers
@@ -774,7 +816,7 @@ def as_create_id_collection(exit_flag, db, app_config, aset_id, col_name, *,
         assert idle_aset is not None
         # Issues/5975
         if not _as_populate_parsers(exit_flag, app_config, parsers_id, parsers_id_done,
-                idle_aset, tmp_id_col, col_parse):
+                idle_aset, tmp_id_col, col_parse, db):
             raise ValueError('_as_populate_parsers failed; reference lost?')
 
         # Finally, delete temporary, then set done

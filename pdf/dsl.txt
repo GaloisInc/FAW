@@ -4,8 +4,8 @@
 #   # Extra features derived from parser output, added to the set of features available to filters and decision plugins.
 #   # Defined as lists of regular expressions just like filters (see below).
 #
-#   differential:
-#     ^schizo-test-schizo-test_Max RMSE
+#   significant-differential:
+#     ^differential-test-differential-test_Max RMSE
 #       sum > 0.4
 
 filters:
@@ -43,11 +43,11 @@ filters:
     ^parser-poppler-pdftoppm_Syntax Error: Could not find start of jpeg data$
   PdfHsDriver:
     ^pdf-hs-driver_<<workbench: Exit code 0>>
-  Schizo:
-    ^schizo-test-schizo-test_Max RMSE
+  Differential:
+    ^differential-test-differential-test_Max RMSE
       sum > 0.4
-  SchizoText:
-    ^schizo-text-test-schizo-text-test_\w+ to \w+
+  DifferentialText:
+    ^differential-text-test-differential-text-test_\w+ to \w+
       sum < 0.5
   JpegIssues:
     [Jj][Pp][Ee][Gg]

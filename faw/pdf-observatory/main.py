@@ -1,10 +1,4 @@
 
-import app_util
-import faw_analysis_set
-import faw_analysis_set_parse
-import faw_analysis_set_util
-import faw_pipelines_util
-
 import aiohttp.web as web
 import asyncio
 import bson
@@ -19,18 +13,26 @@ import mimetypes
 import motor.motor_asyncio
 import multiprocessing.connection
 import os
+import pathlib
 import pickle
 import psutil
 import pymongo
 import pympler.asizeof as asizeof
 import re
-import shutil
 import sys
 import tempfile
 import time
 import traceback
 import vuespa
 from typing import Dict, Any, List
+
+import app_util
+import faw_analysis_set
+import faw_analysis_set_parse
+import faw_analysis_set_util
+import faw_pipelines_util
+import parserartifacts
+import substitutions
 
 app_config = None
 app_config_loaded = None
@@ -730,14 +732,22 @@ class Client(vuespa.Client):
     async def api_config_plugin_run(self, plugin_key, vuespa_url, json_args,
             input_spec):
 
-        plugin_def, extra_api_info = _plugin_key_process('file_detail_views',
-                plugin_key)
+        plugin_def, extra_api_info = _plugin_key_process(
+            'file_detail_views', plugin_key
+        )
+        api_info = _get_api_info()
+        parser_configs = faw_analysis_set_util.lookup_all_parsers(
+            db=app_mongodb_conn.delegate, app_config=app_config
+        )
 
         assert isinstance(input_spec, str), input_spec
         async with _file_fetch(input_spec) as input_path:
             if plugin_def['type'] == 'program_to_html':
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, cmd
+
+                artifact_types = substitutions.artifact_types(cmd)
+                assert not artifact_types.output_artifact_types, cmd
 
                 file_out = None
                 def get_output_html():
@@ -747,33 +757,59 @@ class Client(vuespa.Client):
                             suffix='.html')
                     file_out.close()
                     return file_out.name
-                async with self._cmd_plugin_template_replace(cmd, vuespa_url, {
-                        '<inputFile>': lambda: input_path,
-                        '<jsonArguments>': lambda: json.dumps(json_args),
-                        '<outputHtml>': get_output_html,
-                }, extra_api_info=extra_api_info) as cmd:
-                    try:
-                        proc = await asyncio.create_subprocess_exec(
-                                *cmd,
-                                cwd=plugin_def['cwd'],
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE,
+                with tempfile.TemporaryDirectory() as artifacts_root_dir:
+                    # run upstream parsers, for artifacts
+                    upstream_parsers = parserartifacts.ParserDependencyGraph(
+                        parser_configs
+                    ).parsers_upstream_from_artifact_types(
+                        artifact_types.input_artifact_types
+                    )
+                    for parser in upstream_parsers:
+                        faw_analysis_set_parse.as_run_tool(
+                            fpath=input_path,
+                            fpath_tool_name='',  # Unnecessary since we discard the result
+                            parser_inv_name=parser,
+                            parser_tool_version={'': ''},  # Unnecessary since we discard the result
+                            parser_cfg=parser_configs[parser],
+                            api_info=api_info,
+                            timeout_default=app_config['parserDefaultTimeout'],
+                            artifacts_root_dir=pathlib.Path(artifacts_root_dir),
                         )
-                        stdout, stderr = await proc.communicate()
-                        if await proc.wait() != 0:
-                            raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
 
-                        r = {'mimetype': plugin_def['outputMimeType']}
-                        if file_out is None:
-                            r['result'] = stdout.decode('latin1')
-                        else:
-                            with open(file_out.name, 'rb') as f:
-                                r['result'] = f.read().decode('latin1')
+                    # Run the command
+                    with self._cmd_plugin_template_replace(
+                        cmd,
+                        vuespa_url,
+                        json_args=json_args,
+                        get_output_html_filename=get_output_html,
+                        extra_substitutions=substitutions.file_plugin_substitutions(
+                            filename=input_path,
+                            artifacts_root_dir=pathlib.Path(artifacts_root_dir),
+                        ),
+                        extra_api_info=extra_api_info,
+                    ) as cmd:
+                        try:
+                            proc = await asyncio.create_subprocess_exec(
+                                    *cmd,
+                                    cwd=plugin_def['cwd'],
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE,
+                            )
+                            stdout, stderr = await proc.communicate()
+                            if await proc.wait() != 0:
+                                raise ValueError(f"non-zero exit: {stderr.decode('latin1')}")
 
-                        return r
-                    finally:
-                        if file_out is not None:
-                            os.unlink(file_out.name)
+                            r = {'mimetype': plugin_def['outputMimeType']}
+                            if file_out is None:
+                                r['result'] = stdout.decode('latin1')
+                            else:
+                                with open(file_out.name, 'rb') as f:
+                                    r['result'] = f.read().decode('latin1')
+
+                            return r
+                        finally:
+                            if file_out is not None:
+                                os.unlink(file_out.name)
             else:
                 raise NotImplementedError(plugin_def['type'])
 
@@ -812,10 +848,12 @@ class Client(vuespa.Client):
             if plugin_def['type'] == 'program':
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, 'exec'
-                async with self._cmd_plugin_template_replace(cmd, api_url, {
-                        '<jsonArguments>': lambda: json.dumps(json_args),
-                        '<outputHtml>': get_output_html,
-                }, extra_api_info=extra_api_info) as cmd:
+                with self._cmd_plugin_template_replace(
+                    cmd, api_url, json_args=json_args,
+                    get_output_html_filename=get_output_html,
+                    extra_api_info=extra_api_info,
+                    extra_substitutions=[],
+                ) as cmd:
                     proc = await asyncio.create_subprocess_exec(
                             *cmd,
                             cwd=plugin_def['cwd'],
@@ -950,87 +988,41 @@ class Client(vuespa.Client):
         """
         return await get_decisions(options)
 
-    @contextlib.asynccontextmanager
-    async def _cmd_plugin_template_replace(self, cmd, api_url, extra_template_vars,
-            extra_api_info):
+    @contextlib.contextmanager
+    def _cmd_plugin_template_replace(
+        self,
+        cmd,
+        api_url,
+        json_args,
+        get_output_html_filename,
+        extra_substitutions,
+        extra_api_info,
+    ):
         if not api_url.endswith('/'):
             api_url = api_url + '/'
 
-        template_vals = {
-                '<apiInfo>': lambda: json.dumps(_get_api_info(extra_api_info)),
-                '<filesPath>': lambda: app_pdf_dir,
-                '<mongo>': lambda: app_mongodb,
-                '<workbenchApiUrl>': lambda: api_url,
-        }
-        for k, v in extra_template_vars.items():
-            if k in template_vals:
-                raise ValueError(f'Cannot overwrite {k}')
-            template_vals[k] = v
-
-        files_to_delete = []
         try:
-            r = []
-            for c in cmd:
-                if c.startswith('<tempFile'):
-                    suffix = c[9:-1]
-                    if suffix:
-                        assert suffix[0] == ' ', suffix
-                        suffix = suffix[1:]
-                        assert ' ' not in suffix, suffix
-                        assert '"' not in suffix, suffix
-                    temp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-                    temp.close()
-                    files_to_delete.append(temp.name)
-                    r.append(temp.name)
-                elif c.startswith('<tempPrefix'):
-                    suffix = c[11:-1]
-                    if suffix:
-                        assert suffix[0] == ' ', suffix
-                        suffix = suffix[1:]
-                        assert ' ' not in suffix, suffix
-                        assert '"' not in suffix, suffix
-                    temp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-                    temp.close()
-                    files_to_delete.append([temp.name])
-                    r.append(temp.name)
-                elif c.startswith('<tempDir'):
-                    suffix = c[8:-1]
-                    if suffix:
-                        assert suffix[0] == ' ', suffix
-                        suffix = suffix[1:]
-                        assert ' ' not in suffix, suffix
-                        assert '"' not in suffix, suffix
-                    temp = tempfile.mkdtemp(suffix=suffix)
-                    files_to_delete.append([None, temp])
-                    r.append(temp)
-                elif c.startswith('<'):
-                    rr = template_vals.get(c)
-                    if rr is None:
-                        raise ValueError(c)
-                    r.append(rr())
-                else:
-                    r.append(c)
-
+            temp_root_dir = tempfile.TemporaryDirectory()
+            r = substitutions.subsitute_arguments(
+                cmd,
+                [
+                    *substitutions.common_substitutions(
+                        api_info=_get_api_info(extra_api_info),
+                        temp_root=temp_root_dir.name,
+                    ),
+                    *substitutions.plugin_substitutions(
+                        json_args=json_args,
+                        get_output_html_filename=get_output_html_filename,
+                        files_path=app_pdf_dir,
+                        mongodb_url=app_mongodb,
+                        workbench_api_url=api_url,
+                    ),
+                    *extra_substitutions,
+                ]
+            )
             yield r
         finally:
-            for f in files_to_delete:
-                if isinstance(f, list):
-                    if f[0] is None:
-                        # Directory
-                        shutil.rmtree(f[1])
-                    else:
-                        fdir = os.path.dirname(f[0])
-                        fbase = os.path.basename(f[0])
-                        for ff in os.listdir(fdir):
-                            if not ff.startswith(fbase):
-                                continue
-                            ff = os.path.join(fdir, ff)
-                            if os.path.isdir(ff):
-                                shutil.rmtree(ff)
-                            else:
-                                os.unlink(ff)
-                else:
-                    os.unlink(f)
+            temp_root_dir.cleanup()
 
     async def api_loading_get(self, options):
         """Returns an object with {loading: boolean, message: string}.

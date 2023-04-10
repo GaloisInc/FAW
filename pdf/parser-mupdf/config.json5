@@ -193,12 +193,18 @@
         },
 
         'mutool-draw-txt': {
-            exec: ['mutool', 'draw', '-F', 'txt', '-o', '<tempFile>', '<inputFile>'],
+            exec: ['bash', '-c', 'mutool draw -F txt -o - $0 | tee $1', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
             version: 'mupdf-1.16',
             parse: {
                 type: 'regex-counter',
                 version: '1',
-                stdout: {},
+                stdout: {
+                  // We do NOT want the observatory to pick these up, so just ignore
+                  // every message. mutool-draw-txt must be searched via mongo!
+                  '^.*$': {
+                    nameGroup: '',
+                  },
+                },
                 stderr: {
                     '^\\s*(error: cannot create appearance stream).*$': {
                         nameGroup: 1
@@ -236,7 +242,7 @@
         },
 
         'mutool-draw-ppm': {
-            exec: ['mutool', 'draw', '-o', '<tempFile>', '<inputFile>'],
+            exec: ['mutool', 'draw', '-r', '100', '-o', '<artifactOutFile pageImages100dpi page-%d.png>', '<inputFile>'],
             version: 'mupdf-1.16',
             parse: {
                 type: 'regex-counter',
@@ -278,7 +284,7 @@
             },
         },
     },
-    
+
     build: {
        stages: {
             mupdf: {

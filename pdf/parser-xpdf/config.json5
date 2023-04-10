@@ -3,7 +3,7 @@
 
         "pdftotext": {
           disabled: false,
-          exec: ['bash', '-c', '/opt/xpdf/bin64/pdftotext $0 >(cat)', '<inputFile>'],
+          exec: ['bash', '-c', '/opt/xpdf/bin64/pdftotext -enc UTF-8 $0 - | tee $1', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
           version: 'xpdf-4.0.2',
           parse: {
             type: 'regex-counter',
@@ -34,7 +34,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['/opt/xpdf/bin64/pdftoppm', '<inputFile>', '<tempPrefix>'],
+            exec: ['/opt/xpdf/bin64/pdftoppm', '-r', '100', '<inputFile>', '<artifactOutFile pageImages100dpi page>'],
             version: 'xpdf-4.0.2',
             parse: {
                 type: 'regex-counter',
