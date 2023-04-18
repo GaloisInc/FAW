@@ -6,6 +6,7 @@ import functools
 import json
 import os
 import pathlib
+import shlex
 import tempfile
 from typing import Callable, Iterable, Optional, Set, Dict, List, Any, Sequence, Tuple, Union
 
@@ -39,7 +40,7 @@ def artifact_types(command: Iterable[str]) -> ArtifactTypes:
     output_artifact_types: Set[str] = set()
     for argument in command:
         if argument.startswith('<') and argument.endswith('>'):
-            elements = argument[1:-1].split()
+            elements = shlex.split(argument[1:-1])
             if elements[0] == _ARTIFACT_INPUT_PREFIX:
                 input_artifact_types.add(elements[1])
             elif elements[0] == _ARTIFACT_OUTPUT_DIR_PREFIX:
@@ -60,7 +61,7 @@ def subsitute_arguments(
     command_substituted: List[str] = []
     for arg in command:
         if arg.startswith('<') and arg.endswith('>'):
-            elements = arg[1:-1].split()
+            elements = shlex.split(arg[1:-1])
             if elements and (substitution := substitutions_by_key.get(elements[0])) is not None:
                 if len(elements) - 1 in substitution.param_count:
                     try:
@@ -138,7 +139,7 @@ def _temp_dir_substitution(suffix: str = None, *, temp_root: str) -> str:
     return tempfile.mkdtemp(suffix=suffix, dir=temp_root)
 
 
-def file_plugin_substitutions(
+def parser_or_file_plugin_substitutions(
     filename: str,
     artifacts_root_dir: pathlib.Path,
 ) -> Iterable[_ArgumentSubstitution]:

@@ -44,7 +44,7 @@ def main():
 
     tool_names = []
     page_text_by_tool = {}
-    for t in os.listdir(artifacts_root_dir):
+    for t in sorted(os.listdir(artifacts_root_dir)):
         tool_names.append(t)
         # The artifact dir has a single file with all pages separated by FF
         page_files = os.listdir(os.path.join(artifacts_root_dir, t))
@@ -62,9 +62,10 @@ def main():
                     page_text_by_tool[(t, pageno)] = normalize_text(page)
         else:
             print(f'{t} produced multiple output files: {page_files}')
-    tool_names.sort()
     if not tool_names:
         print(f'No upstream tools produce page text')
+    if tool_names and not page_text_by_tool:
+        print(f'All upstream tools produced no output', file=sys.stderr)
 
     min_similarity = {}
 

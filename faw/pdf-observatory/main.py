@@ -31,8 +31,8 @@ import faw_analysis_set
 import faw_analysis_set_parse
 import faw_analysis_set_util
 import faw_pipelines_util
-import parserartifacts
-import substitutions
+import faw_artifacts
+import faw_substitutions
 
 app_config = None
 app_config_loaded = None
@@ -746,7 +746,7 @@ class Client(vuespa.Client):
                 cmd = plugin_def.get('exec')
                 assert cmd is not None, cmd
 
-                artifact_types = substitutions.artifact_types(cmd)
+                artifact_types = faw_substitutions.artifact_types(cmd)
                 assert not artifact_types.output_artifact_types, cmd
 
                 file_out = None
@@ -759,7 +759,7 @@ class Client(vuespa.Client):
                     return file_out.name
                 with tempfile.TemporaryDirectory() as artifacts_root_dir:
                     # run upstream parsers, for artifacts
-                    upstream_parsers = parserartifacts.ParserDependencyGraph(
+                    upstream_parsers = faw_artifacts.ParserDependencyGraph(
                         parser_configs
                     ).parsers_upstream_from_artifact_types(
                         artifact_types.input_artifact_types
@@ -782,7 +782,7 @@ class Client(vuespa.Client):
                         vuespa_url,
                         json_args=json_args,
                         get_output_html_filename=get_output_html,
-                        extra_substitutions=substitutions.file_plugin_substitutions(
+                        extra_substitutions=faw_substitutions.parser_or_file_plugin_substitutions(
                             filename=input_path,
                             artifacts_root_dir=pathlib.Path(artifacts_root_dir),
                         ),
@@ -1003,14 +1003,14 @@ class Client(vuespa.Client):
 
         try:
             temp_root_dir = tempfile.TemporaryDirectory()
-            r = substitutions.subsitute_arguments(
+            r = faw_substitutions.subsitute_arguments(
                 cmd,
                 [
-                    *substitutions.common_substitutions(
+                    *faw_substitutions.common_substitutions(
                         api_info=_get_api_info(extra_api_info),
                         temp_root=temp_root_dir.name,
                     ),
-                    *substitutions.plugin_substitutions(
+                    *faw_substitutions.plugin_substitutions(
                         json_args=json_args,
                         get_output_html_filename=get_output_html_filename,
                         files_path=app_pdf_dir,

@@ -5,7 +5,7 @@ import collections
 import graphlib
 from typing import AbstractSet, Collection, DefaultDict, Dict, Any, Mapping, Sequence, Set
 
-import substitutions
+import faw_substitutions
 
 
 class ParserDependencyGraph:
@@ -23,7 +23,7 @@ class ParserDependencyGraph:
     """Artifact type -> immediate upstream parsers"""
     parsers_consuming_artifacts_of_type: DefaultDict[str, Set[str]]
     """Artifact type -> immediate downstream parsers"""
-    artifact_types_by_parser: Dict[str, substitutions.ArtifactTypes]
+    artifact_types_by_parser: Dict[str, faw_substitutions.ArtifactTypes]
     """Parser name -> immediate artifact dependencies"""
 
     def __init__(self, parser_configs: Mapping[str, Mapping[str, Any]]) -> None:
@@ -34,7 +34,7 @@ class ParserDependencyGraph:
         for k, cfg in parser_configs.items():
             if cfg.get('disabled', False):
                 continue
-            artifact_types = substitutions.artifact_types(cfg['exec'])
+            artifact_types = faw_substitutions.artifact_types(cfg['exec'])
             self.artifact_types_by_parser[k] = artifact_types
             for artifact_type in artifact_types.output_artifact_types:
                 self.parsers_producing_artifacts_of_type[artifact_type].add(k)
@@ -48,7 +48,9 @@ class ParserDependencyGraph:
         Raise ``graphlib.CycleError`` if not possible.
         """
         parsers: Set[str] = set()
-        self._add_upstream_parsers(artifact_types, parsers=parsers)
+        self._add_upstream_parsers_from_artifact_types_to(
+            artifact_types=artifact_types, parsers=parsers
+        )
         return self.sort_parsers(parsers)
 
     def parsers_upstream_from_parsers(self, parsers: Collection[str]) -> Set[str]:
@@ -57,21 +59,26 @@ class ParserDependencyGraph:
         """
         upstream_parsers: Set[str] = set()
         for parser in parsers:
-            self._add_upstream_parsers(
-                self.artifact_types_by_parser[parser].input_artifact_types,
-                upstream_parsers,
+            self._add_upstream_parsers_from_artifact_types_to(
+                artifact_types=self.artifact_types_by_parser[parser].input_artifact_types,
+                parsers=upstream_parsers,
             )
         return upstream_parsers
 
-    def _add_upstream_parsers(self, artifact_types: AbstractSet[str], parsers: Set[str]) -> None:
+    def _add_upstream_parsers_from_artifact_types_to(
+        self,
+        *,
+        artifact_types: AbstractSet[str],
+        parsers: Set[str],
+    ) -> None:
         """Add parsers producing the given artifact types to ``parsers``."""
         for artifact_type in artifact_types:
             for upstream_parser in self.parsers_producing_artifacts_of_type[artifact_type]:
                 if upstream_parser not in parsers:
                     parsers.add(upstream_parser)
-                    self._add_upstream_parsers(
-                        self.artifact_types_by_parser[upstream_parser].input_artifact_types,
-                        parsers,
+                    self._add_upstream_parsers_from_artifact_types_to(
+                        artifact_types=self.artifact_types_by_parser[upstream_parser].input_artifact_types,
+                        parsers=parsers,
                     )
 
     def parsers_downstream_from_parsers(self, parsers: Collection[str]) -> Set[str]:
@@ -80,20 +87,20 @@ class ParserDependencyGraph:
         """
         downstream_parsers: Set[str] = set()
         for parser in parsers:
-            self.add_parsers_downstream_from_parser(
+            self.add_parsers_downstream_from_parser_to(
                 parser,
                 downstream_parsers,
             )
         return downstream_parsers
 
-    def add_parsers_downstream_from_parser(self, parser_name: str, parsers: Set[str]) -> None:
+    def add_parsers_downstream_from_parser_to(self, parser_name: str, parsers: Set[str]) -> None:
         """Add parsers downstream from the given parser to ``parsers``."""
         artifact_types = self.artifact_types_by_parser[parser_name]
         for artifact_type in artifact_types.output_artifact_types:
             for downstream_parser in self.parsers_producing_artifacts_of_type[artifact_type]:
                 if downstream_parser not in parsers:
                     parsers.add(parser_name)
-                    self.add_parsers_downstream_from_parser(downstream_parser, parsers)
+                    self.add_parsers_downstream_from_parser_to(downstream_parser, parsers)
 
     def sort_parsers(self, parsers: Collection[str]) -> Sequence[str]:
         """Return parser names sorted by dependency.

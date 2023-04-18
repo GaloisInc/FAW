@@ -20,7 +20,7 @@ import sys
 import time
 import traceback
 
-import parserartifacts
+import faw_artifacts
 
 _app_config = None
 _app_config_version = 0
@@ -567,10 +567,14 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
         all_parser_configs = faw_analysis_set_util.lookup_all_parsers(
             db=db, app_config=app_config
         )
-        downstream_parsers = parserartifacts.ParserDependencyGraph(
+        artifact_dependency_graph = faw_artifacts.ParserDependencyGraph(
             all_parser_configs
-        ).parsers_downstream_from_parsers(
+        )
+        downstream_parsers = artifact_dependency_graph.parsers_downstream_from_parsers(
             new_parsers_tool_updated
+        )
+        upstream_parsers = artifact_dependency_graph.parsers_upstream_from_parsers(
+            new_parsers_tool_updated | downstream_parsers
         )
         parser_parser_versions = {
             k: v['parse']['version']
@@ -578,7 +582,7 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
             if not v.get('disabled')
         }
         num_updated = len(new_parsers)
-        for k in downstream_parsers:
+        for k in downstream_parsers | upstream_parsers:
             if k not in parser_versions:
                 additional_parser_versions[k] = [
                     {'': all_parser_configs[k]['version']},
@@ -589,7 +593,10 @@ def _as_populate_parsers(exit_flag, app_config, parser_versions, parser_versions
                 ]
             new_parsers[k] = parser_versions[k]
         if len(new_parsers) - num_updated:
-            print(f'Adding {len(new_parsers) - num_updated} downstream parsers to rerun')
+            logger.debug(
+                f'Adding {len(new_parsers) - num_updated} downstream '
+                'parsers to rerun'
+            )
 
     logger.debug(f'Rerunning {len(new_parsers)} parsers')
 

@@ -36,82 +36,82 @@
             // Any disabled parser has no effect -- comment this line to enable
             disabled: true,
             /** The command to invoke this parser.
-             *
-             *  The exec line may contain argument substitutions that are
-             *  replaced when it is invoked. A substitution is of the form
-             *  '<substitutionType [args...]>' and must replace an entire
-             *  argument in `exec`. Some substitution types accept or require
-             *  space-separated arguments. Below, optional arguments are
-             *  bracketed. Parsers and plugins support different substitution
-             *  patterns.
-             *
-             *  Parsers can produce or consume "artifacts" (files) in named
-             *  categories. A parser that includes
-             *  '<artifactOutDir artifactType>' or
-             *  '<artifactOutFile artifactType [filename]>' in its `exec` is
-             *  defined as producing `artifactType` artifacts.
-             *  A parser that includes '<artifactInParserDirs artifactType>'
-             *  in its `exec` is defined as consuming `artifactType` artifacts.
-             *  Artifacts can be used to pass information between parsers, e.g.
-             *  to compare the output of upstream parsers. Artifacts may consist
-             *  of a single file or multiple files per parser. Parsers consuming
-             *  artifacts should accept an empty directory from upstream
-             *  (meaning no parsers produced the artifact type in question).
-             *  Artifacts are per-file and per-parser.
-             *
-             *  The following artifact types are used in the PDF FAW:
-             *    pageImages
-             *      For each page of the PDF, the artifact directory contains
-             *      a raster image of the page. Each page image's filename must
-             *      be of the form `page-%d.ext`, where `%d` is the page number
-             *      (0-indexed), and `.ext` is the file extension. The prefix is
-             *      not significant, but `page-` is standard.
-             *    pageText
-             *      The artifact directory contains a single UTF-8 text file
-             *      containing text parsed from the PDF. Pages are separated by
-             *      ASCII form feed characters. A trailing FF is permitted.
-             *
-             *  Other FAW distributions should document all artifact types used,
-             *  if any, in their config file or README.
-             *
-             *  Valid substitutions for parsers:
-             *
-             *    <inputFile>
-             *      Absolute path to the file to parse.
-             *
-             *    <apiInfo>
-             *      JSON information about the FAW API.
-             *
-             *    <tempFile [suffix]>
-             *      Path to a (nonexistent) temporary file, optionally with the
-             *      given suffix.
-             *
-             *    <tempPrefix [suffix]>
-             *      Path to a temporary file/dir prefix, optionally with the
-             *      given suffix.
-             *
-             *    <tempDir [suffix]>
-             *      Path to a temporary directory, optionally with the given
-             *      suffix.
-             *
-             *    <artifactInParserDirs artifactType>
-             *      Path to a directory containing a dir for each parser that
-             *      produced `artifactType` artifacts. Defines this parser as
-             *      downstream from any parsers producing artifacts of type
-             *      `artifactType`.
-             *
-             *    <artifactOutDir artifactType>
-             *      Path to the directory in which this parser should deposit
-             *      artifacts of type `artifactType`. Defines this parser as
-             *      upstream from any parsers consuming artifacts of type
-             *      `artifactType`.
-             *
-             *    <artifactOutFile artifactType [filename]>
-             *      Path to a file in the directory in
-             *      `<artifactOutDir artifactType>`. If `filename` is provided,
-             *      it is the file's name; otherwise, an arbitrary name is used.
-             *      Defines this parser as upstream from any parsers consuming
-             *      artifacts of type `artifactType`.
+
+                The exec line may contain argument substitutions that are
+                replaced when it is invoked. A substitution is of the form
+                '<substitutionType [args...]>' and must replace an entire
+                argument in `exec`. Some substitution types accept or require
+                space-separated arguments. Below, optional arguments are
+                bracketed. Parsers and plugins support different substitution
+                patterns.
+
+                Parsers can produce or consume "artifacts" (which are files in
+                per-parser directories) in named categories. A parser that
+                includes '<artifactOutDir artifactType>' or
+                '<artifactOutFile artifactType [filename]>' in its `exec` is
+                defined as producing `artifactType` artifacts.
+                A parser that includes '<artifactInParserDirs artifactType>'
+                in its `exec` is defined as consuming `artifactType` artifacts.
+                Artifacts can be used to pass information between parsers, e.g.
+                to compare the output of upstream parsers. Artifacts may consist
+                of a single file or multiple files per parser. Parsers consuming
+                artifacts should accept an empty directory from upstream
+                (meaning no parsers produced the artifact type in question).
+                Artifacts are per-file and per-parser.
+
+                The following artifact types are used in the PDF FAW:
+                  pageImages
+                    For each page of the PDF, the artifact directory contains
+                    a raster image of the page. Each page image's filename must
+                    be of the form `page-%d.ext`, where `%d` is the page number
+                    (0-indexed), and `.ext` is the file extension. The prefix is
+                    not significant, but `page-` is standard.
+                  pageText
+                    The artifact directory contains a single UTF-8 text file
+                    containing text parsed from the PDF. Pages are separated by
+                    ASCII form feed characters. A trailing FF is permitted.
+
+                Other FAW distributions should document all artifact types used,
+                if any, in their config file or README.
+
+                Valid substitutions for parsers:
+
+                  <inputFile>
+                    Absolute path to the file to parse.
+
+                  <apiInfo>
+                    JSON information about the FAW API.
+
+                  <tempFile [suffix]>
+                    Path to a (nonexistent) temporary file, optionally with the
+                    given suffix.
+
+                  <tempPrefix [suffix]>
+                    Path to a temporary file/dir prefix, optionally with the
+                    given suffix.
+
+                  <tempDir [suffix]>
+                    Path to a temporary directory, optionally with the given
+                    suffix.
+
+                  <artifactInParserDirs artifactType>
+                    Path to a directory containing a dir for each parser that
+                    produced `artifactType` artifacts. Defines this parser as
+                    downstream from any parsers producing artifacts of type
+                    `artifactType`.
+
+                  <artifactOutDir artifactType>
+                    Path to the directory in which this parser should deposit
+                    artifacts of type `artifactType`. Defines this parser as
+                    upstream from any parsers consuming artifacts of type
+                    `artifactType`.
+
+                  <artifactOutFile artifactType [filename]>
+                    Path to a (not yet created) file in the directory in
+                    `<artifactOutDir artifactType>`. If `filename` is provided,
+                    it is the file's name; otherwise, an arbitrary name is used.
+                    Defines this parser as upstream from any parsers consuming
+                    artifacts of type `artifactType`.
              */
             exec: ['file', '<inputFile>'],
             // Most parsers can fail, and that's OK. Once in awhile though, it
@@ -201,99 +201,96 @@
             // How this decider gets executed. 'program' is only option
             type: 'program',
             /** The command to invoke this plugin.
-             *
-             *  stdin is expected to be a streaming JSON format, where each
-             *  line is an object with keys:
-             *
-             *      * testfile: Full file name.
-             *      * info: Array of `'text'` or `{"description": "text",
-             *          "offset": <location specification>}`.
-             *      * <any>: A feature which should be specified in the
-             *          workbench DSL, in order to filter/interact with the
-             *          attribute.
-             *
-             *  Lines not beginning with '{' are ignored.
-             *
-             *  The exec line may contain argument substitutions that are
-             *  replaced when it is invoked. A substitution is of the form
-             *  '<substitutionType [args...]>' and must replace an entire
-             *  argument in `exec`. Some substitution types accept or require
-             *  space-separated arguments. Below, optional arguments are
-             *  bracketed. Parsers and plugins support different substitution
-             *  patterns.
-             *
-             *  Valid substitutions for decision plugins:
-             *
-             *    <filesPath>
-             *      Path to folder containing files, in case this
-             *      decision process needs to look at the raw file data.
-             *
-             *    <jsonArguments>
-             *      Receives a JSON object which contains any
-             *      parameters passed to this decider's URL. The workbench
-             *      itself will NOT use this feature, but the `<outputHtml>`
-             *      may leverage the value of `<workbenchApiUrl>` to re-run
-             *      a decision with new parameters, via e.g.
-             *      `workbenchApiUrl + '/redecide?arg1=1&arg2=2'` to
-             *      re-trigger this decider with
-             *      `jsonArguments={'arg1': '1', 'arg2': '2'}`.
-             *
-             *    <mongo>
-             *      "host:port/db" pointer to the mongo database.
-             *
-             *      There are several available collections; the easiest to use
-             *      is `statsbyfile`, and the most detailed is `rawinvocations`.
-             *
-             *      Available collections:
-             *          * statsbyfile -- `_id` is path to file within
-             *              <filesPath>. Outside of that, each key is a
-             *              feature present in the file, and each value is
-             *              undefined at the moment.
-             *          * rawinvocations -- Keyed by `doc['invoker']['invName']`
-             *              and `doc['file']` (which is `filesPath + '/' + file`),
-             *              rawinvocations contains the raw parser stdout, stderr,
-             *              and exit code attained by running a parser.
-             *
-             *              Not for the faint of heart.
-             *
-             *    <outputHtml>
-             *      Receives file path for customized debug display.
-             *      This file will be consumed and put into an iframe.
-             *
-             *    <workbenchApiUrl>
-             *      Receives prefix for URL to access a file;
-             *      e.g., `url + 'showFile?id=' + statsbyfile['_id']` is the `href`
-             *      value for a link in the `outputHtml` file which would
-             *      lead the workbench to display the given file.
-             *
-             *      APIs:
-             *          * redecide?arg1=1&arg2=2&... - Re-run this decision
-             *              plugin, with `<jsonArguments>` containing a dict:
-             *              `{'arg1': '1', 'arg2': '2'}`.
-             *          * redetail?arg1=1&... - Re-run current file detail view
-             *              plugin, with `<jsonArguments>` containing a dict:
-             *              `{'arg1': '1', ...}`.
-             *          * showFile?id=file - Show details for `file` in the
-             *              workbench.
-             *
-             *      Javascript may be used to send arguments more complicated
-             *      than may be passed over a URL (as POST body).
-             *
-             *    <apiInfo>
-             *      JSON information about the FAW API.
-             *
-             *    <tempFile [suffix]>
-             *      Path to a (nonexistent) temporary file, optionally with the
-             *      given suffix.
-             *
-             *    <tempPrefix [suffix]>
-             *      Path to a temporary file/dir prefix, optionally with the
-             *      given suffix.
-             *
-             *    <tempDir [suffix]>
-             *      Path to a temporary directory, optionally with the given
-             *      suffix.
-             *
+
+                stdin is expected to be a streaming JSON format, where each
+                line is an object with keys:
+
+                    * testfile: Full file name.
+                    * info: Array of `'text'` or `{"description": "text",
+                        "offset": <location specification>}`.
+                    * <any>: A feature which should be specified in the
+                        workbench DSL, in order to filter/interact with the
+                        attribute.
+
+                Lines not beginning with '{' are ignored.
+
+                The exec line may contain argument substitutions that are
+                replaced when it is invoked. A substitution is of the form
+                '<substitutionType [args...]>' and must replace an entire
+                argument in `exec`. Some substitution types accept or require
+                space-separated arguments. Below, optional arguments are
+                bracketed. Parsers and plugins support different substitution
+                patterns.
+
+                Valid substitutions for decision plugins:
+
+                  <filesPath>
+                    Path to folder containing files, in case this
+                    decision process needs to look at the raw file data.
+
+                  <jsonArguments>
+                    Receives a JSON object which contains any
+                    parameters passed to this decider's URL. The workbench
+                    itself will NOT use this feature, but the `<outputHtml>`
+                    may leverage the value of `<workbenchApiUrl>` to re-run
+                    a decision with new parameters, via e.g.
+                    `workbenchApiUrl + '/redecide?arg1=1&arg2=2'` to
+                    re-trigger this decider with
+                    `jsonArguments={'arg1': '1', 'arg2': '2'}`.
+
+                  <mongo>
+                    "host:port/db" pointer to the mongo database.
+
+                    There are several available collections; the easiest to use
+                    is `invocationsaparsed`, and the most detailed is
+                    `rawinvocations`.
+
+                    Available collections:
+                        * invocationsparsed -- Keyed by parser and file. Contains
+                            the features matched by the DSL on the web frontend.
+                        * rawinvocations -- Keyed by `doc['invoker']['invName']`
+                            and `doc['file']` (which is `filesPath + '/' + file`),
+                            rawinvocations contains the raw parser stdout, stderr,
+                            and exit code attained by running a parser.
+
+                  <outputHtml>
+                    Receives file path for customized debug display.
+                    This file will be consumed and put into an iframe.
+
+                  <workbenchApiUrl>
+                    Receives prefix for URL to access a file;
+                    e.g., `url + 'showFile?id=' + statsbyfile['_id']` is the `href`
+                    value for a link in the `outputHtml` file which would
+                    lead the workbench to display the given file.
+
+                    APIs:
+                        * redecide?arg1=1&arg2=2&... - Re-run this decision
+                            plugin, with `<jsonArguments>` containing a dict:
+                            `{'arg1': '1', 'arg2': '2'}`.
+                        * redetail?arg1=1&... - Re-run current file detail view
+                            plugin, with `<jsonArguments>` containing a dict:
+                            `{'arg1': '1', ...}`.
+                        * showFile?id=file - Show details for `file` in the
+                            workbench.
+
+                    Javascript may be used to send arguments more complicated
+                    than may be passed over a URL (as POST body).
+
+                  <apiInfo>
+                    JSON information about the FAW API.
+
+                  <tempFile [suffix]>
+                    Path to a (nonexistent) temporary file, optionally with the
+                    given suffix.
+
+                  <tempPrefix [suffix]>
+                    Path to a temporary file/dir prefix, optionally with the
+                    given suffix.
+
+                  <tempDir [suffix]>
+                    Path to a temporary directory, optionally with the given
+                    suffix.
+
              */
             exec: ['python3', 'qpdf_plugin/main.py', "<outputHtml>", "<workbenchApiUrl>", "<jsonArguments>"],
             /** Standard input passed to the program specified by `exec`. This is
@@ -344,112 +341,96 @@ with open(sys.argv[1], 'w') as html: \n\
             label: 'View PDF in browser',
             type: 'program_to_html',
             /** The command to invoke this plugin.
-             *
-             *  The exec line may contain argument substitutions that are
-             *  replaced when it is invoked. A substitution is of the form
-             *  '<substitutionType [args...]>' and must replace an entire
-             *  argument in `exec`. Some substitution types accept or require
-             *  space-separated arguments. Below, optional arguments are
-             *  bracketed. Parsers and plugins support different substitution
-             *  patterns.
-             *
-             *  File plugins can consume "artifacts" (files) in named
-             *  categories. See the parser example above for more information.
-             *  Invoking a file plugin that consumes artifacts will rerun
-             *  upstream parsers. Plugins cannot produce artifacts.
-             *
-             *  See above for the list of artifact types used in the PDF FAW.
-             *
-             *  Valid substitutions for file plugins:
-             *
-             *    <filesPath>
-             *      Path to folder containing files, in case this
-             *      decision process needs to look at the raw file data.
-             *
-             *    <jsonArguments>
-             *      Receives a JSON object which contains any
-             *      parameters passed to this decider's URL. The workbench
-             *      itself will NOT use this feature, but the `<outputHtml>`
-             *      may leverage the value of `<workbenchApiUrl>` to re-run
-             *      a decision with new parameters, via e.g.
-             *      `workbenchApiUrl + '/redecide?arg1=1&arg2=2'` to
-             *      re-trigger this decider with
-             *      `jsonArguments={'arg1': '1', 'arg2': '2'}`.
-             *
-             *    <mongo>
-             *      "host:port/db" pointer to the mongo database.
-             *
-             *      There are several available collections; the easiest to use
-             *      is `statsbyfile`, and the most detailed is `rawinvocations`.
-             *
-             *      Available collections:
-             *          * statsbyfile -- `_id` is path to file within
-             *              <filesPath>. Outside of that, each key is a
-             *              feature present in the file, and each value is
-             *              undefined at the moment.
-             *          * rawinvocations -- Keyed by `doc['invoker']['invName']`
-             *              and `doc['file']` (which is `filesPath + '/' + file`),
-             *              rawinvocations contains the raw parser stdout, stderr,
-             *              and exit code attained by running a parser.
-             *
-             *              Not for the faint of heart.
-             *
-             *    <outputHtml>
-             *      Receives file path for customized debug display.
-             *      This file will be consumed and put into an iframe.
-             *
-             *    <workbenchApiUrl>
-             *      Receives prefix for URL to access a file;
-             *      e.g., `url + 'showFile?id=' + statsbyfile['_id']` is the `href`
-             *      value for a link in the `outputHtml` file which would
-             *      lead the workbench to display the given file.
-             *
-             *      APIs:
-             *          * redecide?arg1=1&arg2=2&... - Re-run this decision
-             *              plugin, with `<jsonArguments>` containing a dict:
-             *              `{'arg1': '1', 'arg2': '2'}`.
-             *          * redetail?arg1=1&... - Re-run current file detail view
-             *              plugin, with `<jsonArguments>` containing a dict:
-             *              `{'arg1': '1', ...}`.
-             *          * showFile?id=file - Show details for `file` in the
-             *              workbench.
-             *
-             *      Javascript may be used to send arguments more complicated
-             *      than may be passed over a URL (as POST body).
-             *
-             *    <apiInfo>
-             *      JSON information about the FAW API.
-             *
-             *    <tempFile [suffix]>
-             *      Path to a (nonexistent) temporary file, optionally with the
-             *      given suffix.
-             *
-             *    <tempPrefix [suffix]>
-             *      Path to a temporary file/dir prefix, optionally with the
-             *      given suffix.
-             *
-             *    <tempDir [suffix]>
-             *      Path to a temporary directory, optionally with the given
-             *      suffix.
-             *
-             *    <artifactInParserDirs artifactType>
-             *      Path to a directory containing a dir for each parser that
-             *      produced `artifactType` artifacts. Defines this parser as
-             *      downstream from any parsers producing artifacts of type
-             *      `artifactType`.
-             *
-             *    <artifactOutDir artifactType>
-             *      Path to the directory in which this parser should deposit
-             *      artifacts of type `artifactType`. Defines this parser as
-             *      upstream from any parsers consuming artifacts of type
-             *      `artifactType`.
-             *
-             *    <artifactOutFile artifactType [filename]>
-             *      Path to a file in the directory in
-             *      `<artifactOutDir artifactType>`. If `filename` is provided,
-             *      it is the file's name; otherwise, an arbitrary name is used.
-             *      Defines this parser as upstream from any parsers consuming
-             *      artifacts of type `artifactType`.
+
+                The exec line may contain argument substitutions that are
+                replaced when it is invoked. A substitution is of the form
+                '<substitutionType [args...]>' and must replace an entire
+                argument in `exec`. Some substitution types accept or require
+                space-separated arguments. Below, optional arguments are
+                bracketed. Parsers and plugins support different substitution
+                patterns.
+
+                File plugins can consume "artifacts" (files) in named
+                categories. See the parser example above for more information.
+                Invoking a file plugin that consumes artifacts will rerun
+                upstream parsers. Plugins cannot produce artifacts.
+
+                See above for the list of artifact types used in the PDF FAW.
+
+                Valid substitutions for file plugins:
+
+                  <filesPath>
+                    Path to folder containing files, in case this
+                    decision process needs to look at the raw file data.
+
+                  <jsonArguments>
+                    Receives a JSON object which contains any
+                    parameters passed to this decider's URL. The workbench
+                    itself will NOT use this feature, but the `<outputHtml>`
+                    may leverage the value of `<workbenchApiUrl>` to re-run
+                    a decision with new parameters, via e.g.
+                    `workbenchApiUrl + '/redecide?arg1=1&arg2=2'` to
+                    re-trigger this decider with
+                    `jsonArguments={'arg1': '1', 'arg2': '2'}`.
+
+                  <mongo>
+                    "host:port/db" pointer to the mongo database.
+
+                    There are several available collections; the easiest to use
+                    is `invocationsaparsed`, and the most detailed is
+                    `rawinvocations`.
+
+                    Available collections:
+                        * invocationsparsed -- Keyed by parser and file. Contains
+                            the features matched by the DSL on the web frontend.
+                        * rawinvocations -- Keyed by `doc['invoker']['invName']`
+                            and `doc['file']` (which is `filesPath + '/' + file`),
+                            rawinvocations contains the raw parser stdout, stderr,
+                            and exit code attained by running a parser.
+
+                  <outputHtml>
+                    Receives file path for customized debug display.
+                    This file will be consumed and put into an iframe.
+
+                  <workbenchApiUrl>
+                    Receives prefix for URL to access a file;
+                    e.g., `url + 'showFile?id=' + statsbyfile['_id']` is the `href`
+                    value for a link in the `outputHtml` file which would
+                    lead the workbench to display the given file.
+
+                    APIs:
+                        * redecide?arg1=1&arg2=2&... - Re-run this decision
+                            plugin, with `<jsonArguments>` containing a dict:
+                            `{'arg1': '1', 'arg2': '2'}`.
+                        * redetail?arg1=1&... - Re-run current file detail view
+                            plugin, with `<jsonArguments>` containing a dict:
+                            `{'arg1': '1', ...}`.
+                        * showFile?id=file - Show details for `file` in the
+                            workbench.
+
+                    Javascript may be used to send arguments more complicated
+                    than may be passed over a URL (as POST body).
+
+                  <apiInfo>
+                    JSON information about the FAW API.
+
+                  <tempFile [suffix]>
+                    Path to a (nonexistent) temporary file, optionally with the
+                    given suffix.
+
+                  <tempPrefix [suffix]>
+                    Path to a temporary file/dir prefix, optionally with the
+                    given suffix.
+
+                  <tempDir [suffix]>
+                    Path to a temporary directory, optionally with the given
+                    suffix.
+
+                  <artifactInParserDirs artifactType>
+                    Path to a directory containing a dir for each parser that
+                    produced `artifactType` artifacts. Defines this parser as
+                    downstream from any parsers producing artifacts of type
+                    `artifactType`.
              */
             exec: ['cat', '<inputFile>'],
             // Applications may also produce non-HTML content displayable in a browser,

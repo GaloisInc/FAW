@@ -25,16 +25,17 @@ def main():
 
     tool_names = []
     pages_by_tool = {}
-    for t in os.listdir(artifacts_root_dir):
+    for t in sorted(os.listdir(artifacts_root_dir)):
         tool_names.append(t)
         for f in os.listdir(os.path.join(artifacts_root_dir, t)):
             # Filename format is `page-%d.ext`
             pageno = int(f.rsplit('.')[0].rsplit('-')[-1])
             assert (t, pageno) not in pages_by_tool, f'{t} / {pageno} / {pages_by_tool}'
             pages_by_tool[(t, pageno)] = f
-    tool_names.sort()
     if not tool_names:
         print(f'No upstream tools produce page images')
+    if tool_names and not pages_by_tool:
+        print(f'All upstream tools produced no output', file=sys.stderr)
 
     if html_out:
         print(
@@ -49,6 +50,7 @@ def main():
     rmse_max = collections.defaultdict(lambda: collections.defaultdict(float))
     diff_max = collections.defaultdict(lambda: collections.defaultdict(float))
     any_differential = False
+    temp_dir = tempfile.TemporaryDirectory()
     while True:
         existed = set()
 
@@ -70,8 +72,9 @@ def main():
             # TODO requires conversion (imagemagick installed on machine)
             # // testing before commit.
             if not pagepath.endswith('.png'):
-                subprocess.check_call(['convert', pagepath, pagepath + '.png'])
-                pagepath += '.png'
+                new_pagepath = os.path.join(temp_dir.name, f'{t}-{pageno}.png')
+                subprocess.check_call(['convert', pagepath, new_pagepath])
+                pagepath = new_pagepath
 
             if html_out:
                 b64 = base64.b64encode(open(pagepath, 'rb').read())
@@ -88,9 +91,14 @@ def main():
                 print(f'Unable to read image!</td>')
                 continue
             img = img.astype(np.float32)
-            if len(img.shape) == 2:
+            if len(img.shape) < 3:
                 # Image was interpreted by imageio as monochrome
                 img = np.atleast_3d(img)
+            elif img.shape[2] == 4:
+                # Image is RGBA; discard alpha channel.
+                print(f'Discarded transparency from {t} page {pageno}')
+                # alpha to white; equivalent to `img = img[:, :, :3]` for opaque images
+                img = img[:, :, :3] * np.atleast_3d(img[:, :, 3]) / 255
             page_images[-1] = img  # replace placeholder (None)
 
             if html_out and ti > 0:
@@ -161,6 +169,7 @@ def main():
                     file=sys.stderr)
             any_differential = True
         pageno += 1
+    temp_dir.cleanup()
 
     if html_out:
         print('</tbody></table>')
