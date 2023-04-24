@@ -47,6 +47,30 @@
         },
       },
     },
+    'pdfbox-text': {
+      disabled: false,
+      exec: ['./pagetext.py', '-o', '<artifactOutFile pageText all-pages.txt>', '<inputFile>'],
+      version: '1.0',
+      parse: {
+        type: 'regex-counter',
+        version: '1.6',
+        stdout: {
+          // We do NOT want the observatory to pick these up, so just ignore
+          // every message. pdfbox-txt must be searched via mongo!
+          '^.*$': {
+            nameGroup: '',
+          },
+        },
+        stderr: {
+          '.*': {
+            nameReplace: {
+              '[0-9]': '',
+              '\u0000': '<NULL>',
+            },
+          },
+        },
+      },
+    },
   },
   build: {
     stages: {

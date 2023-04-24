@@ -82,9 +82,21 @@ def handle_clean(conn_resolver, db_dst):
 
 def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parse_version,
         parsers_config, parser_parsers_shared):
-    """Parse this document."""
+    """Parse this document, and update the DB table `db_dst`."""
     conn_dst = conn_resolver(db_dst)
+    d = parse_features(
+        doc,
+        fname_rewrite=fname_rewrite,
+        parse_version=parse_version,
+        parsers_config=parsers_config,
+        parser_parsers_shared=parser_parsers_shared,
+    )
+    conn_dst.replace_one({'_id': doc['_id']}, d, upsert=True)
 
+
+def parse_features(doc, *, fname_rewrite, parse_version,
+        parsers_config, parser_parsers_shared):
+    """Parse this document, and return the new document (don't update the DB)."""
     inv_name = doc['invoker']['invName']
     cfg = parsers_config[inv_name]
 
@@ -248,8 +260,7 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parse_version,
         # format which can be queried.
         parse_fts = [{'k': k, 'v': v} for k, v in parse_fts.items()]
 
-        d = {
-                '_id': doc['_id'],
+        return {
                 'file': fname_rewrite or doc['file'],
                 'parser': doc['invoker']['invName'],
                 'version_parse': parse_version,
@@ -257,7 +268,6 @@ def handle_doc(doc, conn_resolver, *, db_dst, fname_rewrite, parse_version,
                 'result': parse_fts,
                 'exitcode': exitcode,
         }
-        conn_dst.replace_one({'_id': d['_id']}, d, upsert=True)
     except:
         # Dask doesn't show chained exceptions as of 2021-11-05
         raise ValueError(f'While parsing {inv_name} for {doc["file"]}:\n\n{traceback.format_exc()}')

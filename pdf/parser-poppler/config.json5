@@ -2,7 +2,7 @@
     parsers: {
 
         pdftotext: {
-          exec: ['bash', '-c', 'pdftotext $0 >(cat)', '<inputFile>'],
+          exec: ['bash', '-c', 'pdftotext -enc UTF-8 $0 - | tee $1', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
           version: 'poppler-0.86.1',
           parse: {
             type: 'regex-counter',
@@ -199,7 +199,7 @@
 
         "pdftoppm": {
             disabled: false,
-            exec: ['pdftoppm', '<inputFile>', '<tempPrefix>'],
+            exec: ['pdftoppm', '-r', '100', '-cropbox', '<inputFile>', '<artifactOutFile pageImages100dpi page>'],
             version: 'poppler-0.86.1',
             parse: {
                 type: 'regex-counter',

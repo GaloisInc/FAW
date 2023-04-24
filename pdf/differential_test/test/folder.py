@@ -1,4 +1,4 @@
-"""Given a folder with subfolders, run the schizo test and report on the min,
+"""Given a folder with subfolders, run the differential test and report on the min,
 max, etc statistics of each subfolder.
 """
 
