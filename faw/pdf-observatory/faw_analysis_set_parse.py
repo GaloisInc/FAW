@@ -334,7 +334,7 @@ def _dask_as_parse_file(app_config, api_info, doc):
             ver_db = ver_db_info[0]
             ver_cfg = doc['parsers'][k]
 
-            if cfg.get('disabled', False):
+            if cfg.get('disabled'):
                 # We *do* want to unset based on version. A different version
                 # may not be disabled.
                 parsers_done[k] = ver_cfg

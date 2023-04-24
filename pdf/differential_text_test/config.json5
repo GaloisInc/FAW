@@ -15,12 +15,12 @@
         type: 'regex-counter',
         version: '1',
         stdstar: {
-          '^Min (.* to .*): (.*)': {
+          '^Min (.*? to .*?): (.*?)': {
             nameGroup: 1,
             countGroup: 2,
             countAsNumber: true,
           },
-          '^(.* to .*):': {
+          '^(.*? to .*?):': {
             // Ignore these, focus on minimum.
             nameGroup: '',
           },

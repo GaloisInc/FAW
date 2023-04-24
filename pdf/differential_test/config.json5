@@ -3,24 +3,24 @@
     differential: {
         label: 'Visual Differential Comparison',
         type: 'program_to_html',
-        exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '--html'],
+        exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '<tempDir>', '--html'],
     },
   },
   parsers: {
     'differential-test': {
-      exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '<inputFile>'],
+      exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '<tempDir>'],
       timeout: 120,
       version: 'differential-test72',
       parse: {
         type: 'regex-counter',
         version: '1',
         stdstar: {
-          '^(Max RMSE, .*): (.*)': {
+          '^(Max RMSE, .*?): (.*?)': {
             nameGroup: 1,
             countGroup: 2,
             countAsNumber: true,
           },
-          '^(Max diff, .*): (.*)': {
+          '^(Max diff, .*?): (.*?)': {
             nameGroup: 1,
             countGroup: 2,
             countAsNumber: true,

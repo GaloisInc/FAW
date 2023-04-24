@@ -19,7 +19,8 @@ DIFF_FOR_DIFFERENTIAL = -12.  # Negative means disabled
 
 def main():
     artifacts_root_dir = sys.argv[1]
-    html_out = len(sys.argv) > 2 and sys.argv[2] == '--html'
+    temp_dir = sys.argv[2]
+    html_out = len(sys.argv) > 3 and sys.argv[3] == '--html'
 
     img_attrs = 'width="400"'
 
@@ -50,7 +51,6 @@ def main():
     rmse_max = collections.defaultdict(lambda: collections.defaultdict(float))
     diff_max = collections.defaultdict(lambda: collections.defaultdict(float))
     any_differential = False
-    temp_dir = tempfile.TemporaryDirectory()
     while True:
         existed = set()
 
@@ -72,7 +72,7 @@ def main():
             # TODO requires conversion (imagemagick installed on machine)
             # // testing before commit.
             if not pagepath.endswith('.png'):
-                new_pagepath = os.path.join(temp_dir.name, f'{t}-{pageno}.png')
+                new_pagepath = os.path.join(temp_dir, f'{t}-{pageno}.png')
                 subprocess.check_call(['convert', pagepath, new_pagepath])
                 pagepath = new_pagepath
 
@@ -169,7 +169,6 @@ def main():
                     file=sys.stderr)
             any_differential = True
         pageno += 1
-    temp_dir.cleanup()
 
     if html_out:
         print('</tbody></table>')
