@@ -1,0 +1,3 @@
+GET /+webvpn+/ HTTP/1.1
+Host: psres.net
+

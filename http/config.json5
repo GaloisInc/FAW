@@ -1,0 +1,79 @@
+{
+    // TODO document artifact types for HTTP FAW here or in a README
+    name: 'galois-workbench-http',
+
+    file_transform: null,
+
+    // Seconds, per parser, in which each parser must finish executing.
+    parserDefaultTimeout: 60,
+    parsers: {
+    },
+
+    pipelines: {
+      // See ml_test/config.json5 for example.
+    },
+
+    // May also specify a plaintext file to avoid needed to format as JSON5:
+    // decision_default: {file: 'file_path_relative_to_config.txt'},
+    decision_default: {file: 'dsl.txt'},
+
+    decision_views: {
+        /** Example decision process which documents API.
+
+            See also build -> stages -> final, where the requirements for this
+            plugin get installed.
+            */
+        example2: {
+            label: 'Flip reference decisions',
+            type: 'program',
+            exec: ['python3', '-c', "\
+import json, sys \n\
+with open(sys.argv[1], 'w') as html: \n\
+    html.write('<html><body>') \n\
+    in_refs = False \n\
+    for line in sys.stdin: \n\
+        if not in_refs: \n\
+            if line == 'refs\\n': \n\
+                in_refs = True \n\
+        else: \n\
+            o = json.loads(line) \n\
+            o['status'] = 'valid' if o['status'] == 'rejected' else 'rejected' \n\
+            print(json.dumps(o)) \n\
+",
+                    '<outputHtml>'],
+            execStdin: 'lines\nblah\nrefs\n<referenceDecisions>',
+        },
+    },
+
+    file_detail_views: {
+        viewer: {
+            label: 'View Bytes',
+            type: 'program_to_html',
+            exec: ['hexdump', '<inputFile>'],
+            outputMimeType: 'text/plain',
+        },
+    },
+
+    build: {
+        stages: {
+            base: {
+                'from': 'ubuntu:20.04',
+                commands: [
+                    'ENV DEBIAN_FRONTEND=noninteractive',
+                    'SHELL ["/bin/bash", "-c"]',
+                    'RUN apt-get update && apt-get install -y \
+                        bsdmainutils \
+                        ',
+                ],
+            },
+
+            final: {
+                commands: [
+                    // Interestingly, some packages (e.g. opencv-python) require
+                    // an updated pip.
+                    'RUN pip3 install --upgrade pip',
+                ],
+            },
+        },
+    },
+}

@@ -1,0 +1,55 @@
+{
+  file_detail_views: {
+    differential: {
+        label: 'Differential Comparison',
+        type: 'program_to_html',
+        exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '--html'],
+    },
+  },
+  parsers: {
+    'differential-test': {
+      disabled: true,
+      exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '<inputFile>'],
+      timeout: 120,
+      version: 'differential-1',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stdstar: {
+        //   '^(Max RMSE, .*): (.*)': {
+        //     nameGroup: 1,
+        //     countGroup: 2,
+        //     countAsNumber: true,
+        //   },
+        //   '^(Max diff, .*): (.*)': {
+        //     nameGroup: 1,
+        //     countGroup: 2,
+        //     countAsNumber: true,
+        //   },
+        //   '^Differential: .*': {
+        //     nameReplace: {
+        //       '[0-9]': '',
+        //     },
+        //   },
+        //   '^(subprocess\.CalledProcessError)': {
+        //     nameGroup: 1,
+        //   },
+        //   '^Page ': {
+        //     nameGroup: '',
+        //   },
+        //   '^(Traceback|  )': {
+        //     nameGroup: '<<workbench: collapsed errors>>',
+        //     nameReplace: {
+        //       '[0-9]': '',
+        //     },
+        //   },
+        },
+      },
+    },
+  },
+
+  build: {
+    stages: {
+    },
+  },
+}

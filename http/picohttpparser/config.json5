@@ -1,0 +1,35 @@
+{
+    parsers: {
+        'pico': {
+            disabled: false,
+            exec: ['pico-parserequests', '<inputFile>', '<artifactOutFile jsonRequests parsed.json>'],
+            version: '1',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {
+                    // TODO remove most/all printing--all but method and version
+                },
+                stderr: {},
+            },
+        },
+    },
+
+    build: {
+       stages: {
+            final: { // TODO separate build stage, using copy_output
+                commands: [
+                    'COPY {dist}/Makefile {dist}/Makefile',
+                    'COPY {dist}/main.c {dist}/main.c',
+                    'RUN \
+                        wget -P {dist} -q https://github.com/h2o/picohttpparser/raw/master/picohttpparser.h \
+                            https://github.com/h2o/picohttpparser/raw/master/picohttpparser.c \
+                        && ls {dist} \
+                        && make -C {dist} parserequests \
+                        ',
+                    'RUN cp {dist}/parserequests /usr/bin/pico-parserequests', // should be copy_output
+                ],
+            },
+        },
+    },
+}
