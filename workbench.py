@@ -5,6 +5,7 @@ import atexit
 import itertools
 import os
 from pathlib import Path
+import pyjson5
 import re
 import shlex
 import shutil
@@ -70,10 +71,15 @@ def main():
     args = parse_args()
 
     # Compute all the mount paths for the CI container
-    mount_paths = compute_mount_paths(args.config_dir, args.file_dir,
-            [args.copy_mongo_from, args.copy_mongo_to])
+    standard_mount_paths = compute_mount_paths(
+        args.config_dir, args.file_dir,
+        [args.copy_mongo_from, args.copy_mongo_to]
+    )
+    dev_mount_paths = compute_devmount_paths(args.config_dir)
     mount_paths_as_args = list(
-        itertools.chain.from_iterable((("-v", f"{src}:{target}") for (src, target) in mount_paths))
+        itertools.chain.from_iterable(
+            (("-v", f"{src}:{target}") for (src, target) in standard_mount_paths + dev_mount_paths)
+        )
     )
 
     # And the full command line for running the CI container as a service
@@ -379,6 +385,52 @@ def compute_mount_paths(config_dir, file_dir, maybe_file_list):
 def to_absolute_path(path):
     return Path(path).resolve()
 
+
+def compute_devmount_paths(config_dir):
+    """
+    Do a light-weight parse of config.json5(s) both at the top-level and in plugin folders
+    to pick out any devmount configurations. For each valid devmount, pick the source and
+    target paths for mounting within the CI container. Note that the target location
+    must be derivable independently within the CI container as well.
+    """
+
+    # NOTE: Each devmount section is a dictionary where the key is an environment
+    # variable and value is a configuration (of type 'dict') for that devmount. At this
+    # level, we only care about the environment variables (i.e. keys) and whether
+    # they are valid (i.e. defined). The configuration etc will be dealt with by the
+    # CI container separately.
+    devmount_vars = []
+
+    with open((os.path.join(config_dir, 'config.json5'))) as f:
+        config_data = pyjson5.load(f)
+        if v := safe_dict_fetch(config_data, 'build', 'devmounts'):
+            devmount_vars.extend(v.keys())
+
+    for child_path in os.listdir(config_dir):
+        child_path = os.path.join(config_dir, child_path)
+        if not os.path.isdir(child_path):
+            continue
+
+        child_config_path = os.path.join(child_path, 'config.json5')
+        if os.path.lexists(child_config_path):
+            with open(child_config_path) as f:
+                child_config_data = pyjson5.load(f)
+                if v := safe_dict_fetch(child_config_data, 'build', 'devmounts'):
+                    devmount_vars.extend(v.keys())
+
+    return [(os.getenv(v), f"/home/devmounts/{v}") for v in devmount_vars if os.getenv(v)]
+
+
+def safe_dict_fetch(dct, *args):
+    last = dct
+    for k in args:
+        if not isinstance(last, dict) or k not in last:
+            # print("Looked for " + str(args) + ", did not find")
+            return None
+        else:
+            last = last[k]
+
+    return last
 
 
 if __name__ == '__main__':
