@@ -647,6 +647,11 @@ def _check_config_file(config, build_dir):
                     },
                 },
             },
+            s.Optional('devmounts'): {
+                str: {
+                    'triggers': [str]
+                },
+            },
         },
         **schema_views,
     })
