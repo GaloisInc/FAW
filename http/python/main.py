@@ -11,12 +11,12 @@ from typing import Tuple, TypedDict, List
 
 class Request(TypedDict):
     error: bool
-    method: str
-    path: str
-    version: float
-    headers: List[Tuple[str, str]]
+    method: bytes
+    path: bytes
+    version: bytes
+    headers: List[Tuple[bytes, bytes]]
     bodyError: bool
-    body: str
+    body: bytes
 
 
 def _base64_encode_string(s: str) -> bytes:
@@ -39,11 +39,11 @@ class SerializingHandler(http.server.BaseHTTPRequestHandler):
         """Serialize a request."""
         request = Request(
             error=False,
-            method=self.command,  # TODO b64encode all strings
-            path=self.path,
-            version=self.request_version,
+            method=_base64_encode_string(self.command),
+            path=_base64_encode_string(self.path),
+            version=_base64_encode_string(self.request_version),
             headers=[
-                (field_name, _base64_encode_string(value))
+                (_base64_encode_string(field_name), _base64_encode_string(value))
                 for field_name, value in self.headers.items()
             ],
         )

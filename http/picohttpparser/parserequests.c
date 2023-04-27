@@ -223,24 +223,26 @@ int parse_requests(char *buffer, size_t buffer_len, FILE *fd_out) {
 
         // JSON output
         if (fd_out) {
-            // TODO maybe switch to a library for JSON serialization?
-            // TODO b64encode all strings
+            // TODO maybe switch to a library for JSON serialization? Would be cleaner
             if (!first_request) {
                 fprintf(fd_out, ",\n");
             }
             fprintf(fd_out, "{\n\"error\": false,\n");
-            // TODO need to escape these, or maybe even base64-encode them?
-            // Not sure how picohttp handles non-ascii (it has tests for some but not all cases)
-            fprintf(fd_out, "\"method\": \"%.*s\",\n", (int)method_len, method);
-            fprintf(fd_out, "\"path\": \"%.*s\",\n", (int)path_len, path);
-            fprintf(fd_out, "\"version\": \"HTTP/1.%d\",\n", minor_version);
-            fprintf(fd_out, "\"headers\": [\n");
+            fprintf(fd_out, "\"method\": \"");
+            fprint_base64(fd_out, method, method_len);
+            fprintf(fd_out, "\",\n\"path\": \"");
+            fprint_base64(fd_out, path, path_len);
+            fprintf(fd_out, "\",\n\"version\": \"");
+            char version_str[8] = "HTTP/1.X";
+            version_str[7] = '0' + minor_version;
+            fprint_base64(fd_out, version_str, 8);
+            fprintf(fd_out, "\",\n\"headers\": [\n");
             for (i = 0; i != num_headers; ++i) {
-                // Header names _should_ be ascii--picohttpparser checks for this
-                // Likely still want to escape them though
-                fprintf(fd_out, "  [\"%.*s\", \"", (int)headers[i].name_len, headers[i].name);
+                fprintf(fd_out, "  [\"");
+                fprint_base64(fd_out, headers[i].name, headers[i].name_len);
+                fprintf(fd_out, "\", \"");
                 fprint_base64(fd_out, headers[i].value, headers[i].value_len);
-                fprintf(fd_out, i + 1 != num_headers ? "\"],\n" : "\"]\n"); // no trailing LF
+                fprintf(fd_out, i + 1 != num_headers ? "\"],\n" : "\"]\n");
             }
             fprintf(fd_out, "],\n");
             // Header fields (and method) define if there's a body. Body len may be 0.

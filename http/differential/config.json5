@@ -1,15 +1,16 @@
 {
   file_detail_views: {
     differential: {
-        label: 'Differential Comparison',
-        type: 'program_to_html',
-        exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '--html'],
+      label: 'Tool Comparison',
+      type: 'program_to_html',
+      exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '--html-view'],
+      outputMimeType: 'text/plain',
     },
   },
   parsers: {
     'differential-test': {
       disabled: true,
-      exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '<inputFile>'],
+      exec: ['./main.py', '<artifactInParserDirs jsonRequests>'],
       timeout: 120,
       version: 'differential-1',
       parse: {

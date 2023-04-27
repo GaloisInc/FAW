@@ -17,17 +17,19 @@
 
     build: {
        stages: {
-            final: { // TODO separate build stage, using copy_output
+            buildPico: {
+                copy_output: {
+                    '/pico-build/parserequests': '/usr/bin/pico-parserequests',
+                },
                 commands: [
-                    'COPY {dist}/Makefile {dist}/Makefile',
-                    'COPY {dist}/main.c {dist}/main.c',
+                    'RUN mkdir /pico-build',
+                    'COPY {dist}/Makefile /pico-build/Makefile',
+                    'COPY {dist}/parserequests.c /pico-build/parserequests.c',
                     'RUN \
-                        wget -P {dist} -q https://github.com/h2o/picohttpparser/raw/master/picohttpparser.h \
+                        wget -P /pico-build -q https://github.com/h2o/picohttpparser/raw/master/picohttpparser.h \
                             https://github.com/h2o/picohttpparser/raw/master/picohttpparser.c \
-                        && ls {dist} \
-                        && make -C {dist} parserequests \
+                        && make -C /pico-build parserequests \
                         ',
-                    'RUN cp {dist}/parserequests /usr/bin/pico-parserequests', // should be copy_output
                 ],
             },
         },
