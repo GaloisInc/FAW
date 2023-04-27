@@ -195,9 +195,12 @@ def main():
         config_data, config, build_dir, build_faw_dir = None, None, None, None
         development = False
 
+    # Pick out the dev mounts if any
+    devmounts = _get_devmounts_config(config_data)
+
     # Check that observatory image is loaded / built
     _check_image(development=development, config=config, config_data=config_data,
-            build_dir=build_dir, build_faw_dir=build_faw_dir)
+            build_dir=build_dir, build_faw_dir=build_faw_dir, devmounts=devmounts)
 
     # If we are in build mode, we have no more work to do in the CI container
     if build_mode:
@@ -665,7 +668,7 @@ def _check_config_file(config, build_dir):
     return config_data
 
 
-def _check_image(development, config, config_data, build_dir, build_faw_dir):
+def _check_image(development, config, config_data, build_dir, build_faw_dir, devmounts):
     """Ensure that the docker image is loaded, if we are using a packaged
     version, or rebuild latest, if using a development version.
 
@@ -676,6 +679,7 @@ def _check_image(development, config, config_data, build_dir, build_faw_dir):
         build_dir (str): The Docker build context folder.
         build_faw_dir (str): The path, relative to the docker build context,
             of the FAW code.
+        devmounts (Dict[str, _DevMountInfo]): Information regarding dev mounts
     """
     build_local = development or os.path.lexists(os.path.join(faw_dir,
             'faw', 'pdf-observatory'))
@@ -700,7 +704,7 @@ def _check_image(development, config, config_data, build_dir, build_faw_dir):
     assert config_data is not None, 'required --config?'
 
     # Generate the contents for the dockerfile
-    dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir)
+    dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir, devmounts)
     logging.info('='*79)
     logging.info(dockerfile_contents)
     logging.info('='*79)
@@ -712,7 +716,7 @@ def _check_image(development, config, config_data, build_dir, build_faw_dir):
     # Return the tag for the build
     return img_tag
 
-def _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir):
+def _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir, devmounts):
     dockerfile = []
     dockerfile_middle = []
     dockerfile_final = []
@@ -821,12 +825,11 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         stage_commands = stage_def.get('commands', [])
         stage_commands_new = []
         for s in stage_commands:
-            try:
-                ss = s.format(dist=config_rel_dir, disttarg='/home/dist')
-            except KeyError:
-                raise KeyError(f'While formatting: {s}')
-            else:
-                stage_commands_new.append(ss)
+            new_commands = _preprocess_build_stage_command(
+                command=s, devmounts=devmounts, faw_context_dir=build_dir,
+                dist=config_rel_dir, disttarg='/home/dist'
+            )
+            stage_commands_new.extend(new_commands)
         stage_commands = stage_commands_new
 
         if stage == 'final':
@@ -970,6 +973,65 @@ def _build_docker_image(build_dir, config, suffix, dockerfile_contents):
         raise Exception("Docker build failed; see above")
     else:
         return IMAGE_TAG + suffix
+
+
+def _preprocess_build_stage_command(*, command, devmounts, faw_context_dir, dist, disttarg):
+    try:
+        # Expand variables if any in the command
+        s = command.format(dist=dist, disttarg=disttarg).strip()
+
+        # Handle FAW_DEVMOUNT
+        if s.startswith('FAW_DEVMOUNT'):
+            # FAW_DEVMOUNT is expected to have the following syntax
+            # `FAW_DEVMOUNT <devmount_env> <target path>
+            # TODO: We could consider relaxing the syntax to support <devmount_env>/<src_path>
+            parts = shlex.split(s)
+            devmount_env, target_path = parts[1], parts[2]
+
+            # Only proceed if this is a valid devmount. Otherwise we ignore this command
+            # entirely (i.e. make it a noop)
+            assert devmount_env in devmounts, f"{devmount_env} does not correspond to a known dev mount"
+
+            devmount = devmounts[devmount_env]
+            if not devmount.valid:
+                logging.info(f"Ignoring DEVMOUNT {devmount_env} as it is not valid")
+                return []
+            else:
+                logging.info(f"Found valid DEVMOUNT {devmount_env} mapping to {devmount.mounted_path}")
+
+            # To access the mounted folder during the FAW container build, we need to make
+            # it available at a position relative to its context directory.
+
+            # To that end, copy the mounted folder to a location under the build_dir.
+            # Delete the target path it already exists, to avoid mixing up old and the new.
+            devmount_rootdir_name = f".devmounts-{os.getpid()}"
+            build_dir_devmount_target = os.path.join(faw_context_dir, devmount_rootdir_name, devmount_env)
+            relative_devmount_target = os.path.join(devmount_rootdir_name, devmount_env)
+
+            logging.info(f"Copying {devmount.mounted_path} to {build_dir_devmount_target}")
+
+            if os.path.exists(build_dir_devmount_target):
+                shutil.rmtree(build_dir_devmount_target)
+            os.makedirs(build_dir_devmount_target)
+
+            subprocess.check_call([
+                f'tar -c --exclude-ignore=.gitignore -C {devmount.mounted_path} . | tar -x -C {build_dir_devmount_target}'
+            ], shell=True)
+
+            # TODO: Store the stage name to track dependencies between devmounts and stages
+
+            # With all that in place, we can now issue a COPY (or ADD) command with the real target
+            # path, so that the rest of the build can proceed. But we should clear out the target
+            # path if it exists to avoid mixing and matching the old and the new
+            return [
+                f"RUN rm -rf {target_path}",
+                f"COPY {relative_devmount_target} {target_path}"
+            ]
+        else:
+            return [s]
+    except KeyError:
+        raise KeyError(f'While formatting: {s}')
+
 
 def _export_config_json(config_data):
     import json
@@ -1227,6 +1289,30 @@ def _check_build_stage_change_and_update(
     finally:
         subprocess.run(['docker', 'rm', new_container_id])
         logging.info(f"Removed Container - {new_container_id}")
+
+
+@dataclasses.dataclass
+class _DevMountInfo:
+    valid: bool
+    mounted_path: str
+    trigger_paths: list
+
+
+def _get_devmounts_config(config_data):
+    devmounts = dict()
+    for name, config in config_data['build'].get('devmounts', {}).items():
+        # If this is an operational devmount, we would expect workbench to
+        # have mounted it at a standard path.
+        mounted_path = f"/home/devmounts/{name}"
+        if os.path.lexists(mounted_path):
+            trigger_paths = config.get('triggers', [])
+            devmount_info = _DevMountInfo(valid=True, mounted_path=mounted_path, trigger_paths=trigger_paths)
+        else:
+            devmount_info = _DevMountInfo(valid=False, mounted_path=None, trigger_paths=[])
+
+        devmounts[name] = devmount_info
+
+    return devmounts
 
 
 def start_server(config_dir, faw_port):
