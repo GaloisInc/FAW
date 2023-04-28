@@ -1,0 +1,49 @@
+ // Parser from https://github.com/GaloisInc/daedalus/tree/master/formats/mdm
+ {
+  parsers: {
+    "daedalus-20230321": {
+      exec: ['/usr/bin/env', 'LD_LIBRARY_PATH=/opt/daedalus-20230321',
+        './ddl_wrapper.py', '/opt/daedalus-20230321/mdm-driver', '<inputFile>'],
+      // Be sure to change commit SHA in build stage as well
+      version: 'mdm-driver 2023-03-21 cb982',
+      parse: {
+        type: 'regex-counter',
+        version: '1',
+        stderr: {},
+        stdout: {
+          '.*': {
+            'nameReplace': {
+              '[0-9]+': '<INT>',
+            },
+          },
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      "daedalus-20230321": {
+        from: 'haskell:8.10',
+        copy_output: {
+          '/home/ddl/mdm_cpp_parser/parser': '/opt/daedalus-20230321/mdm-driver',
+          '/usr/lib/x86_64-linux-gnu/libgmp*': '/opt/daedalus-20230321/',
+        },
+        commands: [
+          'RUN mkdir -p /home/ddl',
+          'WORKDIR /home/ddl',
+          'RUN git init . \
+            && git remote add origin https://github.com/GaloisInc/DaeDaLus \
+            && git fetch origin 78b3a1dca425ccd1bae2d99cea5f2131aacd37cc \
+            && git reset --hard FETCH_HEAD',
+          'RUN cabal update \
+            && git submodule update --init',
+          'RUN \
+            cabal run daedalus -- compile-c++ formats/mdm/MDM_2_4.ddl --out-dir=mdm_cpp_parser',
+          'RUN \
+            cd mdm_cpp_parser \
+            && make',
+        ],
+      },
+    },
+  },
+}
