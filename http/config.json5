@@ -1,6 +1,8 @@
 {
-    // TODO document artifact types for HTTP FAW here or in a README
     name: 'galois-workbench-http',
+
+    // Note: See the Readme in this folder for info on the
+    // artifacts used by this distribution.
 
     file_transform: null,
 
