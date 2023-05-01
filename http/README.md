@@ -17,15 +17,15 @@ request that the parser tried to parse.
 
 #### Request schema
 
-| Key | Type (Encoding) | | Required? | Meaning |
+| Key | Type (Encoding) | Required? | Meaning |
 | --- | --- | --- | --- |
 | `error` | Boolean | yes | `true` if the parser attempted to parse this request and failed. |
 | `method` | String (base64-encoded octets) | if `error` == `false` | HTTP method, e.g. `GET`. Base64-encoded for safety (should be ASCII for a correct parser). |
 | `path` | String (base64-encoded octets) | if `error` == `false` | Path to resource, e.g. `/index.html`. Base64-encoded for safety (should be ASCII for a correct parser). |
-| `version` | String (base64-encoded octets) | if `error` == `false` | HTTP version, e.g. `HTTP/1.1`.Base64-encoded for safety (should be ASCII for a correct parser). |
-| `headers` | Array of 2-element Arrays of String (base64-encoded octets) | if `error` == `false` | (Field name, field value) pairs. Repeated headers should not be collapsed unless that is the default behavior of the parser. Base64-encoded for safety (field names, but not values, should be ASCII for a correct parser). |
+| `version` | String (base64-encoded octets) | if `error` == `false` | HTTP version, e.g. `HTTP/1.1`. Base64-encoded for safety (should be ASCII for a correct parser). |
+| `headers` | Array of 2-element Arrays of String (base64-encoded octets) | if `error` == `false` | (Field name, field value) pairs. Repeated headers should not be collapsed unless that is the default behavior of the parser. Base64-encoded for safety (field names, but not necessarily values, should be ASCII for a correct parser). |
 | `bodyError` | Boolean | if `error` == `false` | `true` if the parser expected a body and could not parse it. If no body is expected, should be `false`. |
-| `body` | String (base64-encoded arbitrary octets) | if `error` == `false` and `bodyError` == `false` | Request body, if expected. |
+| `body` | String (base64-encoded arbitrary octets) | if `error` == `false` and `bodyError` == `false` | Parsed request body, if expected (and if parsing succeeded). |
 
 #### Example
 
@@ -38,31 +38,31 @@ request that the parser tried to parse.
     "version": 1.1,
     "headers": [
       [
-        "Host",
+        "SG9zdA==",
         "d3d3LmV4YW1wbGUuY29t"
       ],
       [
-        "User-Agent",
+        "VXNlci1BZ2VudA==",
         "TW96aWxsYS81LjA="
       ],
       [
-        "Accept",
+        "QWNjZXB0",
         "dGV4dC9odG1sLGFwcGxpY2F0aW9uL3hodG1sK3htbCxhcHBsaWNhdGlvbi94bWw7cT0wLjksaW1hZ2UvYXZpZixpbWFnZS93ZWJwLCovKjtxPTAuOA=="
       ],
       [
-        "Accept-Language",
+        "QWNjZXB0LUxhbmd1YWdl",
         "ZW4tR0IsZW47cT0wLjU="
       ],
       [
-        "Accept-Encoding",
+        "QWNjZXB0LUVuY29kaW5n",
         "Z3ppcCwgZGVmbGF0ZSwgYnI="
       ],
       [
-        "Connection",
+        "Q29ubmVjdGlvbg==",
         "a2VlcC1hbGl2ZQ=="
       ],
       [
-        "Transfer-Encoding",
+        "VHJhbnNmZXItRW5jb2Rpbmc=",
         "Y2h1bmtlZA=="
       ]
     ],
