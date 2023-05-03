@@ -18,5 +18,6 @@
     $body = file_get_contents('php://input');
     $request['body'] = base64_encode($body);
     header('Content-Type: application/json; charset=utf-8');
+    # Note: for HEAD and CONNECT methods, the response body is not sent.
     echo json_encode($request);
 ?>

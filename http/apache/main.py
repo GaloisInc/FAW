@@ -86,21 +86,19 @@ def main():
 
     parsed_requests = []
     for response, response_body in zip(responses, response_bodies):
-        ok = 200 <= response.status < 300
-        if ok:
+        if 200 <= response.status < 400:
             # OK; response is parse result
             try:
                 response_content = json.loads(response_body)
                 parsed_requests.append(response_content)
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f'Malformed JSON for allegedly OK request: {e}', file=sys.stderr)
-                ok = False
-        if not ok:
+        else:
             # Errors; print 'em
             for line in response_body.decode('utf-8', errors='replace').splitlines():
                 print(line, file=sys.stderr)
             parsed_requests.append({'error': True})
-    
+
     if args.json_output is not None:
         with open(args.json_output, 'w') as f:
             json.dump(parsed_requests, f, indent=2)

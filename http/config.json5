@@ -48,11 +48,17 @@ with open(sys.argv[1], 'w') as html: \n\
     },
 
     file_detail_views: {
-        viewer: {
+        view_bytes: {
             label: 'View Bytes',
             type: 'program_to_html',
             exec: ['hexdump', '<inputFile>'],
             outputMimeType: 'text/plain',
+        },
+        view_text: {
+            label: 'View UTF-8',
+            type: 'program_to_html',
+            exec: ['iconv', '-f', 'utf-8', '-t', 'utf-8', '<inputFile>'],
+            outputMimeType: 'text/plain;charset=UTF-8',
         },
     },
 
