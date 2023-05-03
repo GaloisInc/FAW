@@ -1,41 +1,12 @@
 {
     parsers: {
-        'apache-legacy' : {
-            // No longer used, in favor of `apache` below
-            disabled: true,
-            exec: [
-                './main.py', '--request-stream', '<inputFile>',
-                '--json-output', '<artifactOutFile jsonRequests parsed.json>',
-                '--apache-port', '31318',
-            ],
-            version: '1',
-            parse: {
-                type: 'regex-counter',
-                version: '1',
-                stdout: {
-                    '^.*$': {
-                        nameGroup: '',
-                    },
-                },
-                stderr: { // TODO add patterns
-                    '^.*$': {
-                        nameGroup: '',
-                    },
-                    // This is always written when Apache is done sending its responses,
-                    // since we don't know how many to listen for.
-                    // Other connection errors might be meaningful, though.
-                    '^Connection Error: Remote end closed connection without response$': {
-                        nameGroup: '',
-                    }
-                },
-            },
-        },
         'apache' : {
             exec: [
                 './parser.py', '--request-stream', '<inputFile>',
                 '--json-output', '<artifactOutFile jsonRequests parsed.json>',
                 '--load-balancer-port', '9678',
-                '--server-port', '31318',
+                '--server-port-range-start', '31318',
+                '--server-instances', '5',
             ],
             mustSucceed: true,  // nonzero exit code indicates communication issue w/ nanny
             version: '1',
@@ -49,23 +20,17 @@
                     '^Got [0-9]+ responses': {
                         nameGroup: '',
                     },
-                    '^Got [0-9]+ responses': {
-                        nameGroup: '',
-                    },
-                    '^.*$': {
-                        nameGroup: '',
-                    },
-                },
-                stderr: { // TODO add patterns
-                    '^.*$': {
-                        nameGroup: '',
+                    '^(Response: [0-9][0-9][0-9] .+)$': {
+                        nameGroup: 1,
                     },
                     // This is always written when Apache is done sending its responses,
                     // since we don't know how many to listen for.
                     // Other connection errors might be meaningful, though.
                     '^Connection Error: Remote end closed connection without response$': {
                         nameGroup: '',
-                    }
+                    },
+                },
+                stderr: {
                 },
             },
         },
@@ -87,6 +52,7 @@
                     'RUN ln -sf /home/dist/apache/mods-enabled/dir.conf /etc/apache2/mods-enabled/',
                     'RUN ln -sf /home/dist/apache/php.ini /etc/php/7.4/apache2/', // TODO can we avoid the version number?
                     'RUN mkdir /var/www/apache && ln -sf /home/dist/apache/index.php /var/www/apache',
+                    'RUN mkdir /var/run/apache-nanny',
                 ],
             }
        },

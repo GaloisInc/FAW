@@ -4,10 +4,16 @@
 unset HOME
 
 # for supporting multiple apache2 instances
-if [ "${APACHE_CONFDIR##/etc/apache2-}" != "${APACHE_CONFDIR}" ] ; then
-	SUFFIX="-${APACHE_CONFDIR##/etc/apache2-}"
+# Rewritten for the FAW
+if [ -z "$PORT" ] ; then
+	if [ "${APACHE_CONFDIR##/etc/apache2-}" != "${APACHE_CONFDIR}" ] ; then
+		SUFFIX="-${APACHE_CONFDIR##/etc/apache2-}"
+	else
+		SUFFIX=
+	fi
+	export PORT=31318
 else
-	SUFFIX=
+	SUFFIX="-$PORT"
 fi
 
 # Since there is no sane way to get the parsed apache2 config in scripts, some
@@ -45,6 +51,3 @@ export LANG
 ## This will produce a verbose output on package installations of web server modules and web application
 ## installations which interact with Apache
 #export APACHE2_MAINTSCRIPT_DEBUG=1
-
-# Custom variables for the FAW
-export PORT=31318

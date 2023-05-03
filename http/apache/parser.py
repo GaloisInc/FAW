@@ -48,8 +48,17 @@ def main():
         help='Port where load balancer around apache server is running'
     )
     argument_parser.add_argument(
-        '--server-port', required=True, type=int,
-        help='Port on which the server runs'
+        '--server-port-range-start', required=True, type=int,
+        help=(
+            'First port where server runs; further instances run on '
+            'subsequent ports'
+        )
+    )
+    argument_parser.add_argument(
+        '--server-instances', required=False, type=int, default=None,
+        help=(
+            'Number of server instances to run (default: use nanny CLI default)'
+        )
     )
     args = argument_parser.parse_args()
 
@@ -63,7 +72,13 @@ def main():
                 p = subprocess.Popen(
                     [
                         './nanny.py', '--listen-port', str(args.load_balancer_port),
-                        '--server-port', str(args.server_port),
+                        '--server-port-range-start', str(args.server_port_range_start),
+                        '--stop-running-servers',
+                        '--pid-file', '/var/run/apache-nanny/nanny.pid',
+                        *(
+                            ['--max-instances', str(args.server_instances)]
+                            if args.server_instances is not None else []
+                        ),
                     ],
                     start_new_session=True,
                     stdin=subprocess.DEVNULL,

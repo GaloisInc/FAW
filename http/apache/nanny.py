@@ -2,6 +2,7 @@
 """Load balancer around apache."""
 import argparse
 import asyncio
+from contextlib import closing
 import dataclasses
 import functools
 import http.client
@@ -12,15 +13,22 @@ import socket
 import subprocess
 from typing import Collection, Generic, List, TypeVar, AsyncContextManager
 
+import psutil
+
 T = TypeVar('T')
 
 logger = logging.getLogger()
+
+APACHE_RUN_DIR = '/var/run/apache2'
+APACHE_LOG_DIR = '/var/log/apache2'
+APACHE_LOCK_DIR = '/var/lock/apache2'
 
 
 @dataclasses.dataclass
 class ApacheInstance:
     port: int
-    error_log_path: "os.PathLike[str]"
+    log_dir: "os.PathLike[str]"
+    pid_file_path: "os.PathLike[str]"
 
 
 class _ManagedResource(AsyncContextManager[T]):
@@ -89,9 +97,10 @@ async def handle_request_stream(
     loop = asyncio.get_running_loop()
     async with apache_instance_pool.borrow() as apache_instance:
         logger.debug(f'Request {id(reader):x}: Claimed server instance on port {apache_instance.port}')
+        # TODO start apache here if it's not running (and log)?
         # catch up to current end of log file
-        # TODO this might break when/if logs are rotated
-        log_file = open(apache_instance.error_log_path, 'r')
+        # TODO this could break if/when logs are rotated. I think logs aren't rotated whcih is also an issue
+        log_file = open(os.path.join(apache_instance.log_dir, 'error.log'), 'r')
         log_file.seek(0, os.SEEK_END)
         # read the incoming data and forward to apache
         data = await read_with_prepended_length(reader)
@@ -143,9 +152,7 @@ async def handle_request_stream(
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 wrapper_messages.append(f'Error: Malformed JSON for allegedly OK request: {e}')
         else:
-            # Errors; we could return them, but probably the status/reason are enough
-            # for line in response_body.decode('utf-8', errors='replace').splitlines():
-            #     print(line, file=sys.stderr)
+            # Error from apache; probably the status/reason are enough
             parsed_requests.append({'error': True})
     data_to_send_back = json.dumps(
         {
@@ -162,16 +169,38 @@ async def handle_request_stream(
     logger.debug(f'Request {id(reader):x}: Done')
 
 
+def start_apache_on_port(port: int) -> ApacheInstance:
+    log_dir = f'{APACHE_LOG_DIR}-{port}'
+    run_dir = f'{APACHE_RUN_DIR}-{port}'
+    lock_dir = f'{APACHE_LOCK_DIR}-{port}'
+    for d in [log_dir, run_dir, lock_dir]:
+        os.makedirs(d, exist_ok=True)
+    subprocess.run(
+        # Use restart instead of start in case it's already running
+        ['/usr/sbin/apache2ctl', 'restart'],
+        start_new_session=True,
+        env={'PORT': str(port)},
+        check=True,
+    )
+    return ApacheInstance(
+        port=port,
+        log_dir=log_dir,
+        pid_file_path=f'{run_dir}/apache2.pid',
+    )
+
+
 async def main():
     argument_parser = argparse.ArgumentParser()
     argument_parser.add_argument(
         '--listen-port', required=True,
         help='Port on which to listen for incoming requests'
     )
-    # TODO remove this, and dynamically run multiple apache instances
     argument_parser.add_argument(
-        '--server-port', required=True, type=int,
-        help='Port where server runs'
+        '--server-port-range-start', required=True, type=int,
+        help=(
+            'First port where server runs; further instances run on '
+            'subsequent ports'
+        )
     )
     argument_parser.add_argument(
         '--max-instances', required=False, default=1, type=int,
@@ -181,29 +210,52 @@ async def main():
         '--debug', action='store_true',
         help='Enable debug logging'
     )
+    argument_parser.add_argument(
+        '--stop-running-servers', action='store_true',
+        help='Kill all running server instances outside of the port range given'
+    )
+    argument_parser.add_argument(
+        '--pid-file', default=None, help=(
+            'Path to file in which to write the PID of this process. '
+            'If provided, replace currently running nanny process'
+        ),
+    )
     args = argument_parser.parse_args()
     logging.basicConfig()
     if args.debug:
         logger.setLevel(logging.DEBUG)
-    # start up subprocess pool of apache servers
-    # only allow one request through at a time
-    # For now, just run one apache instance
 
-    # start apache if it's not started yet
-    # TODO specify port(s) here, as the env var PORT
-    subprocess.run(
-        'pidof apache2 > /dev/null || apache2ctl start',
-        shell=True,
-    )
+    if args.pid_file is not None:
+        if os.path.isfile(args.pid_file):
+            with open(args.pid_file, 'r') as pid_file:
+                pid = int(pid_file.read().strip())
+            if psutil.pid_exists(pid):
+                logger.debug(f'Killing running nanny process at PID {pid}')
+                os.kill(pid, 9)
+        with open(args.pid_file, 'w') as pid_file:
+            pid = os.getpid()
+            logger.debug(f'Running at PID {pid} (saving to {pid_file})')
+            pid_file.write(str(pid))
 
-    apache_instance_pool = ResourcePool([
-        ApacheInstance(port=args.server_port, error_log_path='/var/log/apache2/error.log')
-    ])
+    if args.stop_running_servers:
+        # First, kill running servers--only necessary when we've
+        # changed the number of instances
+        subprocess.run(['killall', 'apache2'])
+    instances: List[ApacheInstance] = []
+    for server_port in range(
+        args.server_port_range_start,
+        args.server_port_range_start + args.max_instances
+    ):
+        apache_instance = start_apache_on_port(server_port)
+        instances.append(apache_instance)
+
+    apache_instance_pool = ResourcePool(instances)
 
     try:
         async with await asyncio.start_server(
             client_connected_cb=functools.partial(
-                handle_request_stream, apache_instance_pool=apache_instance_pool
+                handle_request_stream,
+                apache_instance_pool=apache_instance_pool
             ),
             host='127.0.0.1',
             port=args.listen_port,
