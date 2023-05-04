@@ -6,7 +6,6 @@ which forwards them to the server. All of the server-specific logic
 is contained in ``nanny.py``.
 """
 import argparse
-import io
 import json
 import socket
 import subprocess

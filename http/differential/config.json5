@@ -3,47 +3,69 @@
     differential: {
       label: 'Tool Comparison',
       type: 'program_to_html',
-      exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '--html-view'],
-      outputMimeType: 'text/plain',
+      exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '--print-html'],
     },
   },
   parsers: {
     'differential-test': {
-      disabled: true,
       exec: ['./main.py', '<artifactInParserDirs jsonRequests>'],
       timeout: 120,
-      version: 'differential-1',
+      version: '1',
       parse: {
         type: 'regex-counter',
         version: '1',
         stdstar: {
-        //   '^(Max RMSE, .*): (.*)': {
-        //     nameGroup: 1,
-        //     countGroup: 2,
-        //     countAsNumber: true,
-        //   },
-        //   '^(Max diff, .*): (.*)': {
-        //     nameGroup: 1,
-        //     countGroup: 2,
-        //     countAsNumber: true,
-        //   },
-        //   '^Differential: .*': {
-        //     nameReplace: {
-        //       '[0-9]': '',
-        //     },
-        //   },
-        //   '^(subprocess\.CalledProcessError)': {
-        //     nameGroup: 1,
-        //   },
-        //   '^Page ': {
-        //     nameGroup: '',
-        //   },
-        //   '^(Traceback|  )': {
-        //     nameGroup: '<<workbench: collapsed errors>>',
-        //     nameReplace: {
-        //       '[0-9]': '',
-        //     },
-        //   },
+          '^(No output from tool .*)$': {
+            nameGroup: 1,
+          },
+          '^Request [0-9]+: ([0-9]+/[0-9]+ parsers did not attempt to parse)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+/[0-9]+ parsers had errors)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct methods)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct paths)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct versions)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct header counts)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct values (including repeated entries) for header: {field})$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct bodies)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
         },
       },
     },
