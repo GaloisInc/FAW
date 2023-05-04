@@ -24,6 +24,7 @@ import hashlib
 import logging
 import os
 import pathlib
+import queue
 import re
 import shlex
 import shutil
@@ -269,10 +270,18 @@ def main():
                     '-c', 'cd /home/pdf-observatory/ci && npm install && npm run build'
                 ])
 
+        # Start the builder thread
+        builder_thread = start_builder(
+            development=development, config_dir=config, build_dir=build_dir,
+            build_faw_dir=build_faw_dir, faw_container_id=docker_id, devmounts=devmounts
+        )
+
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
-        def watch_for_config_changes(development=development, config_dir=config,
-            build_dir=build_dir, build_faw_dir=build_faw_dir, docker_id=docker_id):
+        def watch_for_config_changes(
+            development=development, config_dir=config, build_dir=build_dir,
+            build_faw_dir=build_faw_dir, docker_id=docker_id, builder_thread=builder_thread
+        ):
             # Where, in the docker container, to dump the new config
             cfg_dst = '/home/config.json'
 
@@ -302,13 +311,14 @@ def main():
                             new_config=new_config, old_config=last_config,
                             development=development, config_dir=config_dir,
                             build_dir=build_dir, build_faw_dir=build_faw_dir,
-                            current_docker_id=docker_id
+                            current_docker_id=docker_id, builder_thread=builder_thread
                         )
 
                         last_config = new_config
 
                         # Docker cp is weird... if stdin, it's a tarred
                         # directory
+                        logging.info('Pushing updated config to FAW')
                         buf = io.BytesIO()
                         with tarfile.TarFile(fileobj=buf, mode='w') as tf:
                             finfo = tarfile.TarInfo(os.path.basename(cfg_dst))
@@ -1209,7 +1219,7 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
 
 def _check_build_stage_change_and_update(
     *, new_config, old_config, development, config_dir, build_dir,
-    build_faw_dir, current_docker_id
+    build_faw_dir, current_docker_id, builder_thread
 ):
     logging.info(f"Checking for stage updates ...")
 
@@ -1238,58 +1248,125 @@ def _check_build_stage_change_and_update(
         logging.info("No updated stages. Returning")
         return
 
-    # To build a new image, first create the dockerfile contents
-    dockerfile_contents = _create_dockerfile_contents(
-        development=development, config=config_dir,
-        config_data=new_config, build_dir=build_dir,
-        build_faw_dir=build_faw_dir
+    # Initiate a build and wait for it to complete
+    build_id = time.time_ns()
+    logging.info(f'Initiate build due to build changes - ID: {build_id}')
+
+    notify_event = threading.Event()
+    builder_thread.initiate_build(
+        config_data=new_config, updated_stages_map=updated_stages, notify_event=notify_event
     )
+    notify_event.wait()
 
-    # We need to collect all the outputs from the updated stages in some place
-    # where we can extract them out of the image (the container really) cleanly.
-    # To this end, we insert extra COPY commands to the dockerfile that copy
-    # the files under a specific temp directory, but retaining the full path.
-    # We then create a tar file with all the copied files for extraction.
-    temp_name = str(uuid.uuid4())
-    temp_dir_name = os.path.join('/tmp', temp_name)
-    commands = []
-    for stage_name, stage_data in updated_stages.items():
-        copy_cmds = _generate_copy_commands(stage_name, stage_data, force_prefix=temp_dir_name)
-        commands.extend(copy_cmds)
+    logging.info(f'Build completed - ID: {build_id}')
 
-    tar_file_name = f"/tmp/{temp_name}.tar"
-    tar_command = f"RUN cd {temp_dir_name} && find . -type f -print0 | tar -cvf {tar_file_name} --null -T -"
-    commands.append(tar_command)
 
-    dockerfile_contents += ("\n" + "\n".join(commands))
+@dataclasses.dataclass
+class _BuildInfo:
+    config_data: dict
+    updated_stages_map: dict
+    notify_event: threading.Event
 
-    # Finally build the image
-    # NOTE: Currently we are using the same image tag that is currently
-    # running in FAW.
-    logging.info("Rebuilding FAW ...")
-    image_tag = _build_docker_image(
-        build_dir=build_dir, config=config_dir, suffix="-dev", dockerfile_contents=dockerfile_contents
-    )
-    logging.info("Completed Rebuild")
 
-    # Create a container with this image and copy files appropriately
-    new_container_id = f"{image_tag}-rebuild"
+def start_builder(*, development, config_dir, build_dir, build_faw_dir, faw_container_id, devmounts):
 
-    try:
-        subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
-        logging.info(f"Completed Container Creation - {new_container_id}")
+    class BuilderThread(threading.Thread):
+        def __init__(self):
+            super().__init__(daemon=True)
+            self._queue = queue.Queue()
+            self._stop_event = threading.Event()
 
-        # Copy the tar file we created during the build process locally and then stream it out to the
-        # destination container. NOTE: The explicit tar creation above ensures that the resultant tar
-        # has the right hierarchy to allow us to do this.
-        logging.info("Starting to copy files ...")
-        subprocess.check_call(["docker", "cp", f"{new_container_id}:{tar_file_name}", tar_file_name])
-        subprocess.check_call(f"docker cp - {current_docker_id}:/ < {tar_file_name}", shell=True)
-        logging.info("Copying files completed")
-    finally:
-        subprocess.run(['docker', 'rm', new_container_id])
-        logging.info(f"Removed Container - {new_container_id}")
+        def initiate_build(self, *, config_data, updated_stages_map, notify_event):
+            info = _BuildInfo(
+                config_data=config_data, updated_stages_map=updated_stages_map,
+                notify_event=notify_event
+            )
+            self._queue.put(info)
 
+        def stop(self):
+            self._stop_event.set()
+
+        def run(self):
+            # TODO: Reconsider this wait strategy (wrt to thread exit)
+            while True:
+                try:
+                    # Get the next task from the queue (or block for a second
+                    # till there is one)
+                    info = self._queue.get(timeout=1)
+                except queue.Empty:
+                    # Exception on time out. If we have not been asked to stop,
+                    # go try again
+                    if not self._stop_event.is_set():
+                        continue
+
+                # Check if we were asked to stop before we get to the actual build
+                if self._stop_event.is_set():
+                    return
+
+                # Initiate the actual build
+                self._build_stages_and_update(info)
+
+                # And notify waiters
+                info.notify_event.set()
+
+        def _build_stages_and_update(self, build_info):
+            dockerfile_contents = _create_dockerfile_contents(
+                development=development, config=config_dir,
+                config_data=build_info.config_data, build_dir=build_dir,
+                build_faw_dir=build_faw_dir, devmounts=devmounts
+            )
+
+            # We need to collect all the outputs from the updated stages in some place
+            # where we can extract them out of the image (the container really) cleanly.
+            # To this end, we insert extra COPY commands to the dockerfile that copy
+            # the files under a specific temp directory, but retaining the full path.
+            # We then create a tar file with all the copied files for extraction.
+            temp_name = str(uuid.uuid4())
+            temp_dir_name = os.path.join('/tmp', temp_name)
+            commands = []
+            for stage_name, stage_data in build_info.updated_stages_map.items():
+                copy_cmds = _generate_copy_commands(stage_name, stage_data, force_prefix=temp_dir_name)
+                commands.extend(copy_cmds)
+
+            tar_file_name = f"/tmp/{temp_name}.tar"
+            tar_command = f"RUN cd {temp_dir_name} && find . -type f -print0 | tar -cvf {tar_file_name} --null -T -"
+            commands.append(tar_command)
+
+            dockerfile_contents += ("\n" + "\n".join(commands))
+
+            # Finally build the image
+            # NOTE: Currently we are using the same image tag that is currently
+            # running in FAW.
+            logging.info("Rebuilding FAW ...")
+            image_tag = _build_docker_image(
+                build_dir=build_dir, config=config_dir,
+                suffix="-dev", dockerfile_contents=dockerfile_contents
+            )
+            logging.info("Completed Rebuild")
+
+            # Create a container with this image and copy files appropriately
+            new_container_id = f"{image_tag}-rebuild"
+
+            try:
+                subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
+                logging.info(f"Completed Container Creation - {new_container_id}")
+
+                # Copy the tar file we created during the build process locally and then stream it out to the
+                # destination container. NOTE: The explicit tar creation above ensures that the resultant tar
+                # has the right hierarchy to allow us to do this.
+                logging.info("Starting to copy files ...")
+                subprocess.check_call(["docker", "cp", f"{new_container_id}:{tar_file_name}", tar_file_name])
+                subprocess.check_call(f"docker cp - {faw_container_id}:/ < {tar_file_name}", shell=True)
+                logging.info("Copying files completed")
+            finally:
+                subprocess.run(['docker', 'rm', new_container_id])
+                logging.info(f"Removed Container - {new_container_id}")
+
+    # Run it in a thread
+    t = BuilderThread()
+    t.start()
+
+    return t
 
 @dataclasses.dataclass
 class _DevMountInfo:
