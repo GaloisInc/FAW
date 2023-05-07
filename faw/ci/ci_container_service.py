@@ -1554,11 +1554,10 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
                 if not updated_stage_names:
                     continue
 
-                print(f"Got stages {updated_stage_names}")
+                print(f"The following stages have been updated: {updated_stage_names}")
 
                 # Collect the data needed to initiate the build, then initiate it and wait for
                 # it to finish
-                print("Calling with", config_dir, build_dir)
                 updated_config = _check_config_file(config=config_dir, build_dir=build_dir)
                 updated_stages = {
                     stage: stage_info
