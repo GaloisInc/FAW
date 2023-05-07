@@ -318,21 +318,9 @@ def main():
 
                         last_config = new_config
 
-                        # Docker cp is weird... if stdin, it's a tarred
-                        # directory
+                        # Copy the new config file to FAW
                         logging.info('Pushing updated config to FAW')
-                        buf = io.BytesIO()
-                        with tarfile.TarFile(fileobj=buf, mode='w') as tf:
-                            finfo = tarfile.TarInfo(os.path.basename(cfg_dst))
-                            finfo.size = len(new_config_file)
-                            finfo.mtime = time.time()
-                            tf.addfile(finfo, io.BytesIO(new_config_file))
-                        buf.seek(0)
-                        p_ts = subprocess.Popen(['docker', 'cp', '-',
-                            f'{docker_id}:{os.path.dirname(cfg_dst)}'],
-                            stdin=subprocess.PIPE)
-                        p_ts.communicate(input=buf.read())
-                        p_ts.wait()
+                        _update_faw_config(new_config_file, docker_id, cfg_dst)
                 except:
                     traceback.print_exc()
 
@@ -1087,6 +1075,29 @@ def _generate_copy_commands(stage, stage_def, *, force_prefix=None):
             commands.append(f'COPY --from={stage} {k} {v}')
 
     return commands
+
+
+def _update_faw_config(config_file_bytes, faw_docker_id, dest_path):
+    # Docker cp is requires a tarred directory if we are sending stuff via stdin
+    logging.info('Pushing updated config to FAW')
+
+    # Create a tar file with a single config file 
+    buf = io.BytesIO()
+    with tarfile.TarFile(fileobj=buf, mode='w') as tf:
+        finfo = tarfile.TarInfo(os.path.basename(dest_path))
+        finfo.size = len(config_file_bytes)
+        finfo.mtime = time.time()
+        tf.addfile(finfo, io.BytesIO(config_file_bytes))
+    buf.seek(0)
+
+    # Push it to FAW via a `docker cp` command
+    process = subprocess.Popen(
+        ['docker', 'cp', '-', f'{faw_docker_id}:{os.path.dirname(dest_path)}'],
+        stdin=subprocess.PIPE
+    )
+    process.communicate(input=buf.read())
+    process.wait()
+
 
 def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
     # Only spin up mongo -- the only reason we make it externally connectible is
