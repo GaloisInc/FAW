@@ -10,3 +10,6 @@ aiohttp
 motor
 pymongo
 
+# This is for file monitoring
+watchfiles
+

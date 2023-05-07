@@ -18,7 +18,9 @@ running end-user copies of the Galois Format Analysis Workbench.
 import argparse
 import asyncio
 import atexit
+import collections
 import dataclasses
+import glob
 import io
 import hashlib
 import logging
@@ -357,10 +359,18 @@ def main():
     # which the FAW server would be accessible (from the host)
     server_thread = start_server(config, port)
 
+    # Start the devmounts watcher
+    devmounts_watcher_thread = start_devmount_watcher(
+        config_dir=config, build_dir=build_dir, devmounts=devmounts, builder_thread=builder_thread
+    )
+
     # To ensure that we kill the FAW container (which we are just
     # about to start) on exiting, including during abnormal exits,
     # we will register ourselves an atexit listener
-    def on_exit(faw_docker_id=docker_id, server_thread=server_thread):
+    def on_exit(
+        faw_docker_id=docker_id, server_thread=server_thread,
+        builder_thread=builder_thread, devmounts_watcher_thread=devmounts_watcher_thread
+    ):
         logging.info("In at exit processing")
         # Because we are in an exit handler, let us not throw an exception
         r = subprocess.run(f"docker ps -a | grep {faw_docker_id}", shell=True)
@@ -373,9 +383,19 @@ def main():
         server_thread.stop_server()
         server_thread.join(3)
 
+        # And the builder thread
+        builder_thread.stop()
+        builder_thread.join(3)
+
+        # As well as the devmounts watcher
+        devmounts_watcher_thread.stop()
+        devmounts_watcher_thread.join(6)
+
         # Without this sleep, the script exits before the logging script has an
         # opportunity to collect error messages. So, wait a bit before exiting
         time.sleep(3)
+
+        # TODO: Remove the devmount root directory
 
     atexit.register(on_exit)
 
@@ -837,7 +857,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         for s in stage_commands:
             new_commands = _preprocess_build_stage_command(
                 command=s, devmounts=devmounts, faw_context_dir=build_dir,
-                dist=config_rel_dir, disttarg='/home/dist'
+                stage_name=stage, dist=config_rel_dir, disttarg='/home/dist'
             )
             stage_commands_new.extend(new_commands)
         stage_commands = stage_commands_new
@@ -985,7 +1005,7 @@ def _build_docker_image(build_dir, config, suffix, dockerfile_contents):
         return IMAGE_TAG + suffix
 
 
-def _preprocess_build_stage_command(*, command, devmounts, faw_context_dir, dist, disttarg):
+def _preprocess_build_stage_command(*, command, devmounts, faw_context_dir, stage_name, dist, disttarg):
     try:
         # Expand variables if any in the command
         s = command.format(dist=dist, disttarg=disttarg).strip()
@@ -1028,7 +1048,8 @@ def _preprocess_build_stage_command(*, command, devmounts, faw_context_dir, dist
                 f'tar -c --exclude-ignore=.gitignore -C {devmount.mounted_path} . | tar -x -C {build_dir_devmount_target}'
             ], shell=True)
 
-            # TODO: Store the stage name to track dependencies between devmounts and stages
+            # Store the stage name to track dependencies between devmounts and stages
+            devmount.add_dependent_stage(stage_name)
 
             # With all that in place, we can now issue a COPY (or ADD) command with the real target
             # path, so that the rest of the build can proceed. But we should clear out the target
@@ -1368,11 +1389,16 @@ def start_builder(*, development, config_dir, build_dir, build_faw_dir, faw_cont
 
     return t
 
+
 @dataclasses.dataclass
 class _DevMountInfo:
     valid: bool
     mounted_path: str
     trigger_paths: list
+    dependent_stages: set = dataclasses.field(default_factory=set)
+
+    def add_dependent_stage(self, stage_name):
+        self.dependent_stages.add(stage_name)
 
 
 def _get_devmounts_config(config_data):
@@ -1470,6 +1496,84 @@ def start_server(config_dir, faw_port):
 
     # Run it in a thread
     t = ServerThread()
+    t.start()
+
+    return t
+
+
+def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
+
+    import watchfiles
+
+    class DevMountWatcher(threading.Thread):
+        def __init__(self):
+            super().__init__(daemon=True)
+            self._stop_event = threading.Event()
+
+            # Compute the set of files we need to look for and
+            # map it to the stages we would need to rebuild in
+            # case they change
+            self._path_stages_map = collections.defaultdict(set)
+            for info in devmounts.values():
+                if not info.valid:
+                    continue
+
+                all_paths = []
+                for p in info.trigger_paths:
+                    full_path = os.path.join(info.mounted_path, p)
+                    paths = glob.glob(full_path, recursive=True)
+                    all_paths.extend(paths)
+
+                for path in all_paths:
+                    for stage_name in info.dependent_stages:
+                        self._path_stages_map[path].add(stage_name)
+
+            logging.info(f"Watching {list(self._path_stages_map.keys())}")
+
+        def stop(self):
+            self._stop_event.set()
+
+        def run(self):
+            for changes in watchfiles.watch(*self._path_stages_map.keys(), yield_on_timeout=True):
+                # If we have been asked to stop, do that
+                if self._stop_event.is_set():
+                    return
+
+                # Figure out the set of stages we need to rebuild
+                updated_stage_names = set()
+                for change, path in changes:
+                    # We react to everything other than deletion of the path in question
+                    # TODO: Should we do this?
+                    if change == watchfiles.Change.deleted:
+                        continue
+
+                    stage_names = self._path_stages_map.get(path, set())
+                    updated_stage_names.update(stage_names)
+
+                # If there are no changed stages continue
+                if not updated_stage_names:
+                    continue
+
+                print(f"Got stages {updated_stage_names}")
+
+                # Collect the data needed to initiate the build, then initiate it and wait for
+                # it to finish
+                print("Calling with", config_dir, build_dir)
+                updated_config = _check_config_file(config=config_dir, build_dir=build_dir)
+                updated_stages = {
+                    stage: stage_info
+                    for stage, stage_info in updated_config['build']['stages'].items()
+                    if stage in updated_stage_names
+                }
+                notify_event = threading.Event()
+
+                builder_thread.initiate_build(
+                    config_data=updated_config, updated_stages_map=updated_stages, notify_event=notify_event
+                )
+
+                notify_event.wait()
+
+    t = DevMountWatcher()
     t.start()
 
     return t
