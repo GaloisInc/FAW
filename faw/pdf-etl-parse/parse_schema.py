@@ -14,6 +14,7 @@ def schema_get():
                 s.Optional('timeout', default=None): s.Or(float, int, None),
                 'version': str,
                 'parse': schema_get_parser_parser(),
+                s.Optional('devmounts'): [str],
             },
     }))
     return sch

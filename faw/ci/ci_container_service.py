@@ -349,7 +349,8 @@ def main():
 
     # Start the devmounts watcher
     devmounts_watcher_thread = start_devmount_watcher(
-        config_dir=config, build_dir=build_dir, devmounts=devmounts, builder_thread=builder_thread
+        config_dir=config, build_dir=build_dir, devmounts=devmounts,
+        faw_docker_id=docker_id, builder_thread=builder_thread
     )
 
     # To ensure that we kill the FAW container (which we are just
@@ -1081,7 +1082,7 @@ def _update_faw_config(config_file_bytes, faw_docker_id, dest_path):
     # Docker cp is requires a tarred directory if we are sending stuff via stdin
     logging.info('Pushing updated config to FAW')
 
-    # Create a tar file with a single config file 
+    # Create a tar file with a single config file
     buf = io.BytesIO()
     with tarfile.TarFile(fileobj=buf, mode='w') as tf:
         finfo = tarfile.TarInfo(os.path.basename(dest_path))
@@ -1512,7 +1513,7 @@ def start_server(config_dir, faw_port):
     return t
 
 
-def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
+def start_devmount_watcher(*, config_dir, build_dir, devmounts, faw_docker_id, builder_thread):
 
     import watchfiles
 
@@ -1523,9 +1524,11 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
 
             # Compute the set of files we need to look for and
             # map it to the stages we would need to rebuild in
-            # case they change
+            # case they change. We also collect a map from files
+            # to devmounts.
             self._path_stages_map = collections.defaultdict(set)
-            for info in devmounts.values():
+            self._path_devmounts_map = collections.defaultdict(set)
+            for name, info in devmounts.items():
                 if not info.valid:
                     continue
 
@@ -1539,6 +1542,8 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
                     for stage_name in info.dependent_stages:
                         self._path_stages_map[path].add(stage_name)
 
+                    self._path_devmounts_map[path].add(name)
+
             logging.info(f"Watching {list(self._path_stages_map.keys())}")
 
         def stop(self):
@@ -1550,8 +1555,10 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
                 if self._stop_event.is_set():
                     return
 
-                # Figure out the set of stages we need to rebuild
+                # Figure out the set of stages we need to rebuild as well as
+                # devmounts that were affected by this
                 updated_stage_names = set()
+                affected_devmounts = set()
                 for change, path in changes:
                     # We react to everything other than deletion of the path in question
                     # TODO: Should we do this?
@@ -1561,11 +1568,15 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
                     stage_names = self._path_stages_map.get(path, set())
                     updated_stage_names.update(stage_names)
 
+                    devmounts = self._path_devmounts_map.get(path, set())
+                    affected_devmounts.update(devmounts)
+
                 # If there are no changed stages continue
                 if not updated_stage_names:
                     continue
 
-                print(f"The following stages have been updated: {updated_stage_names}")
+                logging.info(f"The following devmounts have been affected: {affected_devmounts}")
+                logging.info(f"The following stages have been updated: {updated_stage_names}")
 
                 # Collect the data needed to initiate the build, then initiate it and wait for
                 # it to finish
@@ -1582,6 +1593,22 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, builder_thread):
                 )
 
                 notify_event.wait()
+
+                # Finally we need to update the versions of any parsers that might have been affected by the
+                # changes above.
+                for parser_name, parser in updated_config['parsers'].items():
+                    if 'devmounts' not in parser:
+                        continue
+
+                    # If any of the specified devmount dependencies have been affected by the changes
+                    # above, we update the parser version to a new value.
+                    if (any(devmount in affected_devmounts for devmount in (parser['devmounts']))):
+                        logging.info(f'Updating {parser_name}')
+                        parser['version'] = str(uuid.uuid4())
+
+                # Push the changed config to FAW and it should trigger a reparse
+                updated_config_bytes = _export_config_json(updated_config).encode('utf-8')
+                _update_faw_config(updated_config_bytes, faw_docker_id, '/home/config.json')
 
     t = DevMountWatcher()
     t.start()
