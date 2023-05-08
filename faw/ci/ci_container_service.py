@@ -201,6 +201,13 @@ def main():
     # Pick out the dev mounts if any
     devmounts = _get_devmounts_config(config_data)
 
+    # Config Update: If any parsers have specified devmount dependencies, and
+    # the specified devmount has been mounted, update the parser versions to
+    # force a reparse at startup
+    if config_data:
+        valid_devmount_keys = {k for k, info in devmounts.items() if info.valid}
+        _update_affected_parser_versions(config_data, valid_devmount_keys)
+
     # Check that observatory image is loaded / built
     _check_image(development=development, config=config, config_data=config_data,
             build_dir=build_dir, build_faw_dir=build_faw_dir, devmounts=devmounts)
@@ -1430,6 +1437,23 @@ def _get_devmounts_config(config_data):
     return devmounts
 
 
+def _update_affected_parser_versions(config_data, devmount_names):
+    """
+    Given the current configuration and a set of devmount names,
+    look through the configurations for parsers that depend on any of
+    the specified devmounts and update their versions
+    """
+    for parser_name, parser in config_data['parsers'].items():
+        if 'devmounts' not in parser:
+            continue
+
+        # If any of the specified devmount dependencies have been affected by the changes
+        # above, we update the parser version to a new value.
+        if (any(devmount in devmount_names for devmount in (parser['devmounts']))):
+            logging.info(f'Updating {parser_name}')
+            parser['version'] = str(uuid.uuid4())
+
+
 def start_server(config_dir, faw_port):
     """
     Start a server and create an endpoint to upload config tars.
@@ -1596,15 +1620,7 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, faw_docker_id, b
 
                 # Finally we need to update the versions of any parsers that might have been affected by the
                 # changes above.
-                for parser_name, parser in updated_config['parsers'].items():
-                    if 'devmounts' not in parser:
-                        continue
-
-                    # If any of the specified devmount dependencies have been affected by the changes
-                    # above, we update the parser version to a new value.
-                    if (any(devmount in affected_devmounts for devmount in (parser['devmounts']))):
-                        logging.info(f'Updating {parser_name}')
-                        parser['version'] = str(uuid.uuid4())
+                _update_affected_parser_versions(updated_config, affected_devmounts)
 
                 # Push the changed config to FAW and it should trigger a reparse
                 updated_config_bytes = _export_config_json(updated_config).encode('utf-8')
