@@ -399,12 +399,22 @@ def compute_devmount_paths(config_dir):
     # level, we only care about the environment variables (i.e. keys) and whether
     # they are valid (i.e. defined). The configuration etc will be dealt with by the
     # CI container separately.
-    devmount_vars = []
+    devmount_vars = set()
+
+    # A simple function to extend a set, but issue a warning if the new elements
+    # overlap with the old
+    def _warn_update_set(current, values):
+        overlaps = current.intersection(values)
+        if overlaps:
+            for name in overlaps:
+                print(f'Warning: A devmount by the name "{name}" already exists')
+
+        current.update(values)
 
     with open((os.path.join(config_dir, 'config.json5'))) as f:
         config_data = pyjson5.load(f)
         if v := safe_dict_fetch(config_data, 'build', 'devmounts'):
-            devmount_vars.extend(v.keys())
+            _warn_update_set(devmount_vars, v.keys())
 
     for child_path in os.listdir(config_dir):
         child_path = os.path.join(config_dir, child_path)
@@ -416,7 +426,7 @@ def compute_devmount_paths(config_dir):
             with open(child_config_path) as f:
                 child_config_data = pyjson5.load(f)
                 if v := safe_dict_fetch(child_config_data, 'build', 'devmounts'):
-                    devmount_vars.extend(v.keys())
+                    _warn_update_set(devmount_vars, v.keys())
 
     return [(os.getenv(v), f"/home/devmounts/{v}") for v in devmount_vars if os.getenv(v)]
 
