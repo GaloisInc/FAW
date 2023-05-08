@@ -428,7 +428,15 @@ def compute_devmount_paths(config_dir):
                 if v := safe_dict_fetch(child_config_data, 'build', 'devmounts'):
                     _warn_update_set(devmount_vars, v.keys())
 
-    return [(os.getenv(v), f"/home/devmounts/{v}") for v in devmount_vars if os.getenv(v)]
+    valid_devmounts = set()
+    active_devmounts = [(v, os.getenv(v)) for v in devmount_vars if os.getenv(v)]
+    for v, path in active_devmounts:
+        if not os.path.exists(path) or not os.path.isdir(path):
+            print(f'Warning: The directory: <{path}> corresponding to devmount {v} does not exist. It will not be mounted!')
+        else:
+            valid_devmounts.add(v)
+
+    return [(os.getenv(v), f"/home/devmounts/{v}") for v in valid_devmounts]
 
 
 def safe_dict_fetch(dct, *args):
