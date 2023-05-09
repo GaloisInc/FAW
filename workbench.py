@@ -75,10 +75,16 @@ def main():
         args.config_dir, args.file_dir,
         [args.copy_mongo_from, args.copy_mongo_to]
     )
-    dev_mount_paths = compute_devmount_paths(args.config_dir)
+    devmounts_env_vars, dev_mount_paths = compute_devmount_paths(args.config_dir)
     mount_paths_as_args = list(
         itertools.chain.from_iterable(
             (("-v", f"{src}:{target}") for (src, target) in standard_mount_paths + dev_mount_paths)
+        )
+    )
+
+    devmounts_env_as_args = list(
+        itertools.chain.from_iterable(
+            (("-e", f"{var}={value}") for (var, value) in devmounts_env_vars)
         )
     )
 
@@ -135,6 +141,7 @@ def main():
         command = (
             ['docker', 'run']
             + mount_paths_as_args
+            + devmounts_env_as_args
             + ['-p', f"{args.port_ci}:9001"]
             + ['-e', f'FAW_CI_CMD={ci_container_cmd}']
             + ['-e', f'FAW_CONTAINER_NAME={faw_container_name}']
@@ -436,7 +443,9 @@ def compute_devmount_paths(config_dir):
         else:
             valid_devmounts.add(v)
 
-    return [(os.getenv(v), f"/home/devmounts/{v}") for v in valid_devmounts]
+    devmounts_path_map = [(os.getenv(v), f"/home/devmounts/{v}") for v in valid_devmounts]
+    devmounts_env_map = [(v, os.getenv(v)) for v in valid_devmounts]
+    return (devmounts_env_map, devmounts_path_map)
 
 
 def safe_dict_fetch(dct, *args):

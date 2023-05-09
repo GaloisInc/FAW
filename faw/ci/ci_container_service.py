@@ -22,6 +22,7 @@ import collections
 import dataclasses
 import glob
 import io
+import json
 import hashlib
 import logging
 import os
@@ -406,6 +407,32 @@ def main():
         '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db'
     ]
 
+    # We will also pass some basic devmount related information to the
+    # FAW container. This is primarily so that programs (like faw-cli)
+    # running in the FAW container can get a picture of what devmounts
+    # are in play.
+    # NOTE: This is purely informational. The regular functioning of
+    # FAW does not rely on the existence of these variables; in fact
+    # the paths specified here will not even be accessible from the FAW!
+    # NOTE: We *can* pass more information this way, but a concern is
+    # that part of the information is somewhat dynamic (affected stages,
+    # affected parsers etc). However with the environment variable based
+    # "transmission", this information is passed only once at the start
+    # to the CLI. So if we should display more information, alternatives
+    # can be considered: for example, invoke the devmounts information
+    # display portion within the CI container or create an endpoint that
+    # gives more information about the current state of devmounts. These
+    # options all have some pain points that need to be resolved.
+    devmounts_env_params = []
+    for i, (env, info) in enumerate(devmounts.items()):
+        dct = dict(
+            name=env,
+            host_path=os.getenv(env, '')
+        )
+        devmounts_env_params.extend(
+            ['-e', f'FAW_DEVMOUNTS-{i+1}={json.dumps(dct)}']
+        )
+
     # In build mode, this variable will not be set:
     if 'FAW_HOST_CI_LOG_DIR' in os.environ:
         logdir = os.environ['FAW_HOST_CI_LOG_DIR']
@@ -420,7 +447,7 @@ def main():
         '-p', f'{port}:8123',
         # Disable core dumps
         '--ulimit', 'core=0',
-    ] + volume_mount_params + extra_flags
+    ] + volume_mount_params + devmounts_env_params + extra_flags
 
     logging.info(f"FAW command line: {faw_command_line}")
     subprocess.check_call(faw_command_line)
@@ -847,6 +874,13 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             # base UI, so user changes trigger those rebuilds infrequently.
             COPY {shlex.quote(config_rel_dir)} /home/dist
             ''')
+
+    # Dependencies between devmounts and stages are
+    # inferred from commands, clear out the current state
+    # as we will be collecting this again.
+    # TODO: This need some more thought.
+    for info in devmounts.values():
+        info.clear_dependent_stages()
 
     for stage, stage_def in {**config_data['build']['stages'],
             **stages_hardcoded}.items():
@@ -1424,6 +1458,8 @@ class _DevMountInfo:
     def add_dependent_stage(self, stage_name):
         self.dependent_stages.add(stage_name)
 
+    def clear_dependent_stages(self):
+        self.dependent_stages = set()
 
 def _get_devmounts_config(config_data):
     devmounts = dict()
