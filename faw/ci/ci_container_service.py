@@ -387,11 +387,16 @@ def main():
         devmounts_watcher_thread.stop()
         devmounts_watcher_thread.join(6)
 
+        # Finally delete the root "mount" directory for devmounts
+        # to avoid dangling root-owned garbage in the filesystem
+        devmount_rootdir_name = f".devmounts-{os.getpid()}"
+        devmount_rootdir = os.path.join(build_dir, devmount_rootdir_name)
+        logging.info(f'Attempting to remove {devmount_rootdir}')
+        shutil.rmtree(devmount_rootdir, ignore_errors=True)
+
         # Without this sleep, the script exits before the logging script has an
         # opportunity to collect error messages. So, wait a bit before exiting
         time.sleep(3)
-
-        # TODO: Remove the devmount root directory
 
     atexit.register(on_exit)
 
