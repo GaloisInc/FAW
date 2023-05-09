@@ -1,5 +1,10 @@
 #! /usr/bin/env python3
-"""Script that submits requests to apache.
+"""Script that submits request streams directly to apache.
+Expects JSONified requests in response. Doesn't support HEAD or
+CONNECT methods.
+
+Legacy script; no longer used. Also, no longer works since
+``index.php`` was changed.
 
 Note: Doesn't yet use the "nanny" model that we want long-term!
 Only runs a single apache instance, and doesn't get any info from
@@ -41,10 +46,6 @@ def main():
         '--json-output', required=False, default=None,
         help='File in which to write parsed requests as JSON'
     )
-    # argument_parser.add_argument(
-    #     '--load-balancer-port', required=True, type=int,
-    #     help='Port where load balancer around apache server is running'
-    # )
     argument_parser.add_argument(
         '--apache-port', required=True, type=int,
         help='Port where apache server is running'

@@ -10,6 +10,7 @@ import json
 import socket
 import subprocess
 import sys
+import time
 from typing import Any, Dict, List, TypedDict
 
 
@@ -85,10 +86,11 @@ def main():
                     stderr=subprocess.DEVNULL,
                 )
                 print(f'Running nanny process at pid {p.pid}')
+                time.sleep(1)
                 nanny_started = True
             else:
                 print(f'Could not launch or connect to nanny process at port {args.load_balancer_port}')
-                return 1
+                exit(1)
         else:
             break
     request_stream = open(args.request_stream, 'rb').read()
@@ -99,10 +101,10 @@ def main():
         response_data = receive_with_prepended_length(sock)
     except socket.timeout:
         print('Request to nanny process timed out')
-        return 1
+        exit(1)
     except OSError as e:
         print(f'Request to nanny process failed: {e}')
-        return 1
+        exit(1)
 
     response: Response = json.loads(response_data)
     for message in response['wrapper_messages']:

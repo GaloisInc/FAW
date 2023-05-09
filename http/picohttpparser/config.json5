@@ -3,14 +3,41 @@
         'pico': {
             disabled: false,
             exec: ['pico-parserequests', '<inputFile>', '<artifactOutFile jsonRequests parsed.json>'],
-            version: '1',
+            version: '2',
             parse: {
                 type: 'regex-counter',
                 version: '1',
                 stdout: {
-                    // TODO remove most/all printing--all but method and version
+                    '^(HTTP version is [0-9]\\.[0-9])$': {
+                        nameGroup: 1,
+                    },
+                    '^(Method is .+)$': {
+                        nameGroup: 1,
+                    },
+                    '^(No message body)$': {
+                        nameGroup: 1,
+                    },
+                    '^Consumed [0-9]+ bytes before body$': {
+                        nameGroup: '',
+                    },
+                    '^Header: ': {
+                        nameGroup: '',
+                    },
+                    '^Path is': {
+                        nameGroup: '',
+                    },
+                    '^Total stream length: ': {
+                        nameGroup: '',
+                    },
+                    '^Body length: ': {
+                        nameGroup: '',
+                    },
                 },
-                stderr: {},
+                stderr: {
+                    '^(Error: .*)$': {
+                        nameGroup: 1,
+                    }
+                },
             },
         },
     },

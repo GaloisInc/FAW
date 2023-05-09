@@ -9,7 +9,7 @@
                 '--server-instances', '5',
             ],
             mustSucceed: true,  // nonzero exit code indicates communication issue w/ nanny
-            version: '1',
+            version: '2',
             parse: {
                 type: 'regex-counter',
                 version: '1',
@@ -29,8 +29,17 @@
                     '^Connection Error: Remote end closed connection without response$': {
                         nameGroup: '',
                     },
+                    '^Malformed JSON written by server: ': {
+                        nameGroup: '',
+                    }
                 },
                 stderr: {
+                    // Access log lines; these include some useful info for debugging
+                    // (e.g. size of request), but are hard to regex-match, and the most
+                    // useful parts (method, path) are redundant with the artifacts.
+                    '^Server logging: ACCESS LOG ': {
+                        nameGroup: '',
+                    },
                 },
             },
         },

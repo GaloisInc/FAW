@@ -17,7 +17,9 @@
 
     $body = file_get_contents('php://input');
     $request['body'] = base64_encode($body);
-    header('Content-Type: application/json; charset=utf-8');
-    # Note: for HEAD and CONNECT methods, the response body is not sent.
-    echo json_encode($request);
+    file_put_contents(
+        '/var/log/apache2-' . $_SERVER['SERVER_PORT'] . '/results.log',
+        json_encode($request),
+        FILE_APPEND | LOCK_EX,
+    );
 ?>

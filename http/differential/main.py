@@ -8,7 +8,7 @@ import json
 import os
 import pathlib
 import html
-from typing import Counter, DefaultDict, Iterable, Optional, Sequence, Set, Tuple, TypedDict, List, Dict, Union
+from typing import DefaultDict, Iterable, Optional, Sequence, Set, Tuple, TypedDict, List, Dict, Union
 
 
 CSS_PRELUDE = """
@@ -126,7 +126,7 @@ def main():
             print(f'<p>{html.escape(text)}</p>')
 
     tool_names = sorted(os.listdir(artifact_dir))
-    requests_by_tool: Dict[str, Sequence[Request]] = {}
+    requests_by_tool: Dict[str, Sequence[Request]] = {tool_name: [] for tool_name in tool_names}
     for tool_name in tool_names:
         files = list((artifact_dir / tool_name).iterdir())
         if len(files) == 0:

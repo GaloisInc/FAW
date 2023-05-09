@@ -6,10 +6,13 @@ from contextlib import closing
 import dataclasses
 import functools
 import http.client
+import itertools
 import json
 import logging
 import os
+import pathlib
 import socket
+import shutil
 import subprocess
 from typing import Collection, Generic, List, TypeVar, AsyncContextManager
 
@@ -27,8 +30,8 @@ APACHE_LOCK_DIR = '/var/lock/apache2'
 @dataclasses.dataclass
 class ApacheInstance:
     port: int
-    log_dir: "os.PathLike[str]"
-    pid_file_path: "os.PathLike[str]"
+    log_dir: pathlib.Path
+    pid_file_path: pathlib.Path
 
 
 class _ManagedResource(AsyncContextManager[T]):
@@ -97,11 +100,14 @@ async def handle_request_stream(
     loop = asyncio.get_running_loop()
     async with apache_instance_pool.borrow() as apache_instance:
         logger.debug(f'Request {id(reader):x}: Claimed server instance on port {apache_instance.port}')
-        # TODO start apache here if it's not running (and log)?
-        # catch up to current end of log file
-        # TODO this could break if/when logs are rotated. I think logs aren't rotated whcih is also an issue
-        log_file = open(os.path.join(apache_instance.log_dir, 'error.log'), 'r')
-        log_file.seek(0, os.SEEK_END)
+        ensure_instance_running(apache_instance)
+        results_log_path = apache_instance.log_dir / 'results.log'
+        error_log_path = apache_instance.log_dir / 'error.log'
+        access_log_path = apache_instance.log_dir / 'access.log'
+        # empty logs before sending request stream
+        for log_path in [results_log_path, error_log_path, access_log_path]:
+            open(log_path, 'w').close()
+
         # read the incoming data and forward to apache
         data = await read_with_prepended_length(reader)
         sock = socket.create_connection(('127.0.0.1', apache_instance.port), timeout=5)
@@ -112,7 +118,6 @@ async def handle_request_stream(
         mock_sock = MockSocket(responses_file)
 
         responses: List[NonClosingResponse] = []
-        response_bodies: List[bytes] = []
         wrapper_messages: List[str] = []
         log_lines: List[str] = []
         while True:
@@ -131,29 +136,37 @@ async def handle_request_stream(
             if response.will_close:
                 break
             responses.append(response)
-            response_bodies.append(response.read())
+            response.read()  # Discard any http response body (not meaningful)
         sock.close()
         responses_file.close()
 
         # Get new log lines from apache
-        log_lines = log_file.readlines()
+        with open(access_log_path) as access_log, open(error_log_path) as error_log, open(results_log_path) as results_log:
+            log_lines = access_log.readlines() + error_log.readlines()
+            results = results_log.read()  # concatenated JOSNified requests
         logger.debug(f'Request {id(reader):x}: Returning server instance on port {apache_instance.port}')
 
     wrapper_messages.append(f'Got {len(responses)} responses')
 
-    parsed_requests = []
-    for response, response_body in zip(responses, response_bodies):
+    # Convert the concatenated JSON objects into an array before loading
+    try:
+        parsed_requests = json.loads(f'[{results.replace("}{", "},{")}]')
+    except json.JSONDecodeError as e:
+        wrapper_messages.append(f'Malformed JSON written by server: {e}')
+        parsed_requests = []
+
+    for i, (response, parsed_request) in enumerate(itertools.zip_longest(responses, parsed_requests)):
+        if response is None:
+            wrapper_messages.append(f'Request {i}: Got no response for parsed request')
+            continue
         wrapper_messages.append(f'Response: {response.status} {response.reason}')
-        if 200 <= response.status < 400:
-            # OK; response body is parse result
-            try:
-                response_content = json.loads(response_body)
-                parsed_requests.append(response_content)
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                wrapper_messages.append(f'Error: Malformed JSON for allegedly OK request: {e}')
-        else:
-            # Error from apache; probably the status/reason are enough
+        if parsed_request is None:
+            wrapper_messages.append(
+                f'Request {i}: Did not parse request (response status: {response.status})'
+            )
+            # it's safe to append here since parsed_requests is already exhausted
             parsed_requests.append({'error': True})
+
     data_to_send_back = json.dumps(
         {
             'parsed_requests': parsed_requests,
@@ -170,11 +183,12 @@ async def handle_request_stream(
 
 
 def start_apache_on_port(port: int) -> ApacheInstance:
-    log_dir = f'{APACHE_LOG_DIR}-{port}'
-    run_dir = f'{APACHE_RUN_DIR}-{port}'
-    lock_dir = f'{APACHE_LOCK_DIR}-{port}'
+    logger.debug(f'Starting apache on port {port}')
+    log_dir = pathlib.Path(f'{APACHE_LOG_DIR}-{port}')
+    run_dir = pathlib.Path(f'{APACHE_RUN_DIR}-{port}')
+    lock_dir = pathlib.Path(f'{APACHE_LOCK_DIR}-{port}')
     for d in [log_dir, run_dir, lock_dir]:
-        os.makedirs(d, exist_ok=True)
+        d.mkdir(exist_ok=True)
     subprocess.run(
         # Use restart instead of start in case it's already running
         ['/usr/sbin/apache2ctl', 'restart'],
@@ -182,11 +196,22 @@ def start_apache_on_port(port: int) -> ApacheInstance:
         env={'PORT': str(port)},
         check=True,
     )
+    # Ensure apache can write to results log file
+    results_log_path = log_dir / 'results.log'
+    results_log_path.touch()
+    shutil.chown(results_log_path, user='www-data')
     return ApacheInstance(
         port=port,
         log_dir=log_dir,
-        pid_file_path=f'{run_dir}/apache2.pid',
+        pid_file_path=run_dir / 'apache2.pid',
     )
+
+
+def ensure_instance_running(instance: ApacheInstance) -> None:
+    with open(instance.pid_file_path) as pid_file:
+        pid = int(pid_file.read())
+    if not psutil.pid_exists(pid):
+        start_apache_on_port(instance.port)
 
 
 async def main():
@@ -234,7 +259,7 @@ async def main():
                 os.kill(pid, 9)
         with open(args.pid_file, 'w') as pid_file:
             pid = os.getpid()
-            logger.debug(f'Running at PID {pid} (saving to {pid_file})')
+            logger.debug(f'Running at PID {pid} (saving to {args.pid_file})')
             pid_file.write(str(pid))
 
     if args.stop_running_servers:

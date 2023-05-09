@@ -102,11 +102,10 @@ int parse_requests(char *buffer, size_t buffer_len, FILE *fd_out) {
         printf("Method is %.*s\n", (int)method_len, method);
         printf("Path is %.*s\n", (int)path_len, path);
         printf("HTTP version is 1.%d\n", minor_version);
-        printf("Headers:\n");
         content_length_header = NULL;
         transfer_encoding_header = NULL;
         for (i = 0; i != num_headers; ++i) {
-            printf("  %.*s: %.*s\n", (int)headers[i].name_len, headers[i].name,
+            printf("Header: %.*s: %.*s\n", (int)headers[i].name_len, headers[i].name,
                 (int)headers[i].value_len, headers[i].value);
             if (strncmp("Content-Length", headers[i].name, min(headers[i].name_len, 14)) == 0) {
                 content_length_header = &headers[i];
