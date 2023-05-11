@@ -5,20 +5,21 @@
                 './parser.py', '--request-stream', '<inputFile>',
                 '--json-output', '<artifactOutFile jsonRequests parsed.json>',
                 '--load-balancer-port', '9678',
+                '--load-balancer-version', '1', // increment this when nanny.py is changed
                 '--server-port-range-start', '31318',
                 '--server-instances', '5',
             ],
             mustSucceed: true,  // nonzero exit code indicates communication issue w/ nanny
-            version: '2',
+            version: '4',
             parse: {
                 type: 'regex-counter',
-                version: '1',
+                version: '2',
                 stdout: {
                     '^Running nanny process at': {
                         nameGroup: '',
                     },
-                    '^Got [0-9]+ responses': {
-                        nameGroup: '',
+                    '^(Got [0-9]+ responses)$': {
+                        nameGroup: 1,
                     },
                     '^(Response: [0-9][0-9][0-9] .+)$': {
                         nameGroup: 1,

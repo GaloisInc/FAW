@@ -7,11 +7,15 @@ is contained in ``nanny.py``.
 """
 import argparse
 import json
+import pathlib
 import socket
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
+
+
+NANNY_RUN_DIR = pathlib.Path('/var/run/apache-nanny/')
 
 
 class Response(TypedDict):
@@ -34,6 +38,42 @@ def receive_with_prepended_length(sock: socket.socket) -> bytes:
     return b''.join(response_chunks)
 
 
+def nanny_version_matches(version: str) -> bool:
+    version_path = NANNY_RUN_DIR / 'version'
+    if version_path.is_file():
+        with open(version_path, 'r') as version_file:
+            running_nanny_version = version_file.read()
+        return running_nanny_version == version
+    return False
+
+
+def start_nanny(
+    port: int,
+    server_port_range_start: int,
+    server_instances: Optional[int],
+    version: str,
+) -> None:
+    p = subprocess.Popen(
+        [
+            './nanny.py', '--listen-port', str(port),
+            '--server-port-range-start', str(server_port_range_start),
+            '--stop-running-servers',
+            '--run-dir', '/var/run/apache-nanny/',
+            '--version', version,
+            *(
+                ['--max-instances', str(server_instances)]
+                if server_instances is not None else []
+            ),
+        ],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    print(f'Running nanny process at pid {p.pid}')
+    time.sleep(1)
+
+
 def main():
     argument_parser = argparse.ArgumentParser()
     argument_parser.add_argument(
@@ -46,6 +86,10 @@ def main():
     argument_parser.add_argument(
         '--load-balancer-port', required=True, type=int,
         help='Port where load balancer around apache server is running'
+    )
+    argument_parser.add_argument(
+        '--load-balancer-version', required=True,
+        help='Version identifier for load balancer'
     )
     argument_parser.add_argument(
         '--server-port-range-start', required=True, type=int,
@@ -63,30 +107,25 @@ def main():
     args = argument_parser.parse_args()
 
     nanny_started = False
+    if not nanny_version_matches(args.load_balancer_version):
+        start_nanny(
+            port=args.load_balancer_port,
+            server_port_range_start=args.server_port_range_start,
+            server_instances=args.server_instances,
+            version=args.load_balancer_version,
+        )
+        nanny_started = True
     while True:
         try:
-            sock = socket.create_connection(('localhost', args.load_balancer_port), timeout=10)
+            sock = socket.create_connection(('localhost', args.load_balancer_port), timeout=20)
         except OSError:
-            # nanny not running
             if not nanny_started:
-                p = subprocess.Popen(
-                    [
-                        './nanny.py', '--listen-port', str(args.load_balancer_port),
-                        '--server-port-range-start', str(args.server_port_range_start),
-                        '--stop-running-servers',
-                        '--pid-file', '/var/run/apache-nanny/nanny.pid',
-                        *(
-                            ['--max-instances', str(args.server_instances)]
-                            if args.server_instances is not None else []
-                        ),
-                    ],
-                    start_new_session=True,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                start_nanny(
+                    port=args.load_balancer_port,
+                    server_port_range_start=args.server_port_range_start,
+                    server_instances=args.server_instances,
+                    version=args.load_balancer_version,
                 )
-                print(f'Running nanny process at pid {p.pid}')
-                time.sleep(1)
                 nanny_started = True
             else:
                 print(f'Could not launch or connect to nanny process at port {args.load_balancer_port}')

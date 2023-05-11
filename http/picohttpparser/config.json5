@@ -3,10 +3,10 @@
         'pico': {
             disabled: false,
             exec: ['pico-parserequests', '<inputFile>', '<artifactOutFile jsonRequests parsed.json>'],
-            version: '2',
+            version: '4',
             parse: {
                 type: 'regex-counter',
-                version: '1',
+                version: '2',
                 stdout: {
                     '^(HTTP version is [0-9]\\.[0-9])$': {
                         nameGroup: 1,
@@ -17,20 +17,20 @@
                     '^(No message body)$': {
                         nameGroup: 1,
                     },
-                    '^Consumed [0-9]+ bytes before body$': {
-                        nameGroup: '',
+                    '^(Consumed [0-9]+ bytes before body)$': {
+                        nameGroup: 1,
                     },
-                    '^Header: ': {
-                        nameGroup: '',
+                    '^(Header: .+)$': {
+                        nameGroup: 1,
                     },
-                    '^Path is': {
-                        nameGroup: '',
+                    '^(Path is .*)$': {
+                        nameGroup: 1,
                     },
-                    '^Total stream length: ': {
-                        nameGroup: '',
+                    '^(Total stream length: [0-9]+)$': {
+                        nameGroup: 1,
                     },
-                    '^Body length: ': {
-                        nameGroup: '',
+                    '^(Body length: [0-9]+)$': {
+                        nameGroup: 1,
                     },
                 },
                 stderr: {

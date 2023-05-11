@@ -7,7 +7,7 @@
                 '--json-output', '<artifactOutFile jsonRequests parsed.json>',
                 '--protocol-version', 'HTTP/1.1'
             ],
-            version: '1',
+            version: '2',
             parse: {
                 type: 'regex-counter',
                 version: '1',

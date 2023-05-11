@@ -20,7 +20,8 @@ class Request(TypedDict):
 
 
 def _base64_encode_string(s: str) -> bytes:
-    return base64.b64encode(bytes(s, encoding='utf-8')).decode()
+    # Note: python http.server interprets all binary data as latin-1
+    return base64.b64encode(bytes(s, encoding='iso-8859-1')).decode()
 
 
 class SerializingHandler(http.server.BaseHTTPRequestHandler):

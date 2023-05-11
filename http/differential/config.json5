@@ -10,10 +10,10 @@
     'differential-test': {
       exec: ['./main.py', '<artifactInParserDirs jsonRequests>'],
       timeout: 120,
-      version: '1',
+      version: '2',
       parse: {
         type: 'regex-counter',
-        version: '1',
+        version: '3',
         stdstar: {
           '^(No output from tool .*)$': {
             nameGroup: 1,
@@ -54,7 +54,13 @@
               '^': 'Diff: '
             },
           },
-          '^Request [0-9]+: ([0-9]+ distinct values (including repeated entries) for header: {field})$' :{
+          '^Request [0-9]+: ([0-9]+ distinct values \\(including repeated entries\\) for header: .+)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+/[0-9]+ parsers had header: .+)$' :{
             nameGroup: 1,
             nameReplace: {
               '^': 'Diff: '

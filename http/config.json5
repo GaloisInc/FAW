@@ -54,11 +54,25 @@ with open(sys.argv[1], 'w') as html: \n\
             exec: ['hexdump', '<inputFile>'],
             outputMimeType: 'text/plain',
         },
-        view_text: {
+        view_utf8: {
             label: 'View UTF-8',
             type: 'program_to_html',
-            exec: ['iconv', '-f', 'utf-8', '-t', 'utf-8', '<inputFile>'],
+            exec: [
+                'python3', '-c',
+                "import sys; print(open(sys.argv[1], 'rb').read().decode('utf-8', errors='replace'))",
+                '<inputFile>',
+            ],
             outputMimeType: 'text/plain;charset=UTF-8',
+        },
+        view_latin1: {
+            label: 'View Latin-1',
+            type: 'program_to_html',
+            exec: [
+                'python3', '-c',
+                "import sys; print(open(sys.argv[1], 'rb').read().decode('latin-1', errors='replace'))",
+                '<inputFile>',
+            ],
+            outputMimeType: 'text/plain;charset=latin-1',
         },
     },
 

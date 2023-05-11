@@ -107,9 +107,9 @@ int parse_requests(char *buffer, size_t buffer_len, FILE *fd_out) {
         for (i = 0; i != num_headers; ++i) {
             printf("Header: %.*s: %.*s\n", (int)headers[i].name_len, headers[i].name,
                 (int)headers[i].value_len, headers[i].value);
-            if (strncmp("Content-Length", headers[i].name, min(headers[i].name_len, 14)) == 0) {
+            if (strncasecmp("Content-Length", headers[i].name, min(headers[i].name_len, 14)) == 0) {
                 content_length_header = &headers[i];
-            } else if (strncmp("Transfer-Encoding", headers[i].name, min(headers[i].name_len, 17)) == 0) {
+            } else if (strncasecmp("Transfer-Encoding", headers[i].name, min(headers[i].name_len, 17)) == 0) {
                 // This field can be parsed as a comma-separated list if
                 // defined multiple times, but we only need the last
                 // encoding listed (if it's chunked, we need to parse the
@@ -188,7 +188,6 @@ int parse_requests(char *buffer, size_t buffer_len, FILE *fd_out) {
             } else {
                 fprintf(stderr, "Error: Ambiguous body length; defines Transfer-Encoding, but chunked is not the final encoding.");
                 body_parse_error = 1;
-                // return something once factored out
             }
         } else if (content_length_header) {
             char *content_length_str = malloc(content_length_header->value_len + 1);
@@ -203,7 +202,6 @@ int parse_requests(char *buffer, size_t buffer_len, FILE *fd_out) {
                         (int)content_length_header->value_len,
                         content_length_header->value);
                 body_parse_error = 1;
-                // return something once factored out
             } else {
                 printf("Body length: %ld\n", body_len);
                 // set start, end body pointers here for saving to JSON?

@@ -2,7 +2,7 @@
 """Load balancer around apache."""
 import argparse
 import asyncio
-from contextlib import closing
+import concurrent.futures
 import dataclasses
 import functools
 import http.client
@@ -110,7 +110,9 @@ async def handle_request_stream(
 
         # read the incoming data and forward to apache
         data = await read_with_prepended_length(reader)
-        sock = socket.create_connection(('127.0.0.1', apache_instance.port), timeout=5)
+        sock = socket.socket()
+        sock.settimeout(10)
+        await loop.sock_connect(sock, ('127.0.0.1', apache_instance.port))
         await loop.sock_sendall(sock, data)
 
         # Share the same file object between all responses (required for pipelining)
@@ -123,7 +125,9 @@ async def handle_request_stream(
         while True:
             response = NonClosingResponse(mock_sock)
             try:
-                response.begin()
+                # Blocking I/O; run in executor to prevent blocking other
+                # responses while waiting/reading
+                await loop.run_in_executor(None, response.begin)
             except ConnectionError as e:
                 # This probably just means that the server handled all requests,
                 # but may be an actually meaningful error
@@ -208,8 +212,12 @@ def start_apache_on_port(port: int) -> ApacheInstance:
 
 
 def ensure_instance_running(instance: ApacheInstance) -> None:
-    with open(instance.pid_file_path) as pid_file:
-        pid = int(pid_file.read())
+    try:
+        with open(instance.pid_file_path) as pid_file:
+            pid = int(pid_file.read())
+    except FileNotFoundError:
+        start_apache_on_port(instance.port)
+        return
     if not psutil.pid_exists(pid):
         start_apache_on_port(instance.port)
 
@@ -232,17 +240,26 @@ async def main():
         help='Number of server instances to run at a time'
     )
     argument_parser.add_argument(
+        '--version', required=True,
+        help='Version identifier of the nanny process. Used to check if already running'
+    )
+    argument_parser.add_argument(
         '--debug', action='store_true',
         help='Enable debug logging'
     )
     argument_parser.add_argument(
-        '--stop-running-servers', action='store_true',
-        help='Kill all running server instances outside of the port range given'
+        '--replace', action='store_true',
+        help='Kill and replace nanny. If not passed, just ensure the nanny is running.'
     )
     argument_parser.add_argument(
-        '--pid-file', default=None, help=(
-            'Path to file in which to write the PID of this process. '
-            'If provided, replace currently running nanny process'
+        '--stop-running-servers', action='store_true',
+        help=(
+            'Kill all running server instances outside of the port range given'
+        )
+    )
+    argument_parser.add_argument(
+        '--run-dir', required=True, help=(
+            'Path to dir containing pid and version files'
         ),
     )
     args = argument_parser.parse_args()
@@ -250,17 +267,34 @@ async def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    if args.pid_file is not None:
-        if os.path.isfile(args.pid_file):
-            with open(args.pid_file, 'r') as pid_file:
-                pid = int(pid_file.read().strip())
-            if psutil.pid_exists(pid):
-                logger.debug(f'Killing running nanny process at PID {pid}')
-                os.kill(pid, 9)
-        with open(args.pid_file, 'w') as pid_file:
-            pid = os.getpid()
-            logger.debug(f'Running at PID {pid} (saving to {args.pid_file})')
-            pid_file.write(str(pid))
+    version = args.version
+    run_dir = pathlib.Path(args.run_dir)
+    pid_path = run_dir / 'nanny.pid'
+    version_path = run_dir / 'version'
+    running_nanny_pid: int
+    if pid_path.is_file():
+        with open(pid_path, 'r') as pid_file:
+            running_nanny_pid = int(pid_file.read().strip())
+    else:
+        running_nanny_pid = -1
+    nanny_running = psutil.pid_exists(running_nanny_pid)
+    if nanny_running and not args.replace and version_path.is_file():
+        with open(version_path, 'r') as version_file:
+            running_nanny_version = version_file.read()
+        if running_nanny_version == version:
+            logger.info(f'Nanny already running with same version')
+            exit(0)
+    with open(version_path, 'w') as version_file:
+        # Save the version before killing the running nanny to prevent
+        # race condition betwen multiples of this script
+        version_file.write(version)
+    if nanny_running:
+        logger.info(f'Killing running nanny process at PID {running_nanny_pid}')
+        os.kill(running_nanny_pid, 9)
+    with open(pid_path, 'w') as pid_file:
+        pid = os.getpid()
+        logger.debug(f'Running at PID {pid} (saving to {pid_path})')
+        pid_file.write(str(pid))
 
     if args.stop_running_servers:
         # First, kill running servers--only necessary when we've
@@ -275,6 +309,10 @@ async def main():
         instances.append(apache_instance)
 
     apache_instance_pool = ResourcePool(instances)
+    # Ensure we have enough threads to handle all active requests)
+    asyncio.get_running_loop().set_default_executor(
+        concurrent.futures.ThreadPoolExecutor(args.max_instances)
+    )
 
     try:
         async with await asyncio.start_server(
@@ -285,7 +323,7 @@ async def main():
             host='127.0.0.1',
             port=args.listen_port,
         ) as server:
-            logger.debug(f'Started server on port {args.listen_port}')
+            logger.info(f'Started server on port {args.listen_port}')
             await server.serve_forever()
     except OSError as e:
         if e.errno == 98:

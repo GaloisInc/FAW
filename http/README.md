@@ -33,9 +33,9 @@ request that the parser tried to parse.
 [
   {
     "error": false,
-    "method": "GET",
-    "path": "/",
-    "version": 1.1,
+    "method": "R0VU",
+    "path": "Lw==",
+    "version": "SFRUUC8xLjE=",
     "headers": [
       [
         "SG9zdA==",
@@ -71,9 +71,9 @@ request that the parser tried to parse.
   },
   {
     "error": false,
-    "method": "GET",
-    "path": "/",
-    "version": 1.1,
+    "method": "R0VU",
+    "path": "Lw==",
+    "version": "SFRUUC8xLjE=",
     "headers": [],
     "bodyError": false
   },

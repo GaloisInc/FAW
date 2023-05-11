@@ -8,7 +8,7 @@ import json
 import os
 import pathlib
 import html
-from typing import DefaultDict, Iterable, Optional, Sequence, Set, Tuple, TypedDict, List, Dict, Union
+from typing import Counter, DefaultDict, FrozenSet, Iterable, Optional, Sequence, Set, Tuple, TypedDict, List, Dict, Union
 
 
 CSS_PRELUDE = """
@@ -150,14 +150,15 @@ def main():
         }
 
         no_output_count = 0
-        # Treat all errors the same when diffing
         error_count = 0
+        body_error_count = 0
         method_values : Set[bytes] = set()
         path_values : Set[bytes] = set()
         version_values : Set[bytes] = set()
         # Ignore header order (except for repeated fields) when diffing,
         # since some tools may expose them in an unordered map
         header_counts: Set[int] = set()
+        header_field_counts: Counter[bytes] = collections.Counter()
         header_values_by_field : DefaultDict[bytes, Set[Tuple[bytes]]] = collections.defaultdict(set)
         header_value_list_by_field_by_tool: DefaultDict[str, Dict[bytes, Sequence[bytes]]] = collections.defaultdict(dict)
         body_values : Set[Optional[bytes]] = set()
@@ -178,19 +179,27 @@ def main():
                 header_value_list_by_field[field].append(value)
             for field, values in header_value_list_by_field.items():
                 header_values_by_field[field].add(tuple(values))
+                header_field_counts[field] += 1
             header_value_list_by_field_by_tool[tool_name] = header_value_list_by_field
 
             if maybe_request.body_error:
-                error_count += 1
+                body_error_count += 1
                 continue
             body_values.add(maybe_request.body if maybe_request.body is not None else b'')
+        # Treat prelude and body errors the same when diffing
+        any_error_count = error_count + body_error_count
+        num_prelude_parses = num_parsers - error_count - no_output_count
+        sometimes_missing_headers: Set[bytes] = {
+            field for field, count in header_field_counts.items()
+            if count < num_prelude_parses
+        }
 
         if print_html:
             status_differs = (
                 0 < no_output_count < num_parsers
-                or 0 < error_count < num_parsers
+                or 0 < any_error_count < num_parsers
             )
-            all_bad = no_output_count + error_count == num_parsers
+            all_bad = no_output_count + any_error_count == num_parsers
             num_header_rows = len(header_values_by_field.keys())
             status_row = [
                 Cell(
@@ -271,7 +280,7 @@ def main():
                     Cell(
                         header_field.decode(errors='replace'),
                         header=True,
-                        highlight=len(header_values) > 1,
+                        highlight=len(header_values) > 1 or header_field in sometimes_missing_headers,
                         preformatted=True,
                     ),
                     *(
@@ -282,13 +291,13 @@ def main():
                                     header_field, []
                                 )
                             ],
-                            highlight=len(header_values) > 1,
+                            highlight=len(header_values) > 1 or header_field in sometimes_missing_headers,
                             preformatted=True,
                             collapsible_with_summary=(
-                                None if sum(map( len, header_value_list_by_field_by_tool[tool_name].get(
+                                None if (value_len := sum(map(len, header_value_list_by_field_by_tool[tool_name].get(
                                     header_field, []
-                                ))) <= 32
-                                else 'Long Value'
+                                )))) <= 32
+                                else f'Long Value ({value_len} bytes)'
                             )
                         )
                         for tool_name in tool_names
@@ -296,17 +305,19 @@ def main():
                 ]
                 for header_field, header_values in header_values_by_field.items()
             ]
+            body_difference = len(body_values) > 1 or body_error_count > 0
             body_row = [
-                Cell('Body', header=True, highlight=len(body_values) > 1),
+                Cell('Body', header=True, highlight=body_difference),
                 *(
                     Cell(
                         '' if maybe_request is None
+                        else 'Error' if maybe_request.body_error
                         else '' if maybe_request.body is None
                         else maybe_request.body.decode(errors='replace'),
-                        highlight=len(body_values) > 1,
-                        preformatted=True,
+                        highlight=body_difference,
+                        preformatted=maybe_request is None or not maybe_request.body_error,
                         collapsible_with_summary=(
-                            'Nonempty Body' if maybe_request and maybe_request.body else None
+                            f'Nonempty Body ({len(maybe_request.body)} bytes)' if maybe_request and maybe_request.body else None
                         )
                     )
                     for maybe_request in maybe_request_by_tool.values()
@@ -325,9 +336,12 @@ def main():
             )
         else:
             if 0 < no_output_count < num_parsers:
-                print(f'Request {request_index}: {no_output_count}/{num_parsers} parsers did not attempt to parse')
-            if 0 < error_count < num_parsers:
-                print(f'Request {request_index}: {error_count}/{num_parsers} parsers had errors')
+                print(
+                    f'Request {request_index}: {no_output_count}/{num_parsers} '
+                    'parsers did not attempt to parse'
+                )
+            if 0 < any_error_count < num_parsers:
+                print(f'Request {request_index}: {any_error_count}/{num_parsers} parsers had errors')
             if len(method_values) > 1:
                 print(f'Request {request_index}: {len(method_values)} distinct methods')
             if len(path_values) > 1:
@@ -338,7 +352,15 @@ def main():
                 print(f'Request {request_index}: {len(header_counts)} distinct header counts')
             for field, values in header_values_by_field.items():
                 if len(values) > 1:
-                    print(f'Request {request_index}: {len(values)} distinct values (including repeated entries) for header: {field}')
+                    print(
+                        f'Request {request_index}: {len(values)} distinct values '
+                        f'(including repeated entries) for header: {field}'
+                    )
+            for field in sometimes_missing_headers:
+                print(
+                    f'Request {request_index}: {header_field_counts[field]}/'
+                    f'{num_prelude_parses} parsers had header: {field}'
+                )
             if len(body_values) > 1:
                 print(f'Request {request_index}: {len(body_values)} distinct bodies')
     
