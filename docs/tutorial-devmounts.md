@@ -1,13 +1,13 @@
 # Introduction
 
-FAW provides the infrastructure for developers to configure, build and run parser plugins from source. The "dev mount" feature builds on this to provide support for live development of parser plugins using a locally running FAW instance. In essence, dev mounts allow a plugin developer to "mount" a local (but external to the FAW) source repository/directory and configure parser plugins to build the parser based on this repository. Further, changes to this external directory are reflected within the running FAW instance and can automatically trigger a rebuild of the parser followed by a reparsing of corpus with the rebuilt parser.
+FAW provides the infrastructure for developers to configure, build and run parser plugins from source. The "dev mount" feature builds on this to provide support for live development of parser plugins using a locally running FAW instance. In essence, dev mounts allow a plugin developer to "mount" a local (but external to the FAW) source repository/directory and configure parser plugins to build the parser based on this repository. Further, changes to this external directory are reflected within the running FAW instance and can automatically trigger a rebuild of the parser followed by a reparsing of the corpus with the rebuilt parser.
 
 In this document, we introduce the feature using examples, most of which revolve around the pre-existing daedalus plugin in the FAW repository.
 
 
 # Declaring a Dev Mount
 
-A dev mount is declared in terms of an environment variable. A dev mount is considered *active* within a specific FAW instance if the environment variable has been defined (prior to running the instance) and points to a valid local directory. In the absence of the environment variable, the dev mount is considered *inactive* and related commands are treated as no-ops by the FAW. This mechanism is intended to allow plugin developers to maintain a single configuration file for both production and local development use cases, while being able to quickly toggle between the two scenarios as necessary.
+A dev mount is declared in terms of an environment variable. A dev mount is considered *active* within a specific FAW instance if the environment variable has been defined (prior to running the instance) and points to a valid local directory. In the absence of the environment variable, the dev mount is considered *inactive* and related commands are treated as no-ops by the FAW. This mechanism is intended to allow plugin developers to maintain a single configuration file for both production and local development use cases, while being able to quickly move between the two scenarios as necessary.
 
 Dev mounts are declared as part of the `build` section in a new `devmounts` subsection. Each dev mount declaration can also specify a collection of *triggers*, essentially a list of glob patterns; at runtime, updates to any file matching the specfied patterns are considered to be updates to the dev mount. (Updates to the dev mount, in turn, will prompt the FAW to rebuild stages and rerun parsers as configured; the details are provided in the sections below).
 
@@ -22,7 +22,7 @@ Here is an example of a dev mount configuration for the daedalus parser plugin:
       ...
     }
 
-Here a pattern like `**/pdf-hs-driver` matches againt all files named `pdf-hs-driver` in any subdirectory under the dev mount directory. Note that pattern matching is done à la the Unix shell. See the [Python glob module](https://docs.python.org/3/library/glob.html) for a refresher on the specific details.
+Here a pattern like `**/pdf-hs-driver` matches againt all files named `pdf-hs-driver` in any subdirectory under the dev mount directory. Note that pattern matching is done Ã  la the Unix shell. See the [Python glob module](https://docs.python.org/3/library/glob.html) for a refresher on the specific details.
 
 
 # Using the Dev Mount
@@ -52,7 +52,7 @@ Here is an example of using a dev mount within the daedalus parser plugin:
       ...
     }  
 
-The only additional command added to the vanilla plugin configuration is the `FAW_DEVMOUNT` command. Its usage follows a standard pattern: it is placed *after* `git clone` and the target location is set to the location where the `git clone` places the repository. The command will cause the source to be overwritten with the contents of the development repository when the dev mount is active, while leaving it intact when it is inactive. This pattern allows the rest of the build commands to remain consistent irrespective of whether the plugin is being developed or used in a production FAW instance.
+The only additional command added to the vanilla plugin configuration is the `FAW_DEVMOUNT` command. Its usage follows a standard pattern: the command is placed *after* `git clone` and the target location is set to that of `git clone`. When the dev mount is active, the command will cause the source to be overwritten with the contents of the external directory, while it is left intact if the dev mount is inactive. This pattern allows the rest of the build commands to remain consistent irrespective of whether the plugin is being used in a production or development environment.
 
 
 # Configuring Parsers
