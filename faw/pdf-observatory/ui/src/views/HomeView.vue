@@ -158,8 +158,8 @@ mixin confusion-matrix
                 v-expansion-panel-content
                   .decision-reasons
                     v-radio-group(v-model="failReasonsSort" row :label="(failReasons.get(decisionAspectSelected) || []).length + ' error messages, sorted by'")
-                      v-radio(value="total" label="number of files rejected")
-                      v-radio(value="unique" label="uniquely rejected")
+                      v-radio(value="total" label="number of files affected")
+                      v-radio(value="unique" label="uniquely affected")
                     v-virtual-scroll(
                       :bench="10"
                       :items="failReasons.get(decisionAspectSelected) || []"
@@ -1116,6 +1116,7 @@ export default Vue.extend({
             dd.filters.push({
                 name: filtName,
                 caseInsensitive: false,
+                conjunction: false,
                 patterns: Array.from(messages).map(x => ({pat: x, check: null})),
             });
             vv[1] = {type: 'id', id1: filtName};
@@ -1132,12 +1133,30 @@ export default Vue.extend({
         text.push(t);
         text.push('\n');
       };
+      add('features:');
+      indent += 1;
+      for (const k of dd.extraFeatures) {
+        let header = k.featureText.slice();
+        if (k.caseInsensitive)
+          header += '/i';
+        if (k.conjunction)
+          header += '/and';
+        header += ':';
+        add(header);
+        indent += 1;
+        for (const kk of k.patterns) {
+          add(kk.pat);
+        }
+        indent -= 1;
+      }
       add('filters:');
       indent += 1;
       for (const k of dd.filters) {
         let header = k.name.slice();
         if (k.caseInsensitive)
           header += '/i';
+        if (k.conjunction)
+          header += '/and';
         header += ':';
         add(header);
         indent += 1;
@@ -1426,6 +1445,7 @@ export default Vue.extend({
         dd.filters.push({
           name: 'faw-custom',
           caseInsensitive: this.decisionSearchInsensitive,
+          conjunction: false,
           patterns: [{pat: this.decisionSearchCustom, check: null}],
         });
       }
@@ -1435,6 +1455,7 @@ export default Vue.extend({
       dd.filters.push({
         name: 'faw-errors',
         caseInsensitive: true,
+        conjunction: false,
         patterns: [
           {pat: '_<<workbench: Exit code missing', check: null},
           {pat: '_<<workbench: Exit status: RuntimeError', check: null},
