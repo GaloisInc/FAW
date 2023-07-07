@@ -10,7 +10,7 @@
     'differential-test': {
       exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '<tempDir>'],
       timeout: 120,
-      version: 'differential-test72',
+      version: 'differential-test73',
       parse: {
         type: 'regex-counter',
         version: '2',
