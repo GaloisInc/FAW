@@ -1,0 +1,56 @@
+{
+  parsers: {
+    "daedalus-file-cavities": {
+      version: 'polytracker-picohttpd-v1.0',
+      exec: ['python3', 'main.py', '<inputFile>'],
+      timeout: 60,
+      parse: {
+        type: 'regex-counter',
+        version: '1.7',
+        stdstar: {
+          '^"(([^"\\\\]|\\\\.)*?)","(([^"\\\\]|\\\\.)*?)","': {
+            nameGroup: 'INFIX: "\\g<3>"',
+            nameReplace: {
+              '[0-9]+': '<INT>',
+            },
+            fallthrough: true,
+          },
+          '^.*$': {
+            nameReplace: {'[0-9]+': '<INT>'},
+          }
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      polytracker: {
+        from: 'trailofbits/polytracker:latest@sha256:a510fbdd27c6c964b7d48cdda575134a44bf314473390ebaf0edd6530a3742d9',
+        copy_output: {
+          '/polytracker-src/examples/http/picohttpparser/src/example_picohttpparser_track': '/usr/bin/picohttpparser_track',
+        },
+        commands: [
+          "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config",
+          "WORKDIR /",
+          "RUN rm -rf polytracker-src && git clone https://github.com/trailofbits/polytracker.git polytracker-src",
+          "WORKDIR /polytracker-src/examples/http/picohttpparser",
+          "RUN git clone https://github.com/h2o/picohttpparser.git src",
+          "RUN cp Makefile example_picohttpparser.c /polytracker-src/examples/http/picohttpparser/src/",
+          "WORKDIR /polytracker-src/examples/http/picohttpparser/src",
+          "RUN polytracker build make -j$((`nproc`+1))",
+          "RUN polytracker instrument-targets --taint --ftrace example_picohttpparser",
+          "RUN mv example_picohttpparser.instrumented example_picohttpparser_track",
+        ],
+      },
+      final: {
+        commands: [
+          "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config",
+          "WORKDIR /",
+          "RUN git clone https://github.com/trailofbits/polytracker.git",
+          "WORKDIR /polytracker",
+          "RUN git checkout 6548-post-processing-cluster-input-bytes && pip3 install ."
+        ],
+      }
+    },
+  }
+}
