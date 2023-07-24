@@ -13,9 +13,9 @@
       version: 'differential-6.8',
       parse: {
         type: 'regex-counter',
-        version: '1',
+        version: '2',
         stdstar: {
-          '^Min (.*? to .*?): (.*?)': {
+          '^Min (.*? to .*?): (.*?)$': {
             nameGroup: 1,
             countGroup: 2,
             countAsNumber: true,

@@ -99,6 +99,9 @@ def main():
                 print(f'Discarded transparency from {t} page {pageno}')
                 # alpha to white; equivalent to `img = img[:, :, :3]` for opaque images
                 img = img[:, :, :3] * np.atleast_3d(img[:, :, 3]) / 255
+            if img.shape[2] == 1:
+                # Image was grayscale; convert to RGB for visual comparison
+                img = np.broadcast_to(img, (*img.shape[:2], 3))
             page_images[-1] = img  # replace placeholder (None)
 
             if html_out and ti > 0:
@@ -119,8 +122,8 @@ def main():
                     print(f'<td>')
                     if diff is not None:
                         buf = io.BytesIO()
-                        imgdat = imageio.imwrite(buf, 255 - diff,
-                                'png')
+                        diff_rgb = np.broadcast_to(255 - diff * 255, (*diff.shape[:2], 3)).astype(np.uint8)
+                        imgdat = imageio.v2.imwrite(buf, diff_rgb, 'png')
                         buf.seek(0)
                         b64 = base64.b64encode(buf.read()).decode('latin1')
                         print(f'<img src="data:image/png;base64,{b64}" {img_attrs} />')

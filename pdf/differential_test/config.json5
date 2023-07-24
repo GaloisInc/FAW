@@ -10,22 +10,22 @@
     'differential-test': {
       exec: ['./main.py', '<artifactInParserDirs pageImages100dpi>', '<tempDir>'],
       timeout: 120,
-      version: 'differential-test72',
+      version: 'differential-test73',
       parse: {
         type: 'regex-counter',
-        version: '1',
+        version: '2',
         stdstar: {
-          '^(Max RMSE, .*?): (.*?)': {
+          '^(Max RMSE, .*?): (.*?)$': {
             nameGroup: 1,
             countGroup: 2,
             countAsNumber: true,
           },
-          '^(Max diff, .*?): (.*?)': {
+          '^(Max diff, .*?): (.*?)$': {
             nameGroup: 1,
             countGroup: 2,
             countAsNumber: true,
           },
-          '^Differential: .*': {
+          '^Differential: .*$': {
             nameReplace: {
               '[0-9]': '',
             },

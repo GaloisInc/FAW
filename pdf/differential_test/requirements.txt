@@ -1,4 +1,4 @@
-imageio
+imageio ~=2.29.0
 # If opencv-python gives errors about skbuild, run `pip install --upgrade pip`
 # https://stackoverflow.com/questions/63448467/installing-opencv-fails-because-it-cannot-find-skbuild
 opencv-python
