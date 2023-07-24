@@ -1,0 +1,16 @@
+{
+  file_detail_views: {
+    differential: {
+      label: 'Sankey Plot',
+      type: 'program_to_html',
+      exec: [
+        './main.py', '<inputFile>',
+      ],
+    },
+  },
+  build: {
+    stages: {
+      // TODO install the python deps here
+    },
+  },
+}
