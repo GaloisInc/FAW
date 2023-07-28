@@ -10,7 +10,7 @@ also tend to evolve over time to accommodate new use cases and user
 demands. Together, this can cause significant divergence in the output
 of parsers leading to *parser differentials*, a situation where two
 parsers exhibit semantically different behavior for the same input,
-which and is a well-known and practically exploited vulnerability.
+which is a well-known and practically exploited vulnerability.
 
 Identifying parser differentials and exploits is often a time-consuming
 task involving multiple iterations of hypothesizing, developing
@@ -22,7 +22,7 @@ possible. Further, such scaling also enables the discovery of
 statistical correlations between the outputs of the tools which can help
 to surface the root causes of many differentials and exploits.
 
-The Feature Analysis Workbench (FAW) provides a workbench for
+The Format Analysis Workbench (FAW) provides a workbench for
 file-format analysis that enables users to easily create and integrate
 new as well as existing tools and parsers for formats and compare and
 contrast their behavior against large file corpora scaling up to
