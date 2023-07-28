@@ -98,6 +98,18 @@ To create your own distribution, take a look at
 
 TODO: Describe teaming mode
 
+# FAW Concepts
+
+## Corpus
+
+A corpus is essentially a directory containing files of interest. Arranging files in a hierarchy via subfolders is supported and encouraged, particularly for large corpora. 
+
+As mentioned in earlier sections, an instance of the FAW is associated with a single distribution and corpus. At runtime, the FAW runs all configured parsers and tools against all files in the corpus. Further, updates to the corpus, including additions and modifications, will cause the FAW to rerun the parsers/tools on the changed files.
+
+This repository contains a few corpora to both serve as examples and to help users get started with the FAW quickly. However, creating a new corpus is as simple as creating a new directory, adding relevant files to it (potentially arranging them in a hierarchy) and starting the FAW instance with a path to this directory.
+
+While accruing representative files for any given format is not strictly within the purview of the FAW, it is worth noting that significant efforts have been expended to collect and create digital corpora for many extant formats. For example, [CommonCrawl 8M corpus (CC-MAIN-2021-31-PDF-UNTRUNCATED)](https://digitalcorpora.org/corpora/file-corpora/cc-main-2021-31-pdf-untruncated/), collated as part of the DARPA SafeDocs program, includes around 8 Million PDF files collected from all over the publically accessible internet, while others like [GovDocs](https://digitalcorpora.org/corpora/file-corpora/files/) contain a mix of file formats (in this case collected from  `.gov` domains). These corpora can serve as the basis of any investigations in to extant formats.
+
 # Capabilities of the FAW
 
 The FAW offers a number of features/capabilities to the user out of the
