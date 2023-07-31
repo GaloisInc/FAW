@@ -308,6 +308,36 @@ interact with the CI features.
 
 TODO: Not yet merged
 
+# Troubleshooting
+
+1. Should the web interface fail to start, try deleting
+  the `common/pdf-observatory/ui/node_modules` directory and trying again. This
+  can happen due to mismatches between node versions in docker containers.
+
+2. When not in `--production` mode, attaching to the docker container gives access to
+  a variety of useful information. In particular, `s6-logwatch /var/log/observatory`
+  will show the logs for the FAW instance; `/var/log` in general contains a
+  number of logs on the various processes which comprise the FAW. Futhermore,
+  if the server itself ever needs to be rebooted, there is a `faw-restart.sh`
+  executable in the PATH which can help do this correctly.
+
+3. The FAW docker image contains a binary which can be used to view all logs,
+  restart the FAW process, or inspect the database in a REPL. For these functions,
+  run e.g. `docker exec -it <CONTAINER> faw-cli.py`. When the FAW is run interactively,
+  it automatically starts the `faw-cli`.
+
+5. When using FAW with a large set of files/directories, it is possible for NodeJS 
+  to hit the limit on the maximum number of file watchers allowed. This is usually
+  indicated by a `ENOSPC` error in the logs. This issue must be addressed on the host
+  machine (and not the container). The current limit on the host machine can be checked 
+  via: `cat /proc/sys/fs/inotify/max_user_watches`. To increase this limit do something like: 
+  `echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf`.
+  See [here](https://howchoo.com/node/node-increase-file-watcher-system-limit#why-do-i-see-this-enospc-file-watch-limit-error) 
+  for more details.
+
+6. Additional documentation is in the [docs](docs) directory.
+
+
 # Acknowledgements
 
 This material is based upon work supported by the Defense Advanced Research 
