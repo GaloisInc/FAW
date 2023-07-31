@@ -100,6 +100,13 @@ TODO: Describe teaming mode
 
 # FAW Concepts
 
+## Distribution
+
+A distribution is a specific configuration of the FAW. Each distribution is a folder containing a top-level `config.json5` file and potentially, a collection of plugins. For details regarding distributions and creating new ones, take a look at [this guide](docs/tutorial-distribution.md).
+
+
+TODO: Mention generation of files on the fly like in SDF.
+
 ## Corpus
 
 A corpus is essentially a directory containing files of interest. Arranging files in a hierarchy via subfolders is supported and encouraged, particularly for large corpora. 
@@ -109,6 +116,13 @@ As mentioned in earlier sections, an instance of the FAW is associated with a si
 This repository contains a few corpora to both serve as examples and to help users get started with the FAW quickly. However, creating a new corpus is as simple as creating a new directory, adding relevant files to it (potentially arranging them in a hierarchy) and starting the FAW instance with a path to this directory.
 
 While accruing representative files for any given format is not strictly within the purview of the FAW, it is worth noting that significant efforts have been expended to collect and create digital corpora for many extant formats. For example, [CommonCrawl 8M corpus (CC-MAIN-2021-31-PDF-UNTRUNCATED)](https://digitalcorpora.org/corpora/file-corpora/cc-main-2021-31-pdf-untruncated/), collated as part of the DARPA SafeDocs program, includes around 8 Million PDF files collected from all over the publically accessible internet, while others like [GovDocs](https://digitalcorpora.org/corpora/file-corpora/files/) contain a mix of file formats (in this case collected from  `.gov` domains). These corpora can serve as the basis of any investigations in to extant formats.
+
+## Binary Features
+
+FAW adopts the notion that binary features can effectively capture information about parser-input interactions. Binary features can capture and represent a wide variety of information: is the input document a PDF? Was parsing successful? Were error messages regarding a specific field printed on the standard error? etc. Analying the relationships between these features can provide deep insight in to the behavior of parsers/tools with respect to the corpus and format at scale.
+
+Parsers within the FAW can be configured to automatically extract features from the output of the underlying tool (see, for example, the configuration in this [tutorial section](docs/tutorial-distribution.md#getting-started) or the more comprehensive ones that are part of the PDF distribution). These features can be further [filtered and aggregated](filtering-and-discrepancy-analysis) via the Decision DSL to enable automatic decisions of validity.
+
 
 # Capabilities of the FAW
 
