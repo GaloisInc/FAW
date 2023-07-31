@@ -93,10 +93,8 @@ accessible via a webbrowser at `http://localhost:8123` (by default).
 
 By default, FAW is launched in [developer mode](#developer-friendly-features).
 
-To create your own distribution, take a look at
-[this guide](./docs/tutorial-distribution.md).
 
-TODO: Describe teaming mode
+In addition to directly running the distribution, the workbench script is capable of building and saving a unified docker image for a FAW distribution, which can can simplify deployment. Additionally, the FAW supports deployment in a multi-server "teaming mode" using [pyinfra](https://pyinfra.com/), which is useful when working with large corpora. The repository includes the `workbench-teaming-init.py` script for creating the pyinfra inventory/deploy files; pyinfra tooling can then be used to install prerequisites on target machines and set up FAW images and services. In this mode, target machines process files independently, but share a single database. The FAW UI is made available via a webserver on the database's machine.
 
 # FAW Concepts
 
