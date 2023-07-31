@@ -1,8 +1,8 @@
 # Introduction
 
-A FAW distribution is a specific configuration of the FAW. It is usually associated with a specific format/corpus; for example, the FAW repository contains a small set of distributions for file formats including one for PDFs.
+A FAW distribution is a specific configuration of the FAW. It is usually associated with a specific format; for example, the FAW repository contains a small set of distributions for file formats including one for PDFs.
 
-In this tutorial, we will look at creating a new CSV distribution from scratch. Additional information can also be found by looking at how the example distributions have been put together; in particular, the corresponding `config.json5` files often contain comments about configuring/using particular features of the FAW.
+In this tutorial, we will look at creating a new CSV distribution from scratch. Additional information can also be found by looking at how the example distributions have been put together; in particular, the corresponding `config.json5` files often contain comments about configuring/using particular features of the FAW. See for example the configuration files for [PDF](/pdf/config.json5) and [NITF](/nitf/config.json5) distributions.
 
 # Getting Started
 
@@ -57,7 +57,9 @@ A simple top-level configuration file for a simple CSV parser/validator looks li
 }
 ```
 
-In the next few sections we will describe relevant portions of the configuration.
+In the next few sections we will describe relevant portions of the configuration. For
+detailed comments on what each section/field in the configuration means, please take
+a look at the [configuration file](/pdf/config.json5) for the PDF distribution .
 
 ## Build Subsection
 
