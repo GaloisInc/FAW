@@ -67,8 +67,6 @@ and speed of analyses. It also provides multiple tools are provided to
 explore the interactions between inputs and parsing programs in the
 analysis set.
 
-TODO: Note on features as booleans.
-
 ![FAW Architecture](./docs/readme/faw-arch.png)
 
 # Quick Start
