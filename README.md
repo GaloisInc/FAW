@@ -82,7 +82,7 @@ to start an instance:
   *distribution folder* and one to the file corpus being studied.
 
 A FAW distribution is a specific configuration of the FAW and is usually
-associated with a specific file format or corpus. The FAW repository
+associated with a specific file format. The FAW repository
 includes a small set of distributions and corresponding file corpora,
 for example PDF. The PDF distribution can be launched from the root
 folder with the following command: `workbench.py pdf test_files/pdf`.
@@ -100,7 +100,7 @@ In addition to directly running the distribution, the workbench script is capabl
 
 ## Distribution
 
-A distribution is a specific configuration of the FAW. Each distribution is a folder containing a top-level `config.json5` file and potentially, a collection of plugins. For details regarding distributions and creating new ones, take a look at [this guide](docs/tutorial-distribution.md).
+A distribution is a specific configuration of the FAW. Each distribution is a folder containing a top-level `config.json5` file and potentially, a collection of plugins. For details regarding distributions and creating one for a new file format, take a look at [this guide](docs/tutorial-distribution.md).
 
 
 TODO: Mention generation of files on the fly like in SDF.
@@ -219,7 +219,7 @@ The FAW also supports universal parser parsers, which operate on the
 output of all configured parsers, generating additional features. These
 parsers run external commands that accept specially formatted streams
 and emit JSON dictionaries of new features. Universal parser parsers
-unify format-specific considerations across all parsers
+are intended to unify format-specific considerations across all parsers.
 
 ## Root Cause Analysis
 
@@ -235,8 +235,8 @@ enabling the identification of root causes for the differences.
 
 ## PolyFile / PolyTracker Integration
 
-Two essential tools included in most FAW distributions are PolyFile and
-PolyTracker. PolyFile serves as a unified file format tool with parsers
+Two essential tools included in most FAW distributions are [PolyFile](https://github.com/trailofbits/polyfile) and
+[PolyTracker](https://github.com/trailofbits/polytracker) from Trail of Bits. PolyFile serves as a unified file format tool with parsers
 for over 263 MIME file types. It detects polyglots (valid instances of
 multiple formats) and provides a file detail view for inspecting parsed
 structures or byte regions. PolyTracker is an instrumentation toolkit
@@ -253,8 +253,7 @@ plugin system, which allows long running actions to be divided in to a
 acyclic graph of resumable tasks. Tasks are processed according to the
 graph with restarting of crashed tasks. Once tasks are completed,
 parsers can be defined for analysis sets, file detail views, and
-decision plugins. RL-GRIT has been integrated in to FAW using pipeline
-plugins.
+decision plugins. [RL-GRIT](https://langsec.org/spw21/papers.html#rlgrit) has been integrated in to FAW using pipeline plugins.
 
 ## Developer-friendly Features
 
