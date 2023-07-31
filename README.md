@@ -100,9 +100,6 @@ In addition to directly running the distribution, the workbench script is capabl
 
 A distribution is a specific configuration of the FAW. Each distribution is a folder containing a top-level `config.json5` file and potentially, a collection of plugins. For details regarding distributions and creating one for a new file format, take a look at [this guide](docs/tutorial-distribution.md).
 
-
-TODO: Mention generation of files on the fly like in SDF.
-
 ## Corpus
 
 A corpus is essentially a directory containing files of interest. Arranging files in a hierarchy via subfolders is supported and encouraged, particularly for large corpora. 
@@ -188,10 +185,11 @@ parse files, capturing the exit code and standard output/error. The FAW
 allows mapping of these outputs to human-understandable features using
 regular expressions, with options for replacement and capture. The
 extracted features are stored in the database and can contribute to the
-valid/invalid decisions via the decision DSL mentioned in the previous
-section.
+valid/invalid decisions via the decision DSL mentioned in the [previous
+section](#filtering-and-discrepancy-analysis).
 
-TODO: Example ?
+The PDF distribution contains many examples of parser plugins, many of which
+are wrappers around extant parsing tools.
 
 ### File-Detail Plugins
 
@@ -222,7 +220,8 @@ FAW. FAW's root cause analysis are implemented as decision plugins.
 The FAW supports complex plugins with multiple stages and the capability
 to generate new data-driven parsers based on corpus inputs.
 
-TODO: Point to plugin tutorial
+If you would like to create new pipeline plugins, take a look at 
+[the tutorial](doc/tutorial-pipelines.md) here.
 
 ### Transforming Inputs and Universal Output Parsers
 
@@ -304,9 +303,6 @@ The FAW repository contains a helper script `faw/scripts/faw_ci_cli.py`
 that provides two subcommands `update-config` and `get-decisions` to
 interact with the CI features.
 
-### Dev Mount Feature
-
-TODO: Not yet merged
 
 # Troubleshooting
 
