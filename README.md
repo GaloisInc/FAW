@@ -138,7 +138,28 @@ Filters are groups of expressions and are matched against parser
 generated features while outputs, expressed in terms of compound boolean
 expressions over filters, represent aggregations of filter criteria.
 
-TODO: Point to a file as example
+Below we include a snippet of the decision DSL extracted from the PDF distributinon,
+which creates two filters based on features produced by the `mutool clean` command.
+`MuCleanAccept` filters files that have a zero exit code from `mutool`, while 
+`MuCleanError` filters files that either have a non-zero exit code or include a feature
+matching the regex: `.*[Ee]rror(?!: .*marker)`. Additionally, the snippet
+defines an output: files satisfying `MuCleanAccept` and not satisfying
+`MuCleanError` are labeled `valid`, otherwise, they are labeled `rejected`.
+```
+filters:
+  MuCleanAccept:
+    ^mutool-clean_.*<<workbench: Exit code0>>
+  MuCleanError:
+    ^mutool-clean_.*<<workbench: Exit code(?!0)
+    ^mutool-clean_.*[Ee]rror(?!: .*marker)
+outputs:
+  status:
+    "valid" is MuCleanAccept & !MuCleanError
+    "rejected" else
+```
+
+The configuration for the various distributions includes other, more complex,
+examples of the decision DSL.
 
 The decision DSL adjustments impact the FAW UI, with filter and output
 clauses represented as radio buttons in the UI. Selecting these buttons
