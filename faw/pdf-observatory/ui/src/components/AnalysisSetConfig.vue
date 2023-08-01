@@ -82,7 +82,7 @@
                       v-btn(@click="saveAs.definition.rules.push({parser: parser.id, src: '', dst: ''})") Add new
           v-row(class="btn-row")
             v-btn(@click="asFormSave" :disabled="!asFormValid" color="primary")
-              v-template(v-if="creatingNewAset") Create
+              v-template(v-if="creatingNewAset || saveAsFork") Create
               v-template(v-else) Save / Regenerate
             v-dialog(v-model="asFormDeleteDialog" persistent max-width="800")
               template(v-slot:activator="{on}")
