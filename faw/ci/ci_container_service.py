@@ -388,13 +388,6 @@ def main():
         devmounts_watcher_thread.stop()
         devmounts_watcher_thread.join(6)
 
-        # Finally delete the root "mount" directory for devmounts
-        # to avoid dangling root-owned garbage in the filesystem
-        devmount_rootdir_name = f".devmounts-{os.getpid()}"
-        devmount_rootdir = os.path.join(build_dir, devmount_rootdir_name)
-        logging.info(f'Attempting to remove {devmount_rootdir}')
-        shutil.rmtree(devmount_rootdir, ignore_errors=True)
-
         # Without this sleep, the script exits before the logging script has an
         # opportunity to collect error messages. So, wait a bit before exiting
         time.sleep(3)
@@ -1064,17 +1057,25 @@ def _preprocess_build_stage_command(*, command, devmounts, faw_context_dir, stag
             else:
                 logging.info(f"Found valid DEVMOUNT {devmount_env} mapping to {devmount.mounted_path}")
 
-            # To access the mounted folder during the FAW container build, we need to make
-            # it available at a position relative to its context directory.
+            # To access the mounted folder during the FAW image build, we need to make
+            # it available at a position relative to its context directory, which in this case
+            # is the faw_context_dir parameter.
 
-            # To that end, copy the mounted folder to a location under the build_dir.
-            # Delete the target path it already exists, to avoid mixing up old and the new.
-            devmount_rootdir_name = f".devmounts-{os.getpid()}"
-            build_dir_devmount_target = os.path.join(faw_context_dir, devmount_rootdir_name, devmount_env)
-            relative_devmount_target = os.path.join(devmount_rootdir_name, devmount_env)
+            # The workbench already computes the absolute path of where the mounted folder
+            # should go and passes it to us via the env variable 'FAW_DEVMOUNT_ROOT'. (It is
+            # chosen to be a subdirectory of the FAW root dir which contains the workbench.py
+            # script; for all our current use cases, this directory should be under the
+            # faw_context_dir)
+
+            devmount_rootdir = os.getenv('FAW_DEVMOUNT_ROOT')
+            build_dir_devmount_target = os.path.join(devmount_rootdir, devmount_env)
+            relative_devmount_target = os.path.relpath(build_dir_devmount_target, start=faw_context_dir)
+            assert not relative_devmount_target.startswith('..'), \
+                f"Internal error: devmount target: {build_dir_devmount_target} not under {faw_context_dir}"
 
             logging.info(f"Copying {devmount.mounted_path} to {build_dir_devmount_target}")
 
+            # We first delete the target path it already exists, to avoid mixing up old and the new.
             if os.path.exists(build_dir_devmount_target):
                 shutil.rmtree(build_dir_devmount_target)
             os.makedirs(build_dir_devmount_target)

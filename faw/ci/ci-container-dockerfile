@@ -61,7 +61,7 @@ RUN \
     mkdir -p '/etc/services.d/ci-container'  \
     && echo -e '#!/bin/sh\n${FAW_CI_CMD} 2>&1' >> /etc/services.d/ci-container/run \
     && chmod u+x /etc/services.d/ci-container/run \
-    && echo -e '#!/bin/sh\ns6-svscanctl -t /var/run/s6/services' >> /etc/services.d/ci-container/finish \
+    && echo -e '#!/bin/sh\ns6-svscanctl -t /var/run/s6/services\nrm -rf "${FAW_DEVMOUNT_ROOT}"' >> /etc/services.d/ci-container/finish \
     && chmod u+x /etc/services.d/ci-container/finish \
     && mkdir -p /etc/cont-init.d \
     && echo -e '#!/bin/sh\nmkdir -p /var/log/ci-container\nchown -R nobody:nogroup /var/log/ci-container\nchmod -R a+rwx /var/log/ci-container' > /etc/cont-init.d/ci-container \

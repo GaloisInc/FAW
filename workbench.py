@@ -132,6 +132,27 @@ def main():
 
     # Otherwise run an interactive process in the CI container to support, well, interactivity
     else:
+        # We also specify a directory to the CI container to use as a temporary root
+        # to store devmount related content. For why we need this, take a look at the
+        # ci-container-service.py.
+
+        # The choice of this directory is not arbitrary. It needs to satisfy the following conditions:
+        # 1. It must be accessible from within the CI container
+        # 2. It must be within the build context of the FAW image (as invoked from the CI container)
+        # 3. It should be deterministic (so that s6 scripts know/can compute its path)
+        # 4. But it must be instance specific
+
+        # Picking a new directory, keyed by the current process id, in the current script's dir should
+        # satisfy all those requirements. The script dir is directly mounted with *exactly the same path*
+        # in to the CI container and is (for all currently known situations) part of the build context of
+        # the FAW image.
+
+        # NOTE: We are passing the full directory path here since we need the path to be "well-known"
+        # in the ci-container-dockerfile where we generate scripts to delete this folder among other
+        # things.
+        faw_dir_p = to_absolute_path(__file__).parent
+        devmount_root_dir = faw_dir_p / Path(f'.devmounts-{os.getpid()}')
+
         command_line = (
             ["python3", str(interactive_script_path)] +
             ['--config-dir', str(to_absolute_path(args.config_dir))] +
@@ -146,6 +167,7 @@ def main():
             + ['-e', f'FAW_CI_CMD={ci_container_cmd}']
             + ['-e', f'FAW_CONTAINER_NAME={faw_container_name}']
             + ['-e', f'FAW_HOST_CI_LOG_DIR={CI_CONTAINER_LOG_PATH_HOST}']
+            + ['-e', f'FAW_DEVMOUNT_ROOT={str(devmount_root_dir)}']
             + ['--name', cname]
             + ['--add-host', 'host.docker.internal:host-gateway']
             + ['-it', '--rm', imgname]
