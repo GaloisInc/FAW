@@ -30,16 +30,17 @@ mixin decision-criterion-selector
 
 
 mixin reprocess-button
-  v-tooltip(bottom :disabled="!!decisionDefinition")
+  v-tooltip(bottom :disabled="!(!decisionDefinition || (analysisSetId === null))")
     template(v-slot:activator="{on}")
       //- Wrap disabled button in div -> show tooltip when disabled.
       div(v-on="on")
         v-btn.reprocess(
           @click="reprocess"
-          :disabled="!decisionDefinition"
+          :disabled="!decisionDefinition || (analysisSetId === null)"
           color="primary"
         ) Reprocess decisions
     span(v-if="!decisionDefinition") Fix filter definition first.
+    span(v-else-if="analysisSetId === null") Create analysis set first.
 
 mixin stale-decisions-alert
   v-alert(
