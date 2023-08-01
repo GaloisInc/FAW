@@ -84,9 +84,14 @@
             v-btn(@click="asFormSave" :disabled="!asFormValid" color="primary")
               v-template(v-if="creatingNewAset || saveAsFork") Create
               v-template(v-else) Save / Regenerate
-            v-dialog(v-model="asFormDeleteDialog" persistent max-width="800")
+            v-dialog(
+              v-if="!(creatingNewAset || saveAsFork)"
+              v-model="asFormDeleteDialog"
+              persistent
+              max-width="800"
+            )
               template(v-slot:activator="{on}")
-                v-btn(color="red" v-on="on" :disabled="creatingNewAset") Delete
+                v-btn(color="red" v-on="on") Delete
               v-card
                 v-card-title Really delete this analysis set?
                 v-card-actions(:style="{'flex-wrap': 'wrap'}")
