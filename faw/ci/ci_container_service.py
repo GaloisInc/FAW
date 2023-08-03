@@ -1486,13 +1486,13 @@ def _update_affected_parser_versions(config_data, devmount_names):
     the specified devmounts and update their versions
     """
     for parser_name, parser in config_data['parsers'].items():
-        if 'devmounts' not in parser:
+        if 'devmount_dependencies' not in parser:
             continue
 
         # If any of the specified devmount dependencies have been affected by the changes
         # above, we update the parser version to a new value.
         trigger_devmounts = list(devmount
-                                 for devmount in (parser['devmounts'])
+                                 for devmount in (parser['devmount_dependencies'])
                                  if devmount in devmount_names)
         if (trigger_devmounts):
             logging.info(f'Updating {parser_name} due to updates on devmount(s): {trigger_devmounts}')
