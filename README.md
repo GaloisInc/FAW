@@ -116,6 +116,26 @@ FAW adopts the notion that binary features can effectively capture information a
 
 Parsers within the FAW can be configured to automatically extract features from the output of the underlying tool (see, for example, the configuration in this [tutorial section](docs/tutorial-distribution.md#getting-started) or the more comprehensive ones that are part of the PDF distribution). These features can be further [filtered and aggregated](filtering-and-discrepancy-analysis) via the Decision DSL to enable automatic decisions of validity.
 
+## Analysis Sets
+
+As discussed in the [Corpus](#corpus) section, the FAW executes all
+parsers and tools on the entire corpus. However, it might not always
+be useful or practical to work with the complete results; instead,
+it may be convenient to focus on a subset thereof. The FAW introduces
+the concept of *analysis sets* to address this requirement, enabling
+users to group files and parsers into subsets for visualization and
+analysis workflows. This feature is intended to enhance the user's
+ability to efficiently explore and analyze data at different
+granularities within the FAW.
+
+Analysis sets group together a subset of files in the corpus and a
+subset of parsers/tools. The FAW facilitates the creation, modification,
+and deletion of analysis sets, and allows seamless switching between
+them at runtime. Upon selecting an analysis set, the FAW gui visualizes
+the results of the interactions between the set of files and parsers
+included in the set. This includes both the raw feature listings and
+automatic (validity-related) decisions computed via the decision DSL. 
+
 
 # Capabilities of the FAW
 
