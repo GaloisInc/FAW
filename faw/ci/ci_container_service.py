@@ -1630,8 +1630,9 @@ def start_devmount_watcher(*, config_dir, build_dir, devmounts, faw_docker_id, b
                 affected_devmounts = set()
                 for change, path in changes:
                     # We react to everything other than deletion of the path in question
-                    # TODO: Should we do this?
+                    # For deletion, we will just log the fact
                     if change == watchfiles.Change.deleted:
+                        logging.info(f'Trigger path "{path}" has been deleted')
                         continue
 
                     stage_names = self._path_stages_map.get(path, set())
