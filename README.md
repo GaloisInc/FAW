@@ -71,8 +71,8 @@ analysis set.
 
 # Quick Start
 
-Running the FAW requires an installation of Python (\>= 3.8). In order
-to start an instance:
+Running the FAW requires an installation of Python (\>= 3.8) and Docker.
+In order to start an instance:
 
 - Clone the repository
 - Install the prerequisites with `pip3 install -r requirements.txt`
