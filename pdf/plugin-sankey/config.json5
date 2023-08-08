@@ -1,7 +1,7 @@
 {
   file_detail_views: {
     differential: {
-      label: 'Sankey Plot',
+      label: 'Sankey Plot (Experimental)',
       type: 'program_to_html',
       exec: [
         './main.py', '<inputFile>',
@@ -10,7 +10,13 @@
   },
   build: {
     stages: {
-      // TODO install the python deps here
+      final: {
+        commands: [
+          // Also depends on qpdf
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
     },
   },
 }
