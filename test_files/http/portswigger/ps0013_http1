@@ -1,0 +1,8 @@
+POST /b/ HTTP/1.1
+Host: www.amazon.com
+Content-Length: 23
+
+GET /404 HTTP/1.1
+X: XGET / HTTP/1.1
+Host: www.amazon.com
+

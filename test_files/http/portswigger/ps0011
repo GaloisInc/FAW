@@ -1,0 +1,7 @@
+POST / HTTP/1.1
+Host: redacted
+Content-Length: 3
+
+xyzGET / HTTP/1.1
+Host: redacted
+

