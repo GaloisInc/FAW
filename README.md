@@ -16,7 +16,7 @@ Identifying parser differentials and exploits is often a time-consuming
 task involving multiple iterations of hypothesizing, developing
 special-purpose tools, running against a file corpora and analysing the
 results. Reducing the manual aspects of this cycle can serve to
-significantly accelarate this loop and enable investigations on much
+significantly accelerate this loop and enable investigations on much
 larger file corpora and with more parsers and tools than manually
 possible. Further, such scaling also enables the discovery of
 statistical correlations between the outputs of the tools which can help
