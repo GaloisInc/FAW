@@ -61,7 +61,7 @@
                   v-btn(@click="saveAsNewFeature()")
                     v-icon(dark) mdi-plus
           v-row(style="display: block")
-            v-label Parsers ("Add New" to include)
+            v-label Parsers (expand and click "Add New" to include)
             v-expansion-panels
               v-expansion-panel(v-for="parser of saveAsUiRules" :key="parser.id")
                 v-expansion-panel-header(:color="parser.rules.length > 0 ? (parser.rulesComplex ? 'orange lighten-3' : 'green lighten-3') : ''")
