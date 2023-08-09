@@ -263,7 +263,15 @@ are intended to unify format-specific considerations across all parsers.
 
 ## Root Cause Analysis
 
-TODO: Ask!
+The FAW contains plugins that build on the perspective that groups of files could be viewed topologically [[Ambrose 2020](https://arxiv.org/pdf/2003.00976.pdf), [Robinson 2021](https://arxiv.org/pdf/2012.10211.pdf)]. Specifically, these plugins extrapolate this theory to answer questions related to specific features: what caused a given exit code or parser differential? In the extreme, a best-case solution to this would be a grammar succinctly and perfectly matching only inputs that would trigger the condition. Grammar inference being a difficult problem, the next best approach seemed to be finding other features that robustly implied -- or at least greatly contributed to the likelihood of -- a desired condition.
+
+To achieve this, we turned to the absolute risk reduction metric [[Rothman 2012](https://www.cabdirect.org/cabdirect/abstract/20033069049)]. For our use case, we adapt it as $ARR(A, B) = P(A|B) - P(A|\neg B)$, where $A$ and $B$ are two features of interest. Conveniently, this metric becomes zero when the two features are independent, $1$ when they are identical, and $-1$ when they are inverted ($A = \neg B$). To filter out noise, we additionally do not consider features with $min(P(A), 1 - P(A)) < \epsilon$. As the metric is asymmetric, a trick we use is to take $ARR(A, B)$ iff $|ARR(A, B)| > |ARR(B, A)|$, and $ARR(B, A)$ otherwise. The result is that IMPLIES relationships have large values, regardless of the direction of implication.
+
+For diagnostics, this simple metric is shockingly powerful -- if, e.g., exit code $Z$ only occurs on files which produce error message $Y$, then exploring either of those features will reveal the other with a large associated risk metric.
+
+This functionality is exposed through the 'Clustering' decision plugin in the FAW, here pictured showing risk factors for a 'file is damaged' warning on a corpus of 10,000 PDF files.
+
+<img src="./docs/readme/faw-root-cause.png" style="height: 25em" />
 
 ## Rendering differentials
 
