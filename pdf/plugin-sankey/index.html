@@ -24,9 +24,8 @@
     <script>
         const sankeyCsvText = {{ CSV_TEXT }};
     </script>
-    <!-- TODO would be better to download these in a build stage -->
-    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12"></script>
+    <script src="{{ ABSOLUTE_ROOT_URI }}/static/plugin-sankey/d3.js"></script>
+    <script src="{{ ABSOLUTE_ROOT_URI }}/static/plugin-sankey/d3-sankey.js"></script>
     <script>{{ MAIN_SCRIPT }}</script>
 </body>
 </html>

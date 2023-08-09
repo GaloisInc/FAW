@@ -4,12 +4,23 @@
       label: 'Sankey Plot (Experimental)',
       type: 'program_to_html',
       exec: [
-        './main.py', '<inputFile>',
+        './main.py', '<inputFile>', '--api-url', '<workbenchApiUrl>',
       ],
     },
   },
   build: {
     stages: {
+      sankey: {
+        copy_output: {
+          '/sankey-staging/d3.js': '/home/static/plugin-sankey/d3.js',
+          '/sankey-staging/d3-sankey.js': '/home/static/plugin-sankey/d3-sankey.js',
+        },
+        commands: [
+          'RUN mkdir /sankey-staging',
+          'RUN wget -O /sankey-staging/d3.js -q https://cdn.jsdelivr.net/npm/d3@7',
+          'RUN wget -O /sankey-staging/d3-sankey.js -q https://cdn.jsdelivr.net/npm/d3-sankey@0.12',
+        ],
+      },
       final: {
         commands: [
           // Also depends on qpdf

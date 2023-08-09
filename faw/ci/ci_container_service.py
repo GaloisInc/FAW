@@ -773,6 +773,8 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
     # Always install observatory component dependencies as first part of final
     # stage (to minimize rebuilds on user code changes)
     dockerfile_final.append(rf'''
+            # Make root dir for static HTTP resources (must be before all stage commands)
+            RUN mkdir /home/static
             COPY {build_faw_dir}/faw/pdf-etl-parse/requirements.txt /home/pdf-etl-parse/requirements.txt
             RUN pip3 install -r /home/pdf-etl-parse/requirements.txt
             COPY {build_faw_dir}/faw/pdf-observatory/requirements.txt /home/pdf-observatory/requirements.txt
