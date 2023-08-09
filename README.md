@@ -31,15 +31,14 @@ examine and understand data formats and allow different types of users
 to work with these formats from different perspectives. For example:
 
 - Specification writers: the FAW makes it easy to compare various
-  parsers that implement the spec as well as examine the kind of
-  documents that are available in the wild and how they interpret the
+  parsers that implement the format specification as well as examine the kind
+  of documents that are available in the wild and how they relate to the
   specification.
 - Parser Developers: in addition to the parser comparisons mentioned
   above, the FAW also makes it easy to make changes to a parser and test
-  parser behavior against large corpus.
+  parser behavior against large corpora.
 - Vulnerability Researchers: the FAW allows easy incorporation of new
-  ananlysis to dig more in to the programs and the specification under
-  test.
+  analyses to dig into the programs and specifications under test.
 
 # Screenshot
 
