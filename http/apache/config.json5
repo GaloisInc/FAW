@@ -61,7 +61,7 @@
                     'RUN ln -sf /home/dist/apache/sites-enabled/000-default.conf /etc/apache2/sites-enabled/',
                     'RUN ln -sf /home/dist/apache/mods-enabled/dir.conf /etc/apache2/mods-enabled/',
                     'RUN ln -sf /home/dist/apache/mods-enabled/mpm_prefork.conf /etc/apache2/mods-enabled/',
-                    'RUN ln -sf /home/dist/apache/php.ini /etc/php/7.4/apache2/', // TODO can we avoid the version number?
+                    'RUN ln -sf /home/dist/apache/php.ini /etc/php/8.1/apache2/', // TODO can we avoid the version number?
                     'RUN mkdir /var/www/apache && ln -sf /home/dist/apache/index.php /var/www/apache',
                     'RUN mkdir /var/run/apache-nanny',
                 ],

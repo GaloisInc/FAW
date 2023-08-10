@@ -79,7 +79,7 @@ with open(sys.argv[1], 'w') as html: \n\
     build: {
         stages: {
             base: {
-                'from': 'ubuntu:20.04',
+                'from': 'ubuntu:jammy',
                 commands: [
                     'ENV DEBIAN_FRONTEND=noninteractive',
                     'SHELL ["/bin/bash", "-c"]',
