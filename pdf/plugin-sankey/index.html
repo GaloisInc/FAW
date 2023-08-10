@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sankey Plot</title>
+    <style>
+        svg {
+            margin-block: 1em;
+        }
+    </style>
+</head>
+<body>
+    <p>Warning: Experimental. Does not work on malformed PDFs.</p>
+    <details>
+        <summary>Debug Info</summary>
+        <ul>
+            {% for line in DEBUG_LINES %}
+                <li><pre>{{ line }}</pre></li>
+            {% endfor %}
+        </ul>
+    </details>
+    <label>Vertical Zoom: <input type="number" id="height-selector" pattern="[0-9]+" title="Vertical Zoom"></label><br/>
+    <script>
+        const sankeyCsvText = {{ CSV_TEXT }};
+    </script>
+    <script src="{{ ABSOLUTE_ROOT_URI }}/static/plugin-sankey/d3.js"></script>
+    <script src="{{ ABSOLUTE_ROOT_URI }}/static/plugin-sankey/d3-sankey.js"></script>
+    <script>{{ MAIN_SCRIPT }}</script>
+</body>
+</html>
