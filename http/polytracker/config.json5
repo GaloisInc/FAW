@@ -28,7 +28,10 @@
         from: 'trailofbits/polytracker:httpd',
         copy_output: {
           '/polytracker/examples/http/picohttpparser/src/example_picohttpparser_track': '/usr/bin/picohttpparser_track',
-          '/polytracker/examples/http/httpd/httpd/httpd_track': '/usr/bin/httpd_track'
+          '/polytracker/examples/http/httpd/httpd/httpd_track': '/usr/bin/httpd_track',
+          '/polytracker/examples/http/httpd/httpd.conf': '/usr/local/apache2/conf/httpd.conf',
+          '/lib/x86_64-linux-gnu/libc.so.6': '/usr/lib/polytracker_libc.so.6',
+          '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2': '/usr/lib/polytracker_ld-linux-x86-64.so.2',
         },
         commands: [
           "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config netcat curl autoconf libtool-bin",
@@ -70,12 +73,17 @@
       },
       final: {
         commands: [
-          "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config",
+          "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config netcat",
           "WORKDIR /",
           "RUN git clone --branch 6548-post-processing-cluster-input-bytes --single-branch https://github.com/trailofbits/polytracker.git",
           "WORKDIR /polytracker",
           "RUN pip3 install graphtage",
-          "RUN pip3 install ."
+          "RUN pip3 install .",
+          "WORKDIR /",
+          "RUN mkdir -p /usr/local/apache2/htdocs",
+          "RUN mkdir -p /usr/local/apache2/logs",
+          "COPY {dist}/httpd_harness /usr/bin",
+          "RUN chmod 755 /usr/bin/httpd_harness"
         ],
       }
     },
