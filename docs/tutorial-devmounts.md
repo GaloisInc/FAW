@@ -41,7 +41,7 @@ Here is an example of using a dev mount within the daedalus parser plugin:
               && cd daedalus \
               && git checkout 21e7f70510d1413641d764258a4187dd7b343ccc',
             //Newly added line: Dev mount the external source directory at the same location 
-            'FAW_DEVMOUNT ENV_DEVMOUNT_TEST /home/daedalus',
+            'FAW_DEVMOUNT ENV_DEVMOUNT_DAEDALUS /home/daedalus',
             'WORKDIR /home/daedalus',
               ...
           ]
