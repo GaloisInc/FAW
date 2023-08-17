@@ -13,12 +13,14 @@ export interface DslResult {
 export interface DslExtraFeature {
   featureText: string;
   caseInsensitive: boolean;
+  conjunction: boolean;  // If true, filter matches when all patterns match
   patterns: Array<DslFilterPattern>;
 }
 
 export interface DslFilter {
   name: string;
   caseInsensitive: boolean;
+  conjunction: boolean;  // If true, filter matches when all patterns match
   patterns: Array<DslFilterPattern>;
 }
 
@@ -87,32 +89,43 @@ function generateDslParser() {
         = "filters:" WS_LINES &{ return indentPush(); } inner:(INDENT filters_def+)? &{ indentPop(); return inner; }
             { return inner[1]; }
 
-      regex_flags
-        = flags:("/" regex_flag*)? {
-          return flags && flags[1].length ? Object.assign.apply(null, flags[1]) : {}; }
+      pattern_flags
+        = flags:(pattern_flag*) { return flags.length ? Object.assign.apply({}, flags) : {}; }
 
-      regex_flag
-        = "i" {
-          return { caseInsensitive: true }; }
+      pattern_flag
+        = "/i" { return { caseInsensitive: true }; }
+        / "/and" { return { conjunction: true }; }
 
       extra_features_def
-        = INDENT_CHECK featureText:feature_text re:regex_flags ":"
+        = INDENT_CHECK featureText:feature_text flags:pattern_flags ":"
             WS_LINES
             &{ return indentPush(); }
             inner:(INDENT filters_pattern+)?
             &{ indentPop(); return inner; } {
-              return { featureText: featureText, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
+              return {
+                featureText: featureText,
+                caseInsensitive: !!flags.caseInsensitive,
+                conjunction: !!flags.conjunction,
+                patterns: inner[1]
+              };
+            }
 
       feature_text
         = $[A-Za-z0-9_\\-=+<>()\\[\\],.?; ]+
 
       filters_def
-        = INDENT_CHECK name:filter_name re:regex_flags ":"
+        = INDENT_CHECK name:filter_name re:pattern_flags ":"
             WS_LINES
             &{ return indentPush(); }
             inner:(INDENT filters_pattern+)?
             &{ indentPop(); return inner; } {
-              return { name: name, caseInsensitive: !!re.caseInsensitive, patterns: inner[1] }; }
+              return {
+                name: name,
+                caseInsensitive: !!re.caseInsensitive,
+                conjunction: !!re.conjunction,
+                patterns: inner[1]
+              };
+            }
 
       filter_name
         = leader:[A-Z] trailer:ID_CHARS { return leader + trailer; }
@@ -140,7 +153,7 @@ function generateDslParser() {
         / filters_pattern_check_expr_compare
 
       filters_pattern_check_expr_compare
-        = left:filters_pattern_check_expr_add WS* symb:(">" / ">=" / "<" / "<=" / "==") WS* right:filters_pattern_check_expr_add
+        = left:filters_pattern_check_expr_add WS* symb:(">=" / ">" / "<=" / "<" / "==") WS* right:filters_pattern_check_expr_add
             { return {type: symb, id1: left, id2: right}; }
 
       filters_pattern_check_expr_add

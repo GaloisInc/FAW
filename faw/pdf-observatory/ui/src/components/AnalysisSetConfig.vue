@@ -1,21 +1,30 @@
 <template lang="pug">
-  v-sheet(:elevation="3" style="padding: 1em; margin-block: 1em;")
+  v-sheet.analysis-set-config(:elevation="3" style="padding: 1em; margin-block: 1em;")
     <!-- summary -->
-    v-autocomplete(label="Analysis set" :items="asOptions"
-        :value="currentId" @input="$emit('update:currentId', $event)")
+    v-autocomplete(
+      v-if="asOptions.length"
+      label="Analysis set"
+      :items="asOptions"
+      :value="currentId"
+      @input="$emit('update:currentId', $event)"
+    )
+    v-alert(v-else dense type="error") No analysis sets built
 
-    v-btn(block @click="expanded = !expanded")
-      span(v-if="!expanded") Details / Edit / Regenerate
-      span(v-else) Collapse
+    v-btn-toggle(
+      @change="onChangeSettingsView"
+      v-model="selectedSettingsView"
+    )
+      v-btn Create New Analysis Set
+      v-btn(v-if="currentId !== null") Active Analysis Set Details / Edit / Regenerate
     div(v-if="expanded" style="border: solid 1px #000; border-top: 0; padding: 0.25em;")
       <!-- Description / definition of this set -->
       v-form(ref="saveAsForm" v-model="asFormValid")
         v-container
           v-row
             v-text-field(label="Name"
-                :disabled="!saveAsFork && currentId !== NEW_ID" v-model="saveAs.id"
+                :disabled="!saveAsFork && !creatingNewAset" v-model="saveAs.id"
                 :rules="[v => /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(v) || 'Must match  [a-zA-Z][a-zA-Z0-9_-]*', v => saveAsValidateName() || 'Name already in use']")
-          template(v-if="currentId !== NEW_ID")
+          template(v-if="!creatingNewAset")
             v-row
               v-checkbox(v-model="saveAsFork" label="Fork analysis set")
           v-row
@@ -23,7 +32,13 @@
                 v-model="saveAsSample"
                 :rules="[v => /^[0-9]*$/.test(v) || 'Numbers only']")
           v-row
-            v-textarea(label="File specification regex" prefix="^" v-model="saveAs.definition.files")
+            v-textarea(
+              label="File specification regex"
+              prefix="^"
+              v-model="saveAs.definition.files"
+              auto-grow
+              rows=1
+            )
           v-row
             v-checkbox(v-model="saveAs.definition.files_case" label="Case sensitive"
                 style="margin-top: 0")
@@ -46,7 +61,7 @@
                   v-btn(@click="saveAsNewFeature()")
                     v-icon(dark) mdi-plus
           v-row(style="display: block")
-            v-label Features included
+            v-label Parsers (expand and click "Add New" to include)
             v-expansion-panels
               v-expansion-panel(v-for="parser of saveAsUiRules" :key="parser.id")
                 v-expansion-panel-header(:color="parser.rules.length > 0 ? (parser.rulesComplex ? 'orange lighten-3' : 'green lighten-3') : ''")
@@ -66,13 +81,20 @@
                     v-row
                       v-btn(@click="saveAs.definition.rules.push({parser: parser.id, src: '', dst: ''})") Add new
           v-row(class="btn-row")
-            v-btn(@click="asFormSave" :disabled="!asFormValid") Save / regenerate
-            v-dialog(v-model="asFormDeleteDialog" persistent max-width="800")
+            v-btn(@click="asFormSave" :disabled="!asFormValid" color="primary")
+              v-template(v-if="creatingNewAset || saveAsFork") Create
+              v-template(v-else) Save / Regenerate
+            v-dialog(
+              v-if="!(creatingNewAset || saveAsFork)"
+              v-model="asFormDeleteDialog"
+              persistent
+              max-width="800"
+            )
               template(v-slot:activator="{on}")
-                v-btn(color="red" v-on="on" :disabled="currentId === NEW_ID") Delete
+                v-btn(color="red" v-on="on") Delete
               v-card
                 v-card-title Really delete this analysis set?
-                v-card-actions(:style={'flex-wrap': 'wrap'})
+                v-card-actions(:style="{'flex-wrap': 'wrap'}")
                   v-btn(@click="asFormDeleteDialog = false") Cancel
                   v-btn(@click="asFormDelete(); asFormDeleteDialog = false") Delete analysis set
 
@@ -80,7 +102,7 @@
       span(v-if="!pipeExpanded") Pipelines
       span(v-else) Collapse
     div(v-if="pipeExpanded" style="border: solid 1px #000; border-top: 0; padding: 0.25em;")
-      <!-- pipeline information for the currently selected analysis set. -->
+      //- pipeline information for the currently selected analysis set.
       div
         span
           v-icon mdi-help-rhombus
@@ -129,12 +151,12 @@ export default Vue.extend({
     AnalysisSetPipelineInfo,
   },
   props: {
-    currentId: String,
+    currentId: String, // may be null
     pipeCfg: Object as () => any,
   },
   data() {
     return {
-      NEW_ID: '<new>',
+      creatingNewAset: false,
       alive: true,
       asData: {asets: [], parsers: []} as AsData,
       asFormDeleteDialog: false,
@@ -144,6 +166,7 @@ export default Vue.extend({
       pipeExpanded: false,
       saveAs: AsStatus.makeEmpty(''),
       saveAsFork: false,
+      selectedSettingsView: undefined as undefined | number,
     }
   },
   computed: {
@@ -169,10 +192,6 @@ export default Vue.extend({
           text: label.join(''),
           value: x.id,
         }
-      });
-      options.push({
-          text: '<new>',
-          value: '<new>',
       });
       return options;
     },
@@ -242,30 +261,10 @@ export default Vue.extend({
   },
   watch: {
     currentId() {
-      this.saveAsFork = false;
-      if (this.currentId === this.NEW_ID) {
-        this.expanded = true;
-        // Reset to defaults
-        this.saveAs = AsStatus.makeEmpty('', this.asData.parsers);
-      }
-      else {
-        // Deep clone so user doesn't mess up cached representation of this
-        // data set.
-        let found: AsStatus|undefined;
-        for (const a of this.asData.asets) {
-          if (a.id === this.currentId) {
-            found = a;
-            break
-          }
-        }
-        if (!found) {
-          found = AsStatus.makeEmpty('<error>', this.asData.parsers);
-        }
-        this.saveAs = JSON.parse(JSON.stringify(found));
-      }
+      this.onSwitchedSettings();
     },
     saveAsFork() {
-      if (this.currentId !== this.NEW_ID) {
+      if (!this.creatingNewAset) {
         this.saveAs.id = this.currentId;
       }
       (this.$refs.saveAsForm as any).validate();
@@ -294,6 +293,7 @@ export default Vue.extend({
         // Emit a standardized "update" in case our id didn't change and a
         // reset was not triggered.
         this.$emit('update');
+        this.selectedSettingsView = undefined;
         this.expanded = false;
       });
     },
@@ -304,6 +304,36 @@ export default Vue.extend({
         this.$emit('update:currentId', undefined);
         await this.update();
       });
+    },
+    onChangeSettingsView(newSelection: null | number) {
+      if (newSelection === undefined) {
+        this.expanded = false;
+      } else {
+        this.expanded = true;
+        this.creatingNewAset = newSelection === 0;
+      }
+      this.onSwitchedSettings();
+    },
+    onSwitchedSettings() {
+      this.saveAsFork = false;
+      if (this.creatingNewAset) {
+        // Reset to defaults
+        this.saveAs = AsStatus.makeEmpty('', this.asData.parsers);
+      } else {
+        // Deep clone so user doesn't mess up cached representation of this
+        // data set.
+        let found: AsStatus|undefined;
+        for (const a of this.asData.asets) {
+          if (a.id === this.currentId) {
+            found = a;
+            break
+          }
+        }
+        if (!found) {
+          found = AsStatus.makeEmpty('<error>', this.asData.parsers);
+        }
+        this.saveAs = JSON.parse(JSON.stringify(found));
+      }
     },
     saveAsNewFeature() {
       let f = this.saveAs.definition.features;
@@ -359,7 +389,7 @@ export default Vue.extend({
       return `Feature (${count} matching files)`;
     },
     saveAsValidateName() {
-      if (this.currentId === this.NEW_ID || this.saveAsFork) {
+      if (this.creatingNewAset || this.saveAsFork) {
         // Must not be in list
         return (this.asData.asets.map(x => x.id).indexOf(this.saveAs.id)
             === -1);
@@ -379,7 +409,10 @@ export default Vue.extend({
           this.$emit('update:currentId', this.asData.asets[0].id);
         }
         else {
-          this.$emit('update:currentId', this.NEW_ID);
+          this.$emit('update:currentId', null);
+          this.selectedSettingsView = 0;  // "create new aset"
+          this.creatingNewAset = true;
+          this.expanded = true;
         }
       }
     },

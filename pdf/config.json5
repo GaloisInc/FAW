@@ -276,6 +276,11 @@
                     Javascript may be used to send arguments more complicated
                     than may be passed over a URL (as POST body).
 
+                    This parameter can also be used by a plugin as a way to get
+                    the absolute URL of the FAW instance, for the purpose of
+                    linking to statically served files (under /home/static) in
+                    an HTML view.
+
                   <apiInfo>
                     JSON information about the FAW API.
 
@@ -411,6 +416,11 @@ with open(sys.argv[1], 'w') as html: \n\
                     Javascript may be used to send arguments more complicated
                     than may be passed over a URL (as POST body).
 
+                    This parameter can also be used by a plugin as a way to get
+                    the absolute URL of the FAW instance, for the purpose of
+                    linking to statically served files (under /home/static) in
+                    an HTML view.
+
                   <apiInfo>
                     JSON information about the FAW API.
 
@@ -465,6 +475,12 @@ with open(sys.argv[1], 'w') as html: \n\
             // value is either `true` to copy to the same absolute path, or a
             // new copy destination.  When specifying a new destination,
             // if that destination is a directory, append a trailing slash.
+
+            // If a stage copies files to a location under '/home/static', the
+            // files will be served over HTTP by the FAW web server (under the
+            // path '/static'). Plugins that use this feature should store
+            // their files under a directory named for hte plugin to prevent
+            // name collisions.
 
             // Each stage may have a 'commands', which specifies commands to
             // run.

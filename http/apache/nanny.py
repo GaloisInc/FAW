@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import concurrent.futures
+import contextlib
 import dataclasses
 import functools
 import http.client
@@ -14,7 +15,7 @@ import pathlib
 import socket
 import shutil
 import subprocess
-from typing import Collection, Generic, List, TypeVar, AsyncContextManager
+from typing import Any, Generator, List, TypeVar
 
 import psutil
 
@@ -32,36 +33,6 @@ class ApacheInstance:
     port: int
     log_dir: pathlib.Path
     pid_file_path: pathlib.Path
-
-
-class _ManagedResource(AsyncContextManager[T]):
-    _queue: "asyncio.Queue[T]"
-    _resource: T
-
-    def __init__(self, queue: "asyncio.Queue[T]"):
-        self._queue = queue
-
-    async def __aenter__(self) -> T:
-        self._resource = await self._queue.get()
-        return self._resource
-
-    async def __aexit__(self, *args, **kwargs):
-        self._queue.put_nowait(self._resource)
-
-
-class ResourcePool(Generic[T]):
-    """Asynchronous resource pool."""
-
-    _queue: "asyncio.Queue[T]"
-
-    def __init__(self, resources: Collection[T]):
-        self._queue = asyncio.Queue(len(resources))
-        for resource in resources:
-            self._queue.put_nowait(resource)
-
-    def borrow(self) -> _ManagedResource[T]:
-        """Return an async context manager allowing access to a resource."""
-        return _ManagedResource(self._queue)
 
 
 class NonClosingResponse(http.client.HTTPResponse):
@@ -90,15 +61,23 @@ async def read_with_prepended_length(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(expected_size)
 
 
+@contextlib.contextmanager
+def reenqueueing(resource: T, queue: "asyncio.Queue[T]") -> Generator[T, Any, None]:
+    try:
+        yield resource
+    finally:
+        queue.put_nowait(resource)
+
+
 async def handle_request_stream(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     *,
-    apache_instance_pool: ResourcePool[ApacheInstance],
+    apache_instance_queue: "asyncio.Queue[ApacheInstance]",
 ) -> None:
     logger.debug(f'Request {id(reader):x}: Received')
     loop = asyncio.get_running_loop()
-    async with apache_instance_pool.borrow() as apache_instance:
+    with reenqueueing(await apache_instance_queue.get(), apache_instance_queue) as apache_instance:
         logger.debug(f'Request {id(reader):x}: Claimed server instance on port {apache_instance.port}')
         ensure_instance_running(apache_instance)
         results_log_path = apache_instance.log_dir / 'results.log'
@@ -308,7 +287,9 @@ async def main():
         apache_instance = start_apache_on_port(server_port)
         instances.append(apache_instance)
 
-    apache_instance_pool = ResourcePool(instances)
+    apache_instance_queue = asyncio.Queue(len(instances))
+    for instance in instances:
+        apache_instance_queue.put_nowait(instance)
     # Ensure we have enough threads to handle all active requests)
     asyncio.get_running_loop().set_default_executor(
         concurrent.futures.ThreadPoolExecutor(args.max_instances)
@@ -318,7 +299,7 @@ async def main():
         async with await asyncio.start_server(
             client_connected_cb=functools.partial(
                 handle_request_stream,
-                apache_instance_pool=apache_instance_pool
+                apache_instance_queue=apache_instance_queue
             ),
             host='127.0.0.1',
             port=args.listen_port,

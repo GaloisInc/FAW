@@ -1,4 +1,5 @@
 {
+    disabled: true,  // Download links are broken
     parsers: {
         'validate': {
             exec: ['/parsec/pdf/pdf', '<inputFile>'],

@@ -159,6 +159,7 @@ def config_web(app, pdf_dir):
             web.get('/file_list', _config_web_file_list_handler),
             web.post('/decisions', _config_web_decisions_handler),
     ])
+    app.router.add_static('/static', path='/home/static', show_index=True)
 
 
 @contextlib.asynccontextmanager
