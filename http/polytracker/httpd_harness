@@ -39,7 +39,7 @@ function cleanup {
 trap cleanup EXIT
 
 # send request (from text file - first command line arg) to instrumented httpd
-nc localhost 80 <"$1"
+nc localhost 56781 <"$1"
 
 # Oddly, these cause issues with TDAG production and does not include socket fds among TDAG sources
 # but only when run from the same terminal

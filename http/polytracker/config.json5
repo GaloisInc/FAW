@@ -68,7 +68,8 @@
           "RUN polytracker instrument-targets --taint --ftrace httpd",
           "RUN mv httpd.instrumented httpd_track",
           "RUN cp httpd_track httpd",
-          "RUN polytracker build make install"
+          "RUN polytracker build make install",
+          "RUN sed -i 's/:80/:56781/g' /polytracker/examples/http/httpd/httpd.conf"
         ],
       },
       final: {
