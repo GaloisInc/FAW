@@ -35,11 +35,12 @@ pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
 COL_NAME = 'as_parse'
 """Name of parse queue collection."""
-MIN_REQUIRED_PARSE_SPACE_BYTES = 2 * 1024 * 1024  # 2 MB
+MIN_REQUIRED_PARSE_SPACE_MB = 2 * 1024
 """Minimum space which must be free on the root and db partitions
 in order to parse a file. 
 Note that parsing can produce arbitrary large artifacts and logging,
-so this is just a guess at an upper limit.
+so this is just a guess at an upper limit. It's also intentionally an
+overestimate to leave room for DB maintenance, package installs, etc.
 """
 
 # `exit_flag` is issues/5975
@@ -279,7 +280,7 @@ def _dask_as_parse_file(app_config, api_info, doc):
     # TODO could get a more precise estimate for required space by
     # checking size of prior parse output, considering the number of
     # parsers being rerun, etc
-    ensure_sufficient_disk_space(MIN_REQUIRED_PARSE_SPACE_BYTES, doc_id)
+    ensure_sufficient_disk_space(MIN_REQUIRED_PARSE_SPACE_MB, doc_id)
 
     idle_compute = False
     if doc['parsers'].pop('idle_compute', None) is not None:
@@ -714,7 +715,7 @@ def _get_cfg(k, app_config):
     return parser_config
 
 
-def ensure_sufficient_disk_space(bytes_needed: int, filename: str) -> None:
+def ensure_sufficient_disk_space(megabytes_needed: int, filename: str) -> None:
     """Ensure there is enough disk space on the root and db partitions
     to run a parser.
 
@@ -722,10 +723,10 @@ def ensure_sufficient_disk_space(bytes_needed: int, filename: str) -> None:
         An appropriate error if there isn't enough disk space to parse a file
     """
     for path in ['/', '/data/db']:  # These might be on different partitions
-        bytes_available = psutil.disk_usage(path).free
-        if bytes_available < bytes_needed:
+        megabytes_available = psutil.disk_usage(path).free // 1024 // 1024
+        if megabytes_available < megabytes_needed:
             # Raise a RuntimeError instead of an OSError(ENOSPC) since those
             # technically require OS-sourced messages.
             raise RuntimeError(
-                f'Only {bytes_available}B left on {path}; file {filename} skipped'
+                f'Only {megabytes_available} MB left on {path}; file {filename} skipped'
             )
