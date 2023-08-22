@@ -76,14 +76,16 @@ mixin confusion-matrix
     `
   )
     v-card(color="grey darken-1" dark)
-      v-card-text(style="padding-top: 0.5em;") {{loadingStatus.message}}
-        v-progress-linear(
-          :height="8"
-          :indeterminate="loadingStatus.files_parsing !== 0"
-          rounded
-          :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
-          :value="loadingStatus.files_parsing ? 100 : 0"
-        )
+      v-card-text(style="padding-block: 0.5em;") {{loadingStatus.message}}
+      v-progress-linear(
+        :height="8"
+        :indeterminate="loadingStatus.files_parsing !== 0"
+        rounded
+        :color="loadingStatus.files_err === 0 ? 'white' : 'red'"
+        :value="loadingStatus.files_parsing ? 100 : 0"
+      )
+      v-card-text(style="padding-block: 0.5em;" v-if="loadingStatus.files_err")
+        details {{loadingStatus.detail}}
   .error(v-if="error" style="font-size: 4em; white-space: pre-wrap") ERROR - SEE CONSOLE
 
   .page-container

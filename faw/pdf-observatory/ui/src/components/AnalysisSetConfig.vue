@@ -106,7 +106,16 @@
       div
         span
           v-icon mdi-help-rhombus
-        span(style="font-size:0.85em") Pipelines attached to analysis sets are a two-stage process: 1) The pipeline is initiated. All files *currently* matching the analysis set definition, ignoring max documents, will be available to the pipeline. Thus, best to wait until all non-pipeline parsers have finished. 2) When the pipeline finishes all of its tasks, and if the pipeline specifies any parsers, all analysis sets which have specified that they will use this pipeline's parsers will have their files processed with the parsers learned from this analysis set.
+        span(style="font-size:0.85em")
+          | Pipelines attached to analysis sets are a two-stage process:
+          | 1) The pipeline is initiated. All files *currently* matching
+          | the analysis set definition, ignoring max documents, will be
+          | available to the pipeline. Thus, best to wait until all
+          | non-pipeline parsers have finished. 2) When the pipeline
+          | finishes all of its tasks, and if the pipeline specifies any
+          | parsers, all analysis sets which have specified that they will
+          | use this pipeline's parsers will have their files processed
+          | with the parsers learned from this analysis set.
       v-expansion-panels
         AnalysisSetPipelineInfo(v-for="[k, v] of Object.entries(pipeCfg)"
             v-if="!v.disabled"
