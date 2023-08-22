@@ -93,6 +93,9 @@ By default, FAW is launched in [developer mode](#developer-friendly-features).
 
 In addition to directly running the distribution, the workbench script is capable of building and saving a unified docker image for a FAW distribution, which can can simplify deployment. Additionally, the FAW supports deployment in a multi-server "teaming mode" using [pyinfra](https://pyinfra.com/), which is useful when working with large corpora. The repository includes the `workbench-teaming-init.py` script for creating the pyinfra inventory/deploy files; pyinfra tooling can then be used to install prerequisites on target machines and set up FAW images and services. In this mode, target machines process files independently, but share a single database. The FAW UI is made available via a webserver on the database's machine.
 
+## Mac OS X with ARM architecture
+[See these notes.](./docs/tutorial-macos.md)
+
 # FAW Concepts
 
 ## Distribution
