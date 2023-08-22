@@ -1,6 +1,5 @@
 """Manages parsing within analysis sets.
 """
-
 import io
 import threading
 import dask.distributed
@@ -35,6 +34,13 @@ def _import_from_path(mod_name, pth):
 pdf_etl_parse = _import_from_path('pdf_etl_parse', '../pdf-etl-parse/main.py')
 
 COL_NAME = 'as_parse'
+"""Name of parse queue collection."""
+MIN_REQUIRED_PARSE_SPACE_BYTES = 2 * 1024 * 1024  # 2 MB
+"""Minimum space which must be free on the root and db partitions
+in order to parse a file. 
+Note that parsing can produce arbitrary large artifacts and logging,
+so this is just a guess at an upper limit.
+"""
 
 # `exit_flag` is issues/5975
 async def as_parse_main(exit_flag, app_config, api_info):
@@ -204,17 +210,23 @@ def _as_parse_main(exit_flag, app_config, api_info):
                 error_min = 5.
                 error_scale = 2.
                 error_max = 3600 * 24
-                if f.exception() is not None:
+                if (e := f.exception()) is not None:
                     # Log exception, mark as error for some time
                     traceback.print_exception(*f_result)
                     error_delay = f_doc.get('error_delay', error_min)
                     error_until = time.time() + error_delay
                     error_delay *= error_scale
                     error_delay = min(error_max, error_delay)
-                    col.update_one({'_id': f_doc['_id']},
-                            {'$set': {
+                    col.update_one(
+                        {'_id': f_doc['_id']},
+                        {
+                            '$set': {
                                 'error_until': error_until,
-                                'error_delay': error_delay}})
+                                'error_delay': error_delay,
+                                'error_exception': str(e),
+                            },
+                        },
+                    )
                 else:
                     # Success -- clear `error_delay` if the document still exists
                     col.update_one({'_id': f_doc['_id']},
@@ -263,6 +275,11 @@ def _dask_as_parse_file(app_config, api_info, doc):
     doc_id = doc['_id']
     doc_invname = f'/home/pdf-files/{doc_id}'
     parsers_done = {}  # {name: [tool, parser]}
+
+    # TODO could get a more precise estimate for required space by
+    # checking size of prior parse output, considering the number of
+    # parsers being rerun, etc
+    ensure_sufficient_disk_space(MIN_REQUIRED_PARSE_SPACE_BYTES, doc_id)
 
     idle_compute = False
     if doc['parsers'].pop('idle_compute', None) is not None:
@@ -695,3 +712,20 @@ def _get_cfg(k, app_config):
         parser_config['aset'] = parser_pipeline_name.aset
         parser_config['pipeline'] = parser_pipeline_name.pipe
     return parser_config
+
+
+def ensure_sufficient_disk_space(bytes_needed: int, filename: str) -> None:
+    """Ensure there is enough disk space on the root and db partitions
+    to run a parser.
+
+    Raises:
+        An appropriate error if there isn't enough disk space to parse a file
+    """
+    for path in ['/', '/data/db']:  # These might be on different partitions
+        bytes_available = psutil.disk_usage(path).free
+        if bytes_available < bytes_needed:
+            # Raise a RuntimeError instead of an OSError(ENOSPC) since those
+            # technically require OS-sourced messages.
+            raise RuntimeError(
+                f'Only {bytes_available}B left on {path}; file {filename} skipped'
+            )
