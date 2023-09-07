@@ -193,8 +193,8 @@
         },
 
         'mutool-draw-txt': {
-            exec: ['bash', '-c', 'mutool draw -F txt -o - $0 | tee $1', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
-            version: 'mupdf-1.16',
+            exec: ['bash', '-c', 'mutool draw -F txt -o - "$0" | tee "$1"', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
+            version: 'mupdf-1.16-1',
             parse: {
                 type: 'regex-counter',
                 version: '1',
