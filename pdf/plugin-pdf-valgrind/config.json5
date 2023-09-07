@@ -4,8 +4,8 @@
       version: 'poppler-20.09.0-4',
       exec: ['bash', '-c',
         ' \
-        valgrind --tool=callgrind --callgrind-out-file=$1 pdfinfo -struct $0 > /dev/null 2>&1 \
-        ; callgrind_annotate --tree=both --threshold=100 $1 \
+        valgrind --tool=callgrind --callgrind-out-file=$1 pdfinfo -struct "$0" > /dev/null 2>&1 \
+        ; callgrind_annotate --tree=both --threshold=100 "$1" \
           | grep -P " *\\d+(,\\d+)* +\\* " | sed -n "s/.*  \\*  \\(.*\\)/\\1/p" \
         ',
         '<inputFile>',
