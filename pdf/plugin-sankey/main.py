@@ -31,7 +31,7 @@ def main():
         keep_debug_markers=args.keep_debug_markers,
     )
 
-    with open('index.html') as f:
+    with open('index.html.jinja') as f:
         html_template = jinja2.Template(f.read())
     with open('main.js') as f:
         main_script = f.read()
