@@ -1,7 +1,7 @@
 {
   parsers: {
     "pdfinfo-struct-valgrind": {
-      version: 'poppler-20.09.0-4',
+      version: 'poppler-20.09.0-5',
       exec: ['bash', '-c',
         ' \
         valgrind --tool=callgrind --callgrind-out-file=$1 pdfinfo -struct "$0" > /dev/null 2>&1 \

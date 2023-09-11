@@ -28,7 +28,7 @@
         'pdf2text': {
             disabled: false,
             exec: ['bash', '-c', 'python3 /usr/local/bin/pdf2txt.py "$0" | tee "$1"', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
-            version: '10.0.1-six',
+            version: '10.0.1-six-1',
             parse: {
                 type: 'regex-counter',
                 version: '1',
