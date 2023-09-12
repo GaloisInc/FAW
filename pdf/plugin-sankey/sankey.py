@@ -98,9 +98,8 @@ def pdf_sankey_data(
     cmd = ['grep', '-P', '--text', '--color=none', '--byte-offset', '--only-matching', '%PDF-[0-9]+\.[0-9]+', pdf ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if (result.returncode != 0) or (len(result.stdout.strip()) == 0):
-        return SankeyData(
-            False, debug_lines, '"%PDF-x.y" header could not be found! Not a PDF file...'
-        )
+        debug_lines.append('"%PDF-x.y" header could not be found! Not a PDF file...')
+        return SankeyData(False, [], debug_lines)
     result = result.stdout.splitlines()
     if (len(result) > 1):
         debug_lines.append('WARNING: More than one "%PDF-x.y" header was found! Huh???')
@@ -120,7 +119,7 @@ def pdf_sankey_data(
         # Likely non-SPACEs are between "X", "Y" and "obj" so grep fails. e.g. ProgressOnFileObservatory_PDFDays2022_JPL_20220909.pdf
         # @todo - read the PDF file into a bytearray and manually do this search... yuck!
         debug_lines.append('ERROR: could not find sufficient "X Y obj" markers (%d found)!' % num_obj_keywords)
-        exit(-1)
+        return SankeyData(False, [], debug_lines)
     for s in result:
         d = s.split(':')
         data.append({ 'category':'PDF file', 'name':d[1], 'offset':int(d[0])})
@@ -173,10 +172,10 @@ def pdf_sankey_data(
     result = result.splitlines()
     if (num_stream != len(result)):
         debug_lines.append('ERROR: "endstream" marker (%d) mismatch with "stream" (%d)!' % (len(result), num_stream))
-        exit(-1)
+        return SankeyData(False, [], debug_lines)
     if ((num_stream > num_obj_keywords) or (len(result) > num_obj_keywords)):
         debug_lines.append('ERROR: "endstream" (%d) / "stream" (%d) markers did not correlate with number of objects (%d)!' % (len(result), num_stream, num_obj_keywords))
-        exit(-1)
+        return SankeyData(False, [], debug_lines)
     for s in result:
         d = s.split(':')
         data.append({ 'category':'Marker', 'name':'endstream', 'type':'stream', 'offset':int(d[0]) })
@@ -187,7 +186,7 @@ def pdf_sankey_data(
     result = result.splitlines()
     if (len(result) != num_obj_keywords):
         debug_lines.append('ERROR: "endobj" marker mismatch (%d found, %d expected)!' % (len(result), num_obj_keywords))
-        exit(-1)
+        return SankeyData(False, [], debug_lines)
     for s in result:
         d = s.split(':')
         data.append({ 'category':'Marker', 'name':'endobj', 'offset':int(d[0])})
@@ -223,7 +222,7 @@ def pdf_sankey_data(
     result = result.splitlines()
     if (len(result) > 1):
         debug_lines.append('ERROR: more than 1 /Linearized dictionary found! Huh???')
-        exit(-1)
+        return SankeyData(False, [], debug_lines)
     is_linearized = False
     for s in result:
         d = s.split(':')
@@ -266,12 +265,12 @@ def pdf_sankey_data(
 
     if (len(data) > MAX_MARKERS) and not force:
         debug_lines.append('Over %d markers were in the PDF file - this is too large for a Sankey diagram!' % MAX_MARKERS)
-        exit(-1)
+        return SankeyData(False, [], debug_lines)
 
     if (num_startxrefs != num_eofs) and not force:
         # @todo - work out how to determine end of Linearization section
         debug_lines.append('LOGIC ERROR: number of "%%EOF" (%) did not match number of "startxref" keywords - possibly hybrid reference??' % ( num_eofs, num_startxrefs) )
-        exit(-2)
+        return SankeyData(False, [], debug_lines)
 
     first_obj_in_pdf = -1
     cavities = []
@@ -351,7 +350,7 @@ def pdf_sankey_data(
                 result = subprocess.run(cmd, capture_output=True, timeout=TIMEOUT_SECS, text=True)
                 if (result.returncode != 0):
                     debug_lines.append(f'ERROR: {pp.pformat(result)}')
-                    exit(-1)
+                    return SankeyData(False, [], debug_lines)
                 result = result.stdout.splitlines()
                 m = re.search(r'(?<=/N)\s?\d+', result[1])
                 n = int(m.group(0))
@@ -381,7 +380,7 @@ def pdf_sankey_data(
                                 'size': pairs[2*j + 3] - pairs[2*j+1]})
                     if (pairs[2*j] > MAX_MARKERS) and not force:
                         debug_lines.append('PDF object %d was in a compressed object stream - this is too large for a Sankey diagram!' % MAX_MARKERS)
-                        exit(-1)
+                        return SankeyData(False, [], debug_lines)
                 c1 = chr(result[first + pairs[-1] + 0])
                 c2 = chr(result[first + pairs[-1] + 1])
                 objstm.append({'category': 'Object stream ' + str(obj_num), 
@@ -456,7 +455,7 @@ def pdf_sankey_data(
         else:
             debug_lines.append('LOGIC ERROR: unexpected marker at data[%d]!' % i)
             debug_lines.append(pp.pformat(d))
-            exit(-2)
+            return SankeyData(False, [], debug_lines)
 
         # Work out if there is a cavity between marker just checked and new marker (current 'i')
         assert(end_last_marker > 0)
