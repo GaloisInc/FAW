@@ -3,8 +3,8 @@
 
         "pdftotext": {
           disabled: false,
-          exec: ['bash', '-c', '/opt/xpdf/bin64/pdftotext -enc UTF-8 $0 - | tee $1', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
-          version: 'xpdf-4.0.2',
+          exec: ['bash', '-c', '/opt/xpdf/bin64/pdftotext -enc UTF-8 "$0" - | tee "$1"', '<inputFile>', '<artifactOutFile pageText all-pages.txt>'],
+          version: 'xpdf-4.0.2-1',
           parse: {
             type: 'regex-counter',
             version: '1',
