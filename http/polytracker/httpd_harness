@@ -2,7 +2,9 @@
 
 set -e
 
-PID_FILE=/usr/local/apache2/logs/httpd.pid
+APACHE_ROOT=/usr/local/apache2
+
+PID_FILE="$APACHE_ROOT"/logs/httpd.pid
 
 if [ -f $PID_FILE ]; then
   APACHE_PID=$(cat $PID_FILE)
@@ -15,8 +17,11 @@ if [ -f $PID_FILE ]; then
   fi
 fi
 
-#APACHE_ROOT=/usr/local/apache2
-#$APACHE_ROOT/bin/apachectl -X &
+sed -i 's/:80/:'"$APACHE_PORT"'/g' "$APACHE_ROOT"/conf/httpd.conf
+while ! nc -z localhost $APACHE_PORT; do
+  sleep .1
+done
+
 httpd_track -X &
 
 echo "Waiting for the Apache to start..."
@@ -39,7 +44,7 @@ function cleanup {
 trap cleanup EXIT
 
 # send request (from text file - first command line arg) to instrumented httpd
-nc localhost 56781 <"$1"
+nc localhost $APACHE_PORT <"$1"
 
 # Oddly, these cause issues with TDAG production and does not include socket fds among TDAG sources
 # but only when run from the same terminal

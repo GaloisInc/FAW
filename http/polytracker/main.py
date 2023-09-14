@@ -9,12 +9,16 @@ from typing import List, Optional
 from polytracker.clustering import load_indexes_for_matching, MultipleTaintSourcesError, ordered_edit_distance
 from polytracker.clustering import match as cluster_match
 
+DEFAULT_APACHE_PORT = 56781
 
-def run_httpd(request_path: str, output_path: str, timeout: Optional[float] = None):
+def run_httpd(request_path: str, output_path: str, apache_port: int = DEFAULT_APACHE_PORT, timeout: Optional[float] = None):
+    if not (apache_port > 0 and apache_port < 65536):
+        raise ValueError("Invalid port number")
     try:
         subprocess.check_call(["/usr/bin/httpd_harness", request_path], env={
             "POLYDB": output_path,
-            "POLYTRACKER_STDOUT_SINK": "1"
+            "POLYTRACKER_STDOUT_SINK": "1",
+            "APACHE_PORT": apache_port
         }, timeout=timeout)
     except TimeoutError:
         sys.stderr.write(f"Apache timed out after {timeout} seconds")
@@ -82,7 +86,7 @@ def match(path1: str, path2: str):
     print(f"cost={m.edit_distance}, similarity={m.similarity}")
 
 
-def process_http(path: str, timeout: Optional[float] = None):
+def process_http(path: str, timeout: Optional[float] = None, port: int = DEFAULT_APACHE_PORT):
     # Prevent SIGTERM from having us not clean up our files
     def sigterm_handler(_signo, _sf):
         sys.exit(-1)
@@ -94,7 +98,7 @@ def process_http(path: str, timeout: Optional[float] = None):
             pico_db = pico.name
             httpd.close()
             pico.close()
-            run_httpd(request_path=path, output_path=httpd_db, timeout=timeout)
+            run_httpd(request_path=path, output_path=httpd_db, apache_port=port, timeout=timeout)
             run_pico(request_path=path, output_path=pico_db, timeout=timeout)
             match(httpd_db, pico_db)
         finally:
@@ -108,7 +112,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("INPUT_PATH", help="path to the HTTP request to analyze")
     parser.add_argument("--timeout", "-t", type=float, default=None, help="timeout in seconds")
+    parser.add_argument("--port", "-p", type=int, default=DEFAULT_APACHE_PORT, help="httpd listener port")
 
     args = parser.parse_args()
 
-    process_http(args.INPUT_PATH, timeout=args.timeout)
+    process_http(args.INPUT_PATH, timeout=args.timeout, port=args.port)
