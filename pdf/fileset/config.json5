@@ -3,7 +3,7 @@
     'f': {
       exec: ['python3', './main.py', '<apiInfo>', '<inputFile>'],
       mustSucceed: true,
-      version: '9',
+      version: '10',
       parse: {
         type: 'regex-counter',
         version: '2',
@@ -27,7 +27,7 @@
     stages: {
       final: {
         commands: [
-          'RUN pip install dask-actor-singleton',
+          "RUN pip install 'dask-actor-singleton>=1.3.4'",
         ],
       },
     },

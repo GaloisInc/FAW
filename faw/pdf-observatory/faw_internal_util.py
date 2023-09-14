@@ -11,7 +11,12 @@ def dask_check_if_cancelled():
     """
     w = dask.distributed.get_worker()
     try:
-        t = w.tasks[w.get_current_task()]
+        # Compatibility with old and new versions of Dask
+        if hasattr(w, 'state') and hasattr(w.state, 'tasks'):
+            tasks_obj = w.state.tasks
+        else:
+            tasks_obj = w.tasks
+        t = tasks_obj[w.get_current_task()]
         # 2022-11 sometime between now and mid 2021, this became necessary
         if t.state.startswith('cancel'):
             return True
