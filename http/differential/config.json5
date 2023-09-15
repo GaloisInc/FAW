@@ -1,0 +1,84 @@
+{
+  file_detail_views: {
+    differential: {
+      label: 'Tool Comparison',
+      type: 'program_to_html',
+      exec: ['./main.py', '<artifactInParserDirs jsonRequests>', '--print-html'],
+    },
+  },
+  parsers: {
+    'differential-test': {
+      exec: ['./main.py', '<artifactInParserDirs jsonRequests>'],
+      timeout: 120,
+      version: '2',
+      parse: {
+        type: 'regex-counter',
+        version: '3',
+        stdstar: {
+          '^(No output from tool .*)$': {
+            nameGroup: 1,
+          },
+          '^Request [0-9]+: ([0-9]+/[0-9]+ parsers did not attempt to parse)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+/[0-9]+ parsers had errors)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct methods)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct paths)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct versions)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct header counts)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct values \\(including repeated entries\\) for header: .+)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+/[0-9]+ parsers had header: .+)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+          '^Request [0-9]+: ([0-9]+ distinct bodies)$' :{
+            nameGroup: 1,
+            nameReplace: {
+              '^': 'Diff: '
+            },
+          },
+        },
+      },
+    },
+  },
+
+  build: {
+    stages: {
+    },
+  },
+}

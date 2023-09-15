@@ -1,0 +1,71 @@
+{
+    parsers: {
+        'apache' : {
+            exec: [
+                './parser.py', '--request-stream', '<inputFile>',
+                '--json-output', '<artifactOutFile jsonRequests parsed.json>',
+                '--load-balancer-port', '9678',
+                '--load-balancer-version', '2', // increment this when nanny.py is changed
+                '--server-port-range-start', '31318',
+                '--server-instances', '5',
+            ],
+            mustSucceed: true,  // nonzero exit code indicates communication issue w/ nanny
+            version: '5',
+            parse: {
+                type: 'regex-counter',
+                version: '2',
+                stdout: {
+                    '^Running nanny process at': {
+                        nameGroup: '',
+                    },
+                    '^(Got [0-9]+ responses)$': {
+                        nameGroup: 1,
+                    },
+                    '^(Response: [0-9][0-9][0-9] .+)$': {
+                        nameGroup: 1,
+                    },
+                    // This is always written when Apache is done sending its responses,
+                    // since we don't know how many to listen for.
+                    // Other connection errors might be meaningful, though.
+                    '^Connection Error: Remote end closed connection without response$': {
+                        nameGroup: '',
+                    },
+                    '^Malformed JSON written by server: ': {
+                        nameGroup: '',
+                    }
+                },
+                stderr: {
+                    // Access log lines; these include some useful info for debugging
+                    // (e.g. size of request), but are hard to regex-match, and the most
+                    // useful parts (method, path) are redundant with the artifacts.
+                    '^Server logging: ACCESS LOG ': {
+                        nameGroup: '',
+                    },
+                },
+            },
+        },
+    },
+    build: {
+       stages: {
+            final: {
+                commands: [
+                    'RUN apt-get update && apt-get install -y \
+                        apache2 php libapache2-mod-php \
+                        ',
+                    'RUN ln -sf \
+                        /home/dist/apache/apache2.conf \
+                        /home/dist/apache/ports.conf \
+                        /home/dist/apache/envvars \
+                        /etc/apache2/ \
+                        ',
+                    'RUN ln -sf /home/dist/apache/sites-enabled/000-default.conf /etc/apache2/sites-enabled/',
+                    'RUN ln -sf /home/dist/apache/mods-enabled/dir.conf /etc/apache2/mods-enabled/',
+                    'RUN ln -sf /home/dist/apache/mods-enabled/mpm_prefork.conf /etc/apache2/mods-enabled/',
+                    'RUN ln -sf /home/dist/apache/php.ini /etc/php/7.4/apache2/', // TODO can we avoid the version number?
+                    'RUN mkdir /var/www/apache && ln -sf /home/dist/apache/index.php /var/www/apache',
+                    'RUN mkdir /var/run/apache-nanny',
+                ],
+            }
+       },
+   },
+}

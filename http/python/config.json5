@@ -1,0 +1,28 @@
+{
+    parsers: {
+        'http-server': {
+            disabled: false,
+            exec: [
+                './main.py', '--request-stream', '<inputFile>',
+                '--json-output', '<artifactOutFile jsonRequests parsed.json>',
+                '--protocol-version', 'HTTP/1.1'
+            ],
+            version: '2',
+            parse: {
+                type: 'regex-counter',
+                version: '1',
+                stdout: {},
+                stderr: {
+                    '^Explanation: ': {
+                        nameGroup: '',
+                    },
+                },
+            },
+        },
+
+    },
+
+    build: {
+       stages: {},
+    },
+}

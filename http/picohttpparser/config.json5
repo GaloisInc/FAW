@@ -1,0 +1,64 @@
+{
+    parsers: {
+        'pico': {
+            disabled: false,
+            exec: ['pico-parserequests', '<inputFile>', '<artifactOutFile jsonRequests parsed.json>'],
+            version: '4',
+            parse: {
+                type: 'regex-counter',
+                version: '2',
+                stdout: {
+                    '^(HTTP version is [0-9]\\.[0-9])$': {
+                        nameGroup: 1,
+                    },
+                    '^(Method is .+)$': {
+                        nameGroup: 1,
+                    },
+                    '^(No message body)$': {
+                        nameGroup: 1,
+                    },
+                    '^(Consumed [0-9]+ bytes before body)$': {
+                        nameGroup: 1,
+                    },
+                    '^(Header: .+)$': {
+                        nameGroup: 1,
+                    },
+                    '^(Path is .*)$': {
+                        nameGroup: 1,
+                    },
+                    '^(Total stream length: [0-9]+)$': {
+                        nameGroup: 1,
+                    },
+                    '^(Body length: [0-9]+)$': {
+                        nameGroup: 1,
+                    },
+                },
+                stderr: {
+                    '^(Error: .*)$': {
+                        nameGroup: 1,
+                    }
+                },
+            },
+        },
+    },
+
+    build: {
+       stages: {
+            buildPico: {
+                copy_output: {
+                    '/pico-build/parserequests': '/usr/bin/pico-parserequests',
+                },
+                commands: [
+                    'RUN mkdir /pico-build',
+                    'COPY {dist}/Makefile /pico-build/Makefile',
+                    'COPY {dist}/parserequests.c /pico-build/parserequests.c',
+                    'RUN \
+                        wget -P /pico-build -q https://github.com/h2o/picohttpparser/raw/master/picohttpparser.h \
+                            https://github.com/h2o/picohttpparser/raw/master/picohttpparser.c \
+                        && make -C /pico-build parserequests \
+                        ',
+                ],
+            },
+        },
+    },
+}

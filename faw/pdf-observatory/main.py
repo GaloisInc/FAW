@@ -159,6 +159,7 @@ def config_web(app, pdf_dir):
             web.get('/file_list', _config_web_file_list_handler),
             web.post('/decisions', _config_web_decisions_handler),
     ])
+    app.router.add_static('/static', path='/home/static', show_index=True)
 
 
 @contextlib.asynccontextmanager
@@ -1052,12 +1053,20 @@ class Client(vuespa.Client):
 
         # Hack for pipeline debugging
         idle_text = '' if not pdfs_idle else f' ({pdfs_idle} from idle)'
+        error_detail = ''
+        if pdfs_err > 0:
+            # Just show the user one random exception (faster than reading all failures)
+            error_detail = (
+                await app_mongodb_conn[faw_analysis_set_parse.COL_NAME]
+                .find_one({'error_until': {'$exists': True}}, {'error_exception'})
+            )['error_exception']
         return {
                 'config_mtime': app_config_loaded,
                 'files_parsing': pdfs_not_done,
                 'files_max': pdfs_max,
                 'files_err': pdfs_err,
                 'message': f'{pdfs_not_done} / {pdfs_max} files parsing{idle_text}; {pdfs_err} errors',
+                'detail': error_detail,
         }
 
 

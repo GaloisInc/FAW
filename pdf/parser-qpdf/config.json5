@@ -1,8 +1,9 @@
 {
     parsers: {
         'qpdf-json' : {
-            exec: ['qpdf', '--json', '<inputFile>'],
-            version: '10.0.1',
+            // Stdout w/ json is prohibitively large, do not store in db
+            exec: ['bash', '-c', 'qpdf --json "$0" > /dev/null', '<inputFile>'],
+            version: '10.0.1-1',
             parse: {
                 type: 'regex-counter',
                 version: '1',

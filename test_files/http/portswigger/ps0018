@@ -1,0 +1,8 @@
+POST /assets HTTP/1.1
+Host: www.capitalone.ca
+Content-Length: 30
+
+GET /robots.txt HTTP/1.1
+X: YGET /assets/ HTTP/1.1
+Host: www.capitalone.ca
+

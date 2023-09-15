@@ -42,157 +42,207 @@ export function reprocess(
   // Build sets of filter groups
   const filesWithMessages = Object.entries(reprocessPdfGroups.groups);
 
+  function evalCheck(message: string, check: any, identifier: string): Set<number> {
+    const parts = new Map<string, Array<number>>();
+    for (const [id, suffix] of [
+      ['sum', '_sum'],
+      ['nan', '_nan'],
+      ['count', '']
+    ]) {
+      const filesWithMsg = reprocessPdfGroups.groups[message + suffix];
+      if (filesWithMsg === undefined) {
+        if (['sum', 'nan'].indexOf(message.split('_').pop()!) !== -1) {
+          // If we can't find this, this is NOT a number, but likely a
+          // subfield of a number (e.g., we're looking at _nan_sum)
+          // So, act like no match.
+          return new Set();
+        }
+        throw new Error(
+          `Could not evaluate check for \`${identifier}\` matching non-numeric message: ${message}`
+        );
+      }
+
+      const p = new Array<number>();
+      parts.set(id, p);
+      for (const [fileIndex, featureValue] of filesWithMsg) {
+        p[fileIndex] = featureValue;
+      }
+    }
+
+    const evalInner = (check: any): Array<number> => {
+      if (check.type === '<') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l < right[i] ? 1 : 0);
+      }
+      else if (check.type === '>') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l > right[i] ? 1 : 0);
+      }
+      else if (check.type === '<=') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l <= right[i] ? 1 : 0);
+      }
+      else if (check.type === '>=') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l >= right[i] ? 1 : 0);
+      }
+      else if (check.type === '==') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l == right[i] ? 1 : 0);
+      }
+      else if (check.type === 'and') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l && right[i] ? 1 : 0);
+      }
+      else if (check.type === 'or') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l || right[i] ? 1 : 0);
+      }
+      else if (check.type === 'id') {
+        const r = parts.get(check.id1);
+        if (r === undefined) {
+          throw new Error(
+            `Could not evaluate check for ${identifier}: No such `
+            + `quantity ${check.id1} for message: ${message}`
+          );
+        }
+        return r;
+      }
+      else if (check.type === 'number') {
+        // Inefficient, but that's OK.
+        return parts.get('count')!.map(x => check.id1);
+      }
+      else if (check.type === 'neg') {
+        return evalInner(check.id1).map(x => -x);
+      }
+      else if (check.type === '+') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l + right[i]);
+      }
+      else if (check.type === '-') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l - right[i]);
+      }
+      else if (check.type === '*') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l * right[i]);
+      }
+      else if (check.type === '/') {
+        const left = evalInner(check.id1);
+        const right = evalInner(check.id2);
+        return left.map((l, i) => l / right[i]);
+      }
+
+      console.log(check);
+      throw new Error(
+        `Could not evaluate check for ${identifier}: Unrecognized check type ${check.type}`
+      );
+    };
+
+    const r = evalInner(check);
+    return new Set(r.map((x, i) => [x, i]).filter(x => !!x[0]).map(x => x[1]));
+  };
+
   function fileIndicesMatchingFilter(
     patterns: Array<DslFilterPattern>,
     caseInsensitive: boolean,
+    conjunction: boolean,
     // Only used for saving info
     identifier: string,
   ): Set<number> {
-    const fileIndices = new Set<number>();
-
     const rules = patterns.map(p => ({
       pat: new RegExp(p.pat, caseInsensitive ? 'i' : undefined),
       check: p.check,
     }));
-    for (const [message, files] of filesWithMessages) {
-      // Do any of our filter's patterns match this message?
-      let filesSubset = new Set<number>();
+    if (!conjunction) {
+      // OR rule; can nicely short-circuit when iterating message-major
+      // set of files matching this filter (so far)
+      const fileIndices = new Set<number>();
 
-      const evalCheck = (message: string, check: any): Set<number> => {
-        const parts = new Map<string, Array<number>>();
-        for (const [id, suffix] of [
-          ['sum', '_sum'],
-          ['nan', '_nan'],
-          ['count', '']
-        ]) {
-          const filesWithMsg = reprocessPdfGroups.groups[message + suffix];
-          if (filesWithMsg === undefined) {
-            if (['sum', 'nan'].indexOf(message.split('_').pop()!) !== -1) {
-              // If we can't find this, this is NOT a number, but likely a
-              // subfield of a number (e.g., we're looking at _nan_sum)
-              // So, act like no match.
-              return new Set();
+      for (const [message, files] of filesWithMessages) {
+        // Do any of our filter's patterns match this message?
+        const filesSubset = new Set<number>();
+
+        for (const r of rules) {
+          if (r.pat.test(message)) {
+            // Do we need to constrain the matching set based on an auxiliary
+            // check?
+            if (r.check === null) {
+              // Accept all matches; short-circuit
+              for (const [fileIndex, ] of files) {
+                filesSubset.add(fileIndex);
+              }
+              break;
+            } else {
+              const filesPassingCheck = evalCheck(message, r.check, identifier);
+              // Merge `filesPassingCheck` into `filesSubset`
+              filesPassingCheck.forEach(filesSubset.add, filesSubset);
             }
-            throw new Error(
-              `Could not evaluate check for \`${identifier}\` matching non-numeric message: ${message}`
-            );
-          }
-
-          const p = new Array<number>();
-          parts.set(id, p);
-          for (const [fileIndex, featureValue] of filesWithMsg) {
-            p[fileIndex] = featureValue;
           }
         }
+        const acceptanceMessage = `'${identifier}' accepted '${message}'`
+        for (const fileIndex of filesSubset) {
+          decisionsByFileIndex.get(fileIndex)!.info.push(acceptanceMessage);
+          fileIndices.add(fileIndex);
+        }
+      }
+      return fileIndices;
+    } else {
+      const fileIndices = new Set<number>(decisionsByFileIndex.keys());
 
-        const evalInner = (check: any): Array<number> => {
-          if (check.type === '<') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l < right[i] ? 1 : 0);
-          }
-          else if (check.type === '>') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l > right[i] ? 1 : 0);
-          }
-          else if (check.type === '<=') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l <= right[i] ? 1 : 0);
-          }
-          else if (check.type === '>=') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l >= right[i] ? 1 : 0);
-          }
-          else if (check.type === '==') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l == right[i] ? 1 : 0);
-          }
-          else if (check.type === 'and') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l && right[i] ? 1 : 0);
-          }
-          else if (check.type === 'or') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l || right[i] ? 1 : 0);
-          }
-          else if (check.type === 'id') {
-            const r = parts.get(check.id1);
-            if (r === undefined) {
-              throw new Error(
-                `Could not evaluate check for ${identifier}: No such `
-                + `quantity ${check.id1} for message: ${message}`
-              );
+      const acceptancesByFile = new Map<number, string[]>();
+      for (const fileIndex of fileIndices) {
+        const acceptances: string[] = [];
+        acceptancesByFile.set(fileIndex, acceptances);
+      }
+
+      rules.forEach((r, i) => {
+        // files matching `r`
+        const filesSubset = new Set<number>();
+
+        for (const [message, files] of filesWithMessages) {
+          if (r.pat.test(message)) {
+            const acceptanceMessage = `'${identifier}' accepted '${message}'`
+            if (r.check === null) {
+              for (const [fileIndex, ] of files) {
+                filesSubset.add(fileIndex);
+                acceptancesByFile.get(fileIndex)?.push(acceptanceMessage);
+              }
+              continue;  // can't short circuit here like above due to rule-major iteration
             }
-            return r;
-          }
-          else if (check.type === 'number') {
-            // Inefficient, but that's OK.
-            return parts.get('count')!.map(x => check.id1);
-          }
-          else if (check.type === 'neg') {
-            return evalInner(check.id1).map(x => -x);
-          }
-          else if (check.type === '+') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l + right[i]);
-          }
-          else if (check.type === '-') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l - right[i]);
-          }
-          else if (check.type === '*') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l * right[i]);
-          }
-          else if (check.type === '/') {
-            const left = evalInner(check.id1);
-            const right = evalInner(check.id2);
-            return left.map((l, i) => l / right[i]);
-          }
-
-          console.log(check);
-          throw new Error(
-            `Could not evaluate check for ${identifier}: Unrecognized check type ${check.type}`
-          );
-        };
-
-        const r = evalInner(check);
-        return new Set(r.map((x, i) => [x, i]).filter(x => !!x[0]).map(x => x[1]));
-      };
-
-      for (const r of rules) {
-        if (r.pat.test(message)) {
-          // Do we need to constrain the matching set based on an auxiliary
-          // check?
-          if (r.check === null) {
-            // Accept all matches; short-circuit
-            for (const [fileIndex, ] of files) {
+            const filesPassingCheck = evalCheck(message, r.check, identifier);
+            for (const fileIndex of filesPassingCheck) {
               filesSubset.add(fileIndex);
+              acceptancesByFile.get(fileIndex)?.push(acceptanceMessage);
             }
-            break;
-          }
-          const group = evalCheck(message, r.check);
-          if (group.size > 0) {
-            // Merge `group` into `filesSubset`
-            group.forEach(filesSubset.add, filesSubset);
           }
         }
+        // Now remove files that _didn't_ match `r` from consideration
+        for (const fileIndex of fileIndices) {
+          if (!filesSubset.has(fileIndex)) {
+            fileIndices.delete(fileIndex);
+          }
+        }
+      })
+      for (const fileIndex of fileIndices) {
+        const decisionReasonsToAdd = acceptancesByFile.get(fileIndex)!;
+        const decisionReasons = decisionsByFileIndex.get(fileIndex)!.info;
+        for (const s of decisionReasonsToAdd) {
+          decisionReasons.push(s);
+        }
       }
-      for (const fileIndex of filesSubset) {
-        decisionsByFileIndex.get(fileIndex)!.info.push(`'${identifier}' accepted '${message}'`);
-        fileIndices.add(fileIndex);
-      }
+      return fileIndices;
     }
-    return fileIndices;
   }
 
   const fileIndicesByExtraFeatureText = new Map<string, Set<number>>();
@@ -200,6 +250,7 @@ export function reprocess(
     const fileIndices = fileIndicesMatchingFilter(
       extraFeature.patterns,
       extraFeature.caseInsensitive,
+      extraFeature.conjunction,
       extraFeature.featureText,
     );
     fileIndicesByExtraFeatureText.set(
@@ -215,7 +266,10 @@ export function reprocess(
   const fileIndicesByFilterName = new Map<string, Set<number>>();
   for (const filter of decisionDefinition.filters) {
     const fileIndices = fileIndicesMatchingFilter(
-      filter.patterns, filter.caseInsensitive, filter.name
+      filter.patterns,
+      filter.caseInsensitive,
+      filter.conjunction,
+      filter.name,
     );
     fileIndicesByFilterName.set(filter.name, fileIndices);
   }

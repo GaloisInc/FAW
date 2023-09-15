@@ -10,6 +10,11 @@
 
 filters:
   # Filters are defined as groups of regular expressions.
+  # By default, a file passes a filter if any of its features match
+  # any of the expressions listed.
+  # This behavior can be changed to require a match for all expressions
+  # by adding `/and` after the filter name.
+  # Adding `/i` after the filter name makes the filter case-insensitive.
 
   # Global notes --  permitting "FONT Arial[-,]" and "arialbd.ttf" makes a difference. but technically not base fonts.
   # A more rigorous font line: #^parser\-xpdf\-pdffonts_FONT.*EMB no.*(?<!/([Cc]our\S*|[Hh]elve\S*|[Tt]imes\S*)\.ttf)$

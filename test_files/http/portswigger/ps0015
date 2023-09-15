@@ -1,0 +1,6 @@
+POST /favicon.ico
+Host: example.com
+Content-Length: 5
+
+X
+

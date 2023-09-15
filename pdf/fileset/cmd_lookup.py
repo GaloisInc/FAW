@@ -6,20 +6,31 @@ import dask
 import dask_actor_singleton
 import faw_pipelines_util
 import os
+import sys
 
 _path = os.path.dirname(os.path.abspath(__file__))
 
 def main(api_info, fname):
-    api = faw_pipelines_util.Api(api_info)
-    client = api.dask_get_client()
+    if api_info:
+        api = faw_pipelines_util.Api(api_info)
+        client = api.dask_get_client()
 
-    actor = dask_actor_singleton.get('filelist-f-lookup',
-            create=lambda: LookupInstance(path=os.path.join(_path, 'filelists')),
-            client=client)
-    sets = actor.lookup(os.path.basename(fname)).result()
+        actor = dask_actor_singleton.get('filelist-f-lookup',
+                create=lambda: LookupInstance(path=os.path.join(_path, 'filelists')),
+                client=client)
+        sets = actor.lookup(os.path.basename(fname)).result()
 
-    for s in sets:
-        print(f'member: {s}')
+        for s in sets:
+            print(f'member: {s}')
+
+    pp = os.path.dirname(fname)
+    prefix = '/home/pdf-files/'
+    len_prefix = len(prefix)
+    while pp.startswith(prefix):
+        pp_end = pp[len_prefix:]
+        print(f'dir full: {pp_end}')
+        print(f'dir tag: {os.path.basename(pp_end)}')
+        pp = os.path.dirname(pp)
 
 
 class LookupInstance:
