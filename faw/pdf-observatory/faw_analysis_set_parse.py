@@ -44,16 +44,7 @@ overestimate to leave room for DB maintenance, package installs, etc.
 """
 
 # `exit_flag` is issues/5975
-async def as_parse_main(exit_flag, app_config, api_info):
-    """This is a workaround for https://github.com/dask/distributed/issues/5975.
-    Basically, by using an async task, we spawn directly on the worker's thread,
-    so we can use our own management to keep the actor going.
-    """
-    import asyncio
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _as_parse_main, exit_flag, app_config, api_info)
-
-def _as_parse_main(exit_flag, app_config, api_info):
+def as_parse_main(exit_flag, app_config, api_info):
     """Continuously goes through `COL_NAME` to find documents which need to be
     parsed; distributes files to workers by batch.
     """
@@ -66,11 +57,7 @@ def _as_parse_main(exit_flag, app_config, api_info):
     col.create_index([('priority_order', 1)])
     col_obs.create_index([('idle_complete', 1)])
 
-    # issues/5975
-    #with dask.distributed.worker_client() as client:
-    # For the occupancy bug
-    client = dask.distributed.get_client()
-    if True:
+    with dask.distributed.worker_client() as client:
         [app_config_future] = client.scatter([app_config], broadcast=True)
 
         # Begin by cleaning up the idle definition; otherwise, might start
@@ -187,15 +174,13 @@ def _as_parse_main(exit_flag, app_config, api_info):
             # load
             next_work(from_idle=True)
 
-        # was while True before issues/5975
-        while not exit_flag[0]:
+        while True:
             # Initial load
             next_work()
 
             # Iterator will keep us from maxing out CPU
             for f, f_result in outstanding:
-                # issues/5975
-                if exit_flag[0]:#faw_internal_util.dask_check_if_cancelled():
+                if faw_internal_util.dask_check_if_cancelled():
                     return
 
                 # Clean up list

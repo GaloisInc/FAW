@@ -126,19 +126,6 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
             # Ensure we have a task that's kicking off parses
             parse_task = client_tasks.get('as_parse')
             if parse_task is not None:
-                parse_done, parse_pending = await asyncio.wait([parse_task],
-                        timeout=1e-3)
-                if parse_pending:
-                    new_tasks['as_parse'] = parse_task
-            else:
-                # Until https://github.com/dask/distributed/issues/5975 is fixed,
-                # run this locally.
-                # When fixed, be sure to check for `issues/5975` elsewhere in code
-                new_tasks['as_parse'] = asyncio.create_task(
-                        faw_analysis_set_parse.as_parse_main(parse_exit,
-                            _app_config, api_info))
-            '''
-            if parse_task is not None:
                 try:
                     await parse_task.result(timeout=0.5)
                 except dask.distributed.TimeoutError:
@@ -150,11 +137,10 @@ async def main_loop(app_mongodb_conn, app_config, get_api_info):
                 # Spin up
                 new_tasks['as_parse'] = client.submit(
                             faw_analysis_set_parse.as_parse_main,
-                            _app_config, api_info, priority=10000,
+                            parse_exit, _app_config, api_info, priority=10000,
                             pure=False)
             else:
                 new_tasks['as_parse'] = parse_task
-            '''
 
             # For each analysis set, spin up a management task and wait for
             # completion.
@@ -249,23 +235,14 @@ async def _as_manage(exit_flag, aset, api_info, client, client_tasks):
     missing = {}
     old_task_result = missing
     if old_task_info is not None:
-        # issues/5975
-        done, pending = await asyncio.wait([old_task_info], timeout=1e-2)
-        if done:
-            try:
-                old_task_result = await old_task_info
-            except:
-                traceback.print_exc()
-                old_task_info = None
+        try:
+            old_task_result = await old_task_info.result(timeout=0.5)
+        except dask.distributed.TimeoutError:
+            pass
+        except:
+            traceback.print_exc()
+            old_task_info = None
 
-        #try:
-        #    old_task_result = await old_task_info.result(timeout=0.5)
-        #except dask.distributed.TimeoutError:
-        #    pass
-        #except:
-        #    # Another exception -- still pass, but unset the old task
-        #    traceback.print_exc()
-        #    old_task_info = None
 
     # See if stale -- standard parsing queues. An analysis set is stale if
     # its parser versions are out of date. In that case, we want to
@@ -339,11 +316,8 @@ async def _as_manage(exit_flag, aset, api_info, client, client_tasks):
         return {name: old_task_info}
 
     # Launch a new task
-    # issues/5975
-    #future = client.submit(_as_populate, name, mongo_info, _app_config,
-    #        priority=10000, pure=False)
-    future = asyncio.create_task(_run_in_exec(_as_populate, exit_flag, name,
-            mongo_info, _app_config))
+    future = client.submit(_as_populate, exit_flag, name, mongo_info, _app_config,
+            priority=10000, pure=False)
     return {name: future}
 
 
@@ -361,18 +335,6 @@ async def _as_manage_pipelines(exit_flag, aset, api_info, client, client_tasks):
 
     name = aset['_id'] + '!__pipelines'
     old_task_info = client_tasks.get(name)
-    task = None
-    if old_task_info is not None:
-        done, pending = await asyncio.wait([old_task_info], timeout=1e-2)
-        if pending:
-            task = old_task_info
-
-    if task is None:
-        import faw_pipelines
-        # issues/5975
-        task = asyncio.create_task(faw_pipelines.pipeline_admin(exit_flag, _app_config,
-                api_info, aset['_id']))
-    return {name: task}
 
     missing = {}
     old_task_result = missing
@@ -392,7 +354,7 @@ async def _as_manage_pipelines(exit_flag, aset, api_info, client, client_tasks):
     # New management needed
     # Import here to break cyclical dependency
     import faw_pipelines
-    future = client.submit(faw_pipelines.pipeline_admin, _app_config,
+    future = client.submit(faw_pipelines.pipeline_admin, exit_flag, _app_config,
             api_info, aset['_id'], priority=10000, pure=False)
     return {name: future}
 
@@ -425,7 +387,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
         Returns False when computation should abort.
         """
         assert isinstance(status, str), status
-        if exit_flag[0]: # faw_internal_util.dask_check_if_cancelled():
+        if faw_internal_util.dask_check_if_cancelled():
             return False
 
         update = {'status': status}
@@ -449,8 +411,7 @@ def _as_populate(exit_flag, as_name, mongo_info, app_config):
 
     if as_doc['status'] == AsStatus.REBUILD_IDS.value:
         logger.debug(f'{as_name}: Rebuilding IDs...')
-        # issues/5975
-        if True: #with dask.distributed.worker_client():  # Secede from dask for long op
+        with dask.distributed.worker_client():  # Secede from dask for long op
             as_create_id_collection(exit_flag, db, app_config, as_name, col_ids.name)
             # MUST also clear out `parser_versions_done`! Otherwise, we may have
             # a new batch of files which are not guaranteed to be at the latest
