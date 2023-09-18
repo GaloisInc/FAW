@@ -18,14 +18,9 @@ def main():
     args = ap.parse_args()
 
     cpus_available = len(os.sched_getaffinity(0))
-    # Another issues/5975 thing. Since we're usually running on single machines
-    # for the time being, we get better utilization out of a single process.
     nprocs = max(1, int(math.floor(cpus_available / 4)))
 
-    # Until https://github.com/dask/distributed/issues/5975 is fixed, MUST
-    # only have one worker or else
-
-    overload = 4
+    overload = 1.1
     cpus = cpus_available * overload
 
     procs = []
