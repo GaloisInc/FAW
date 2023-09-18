@@ -17,7 +17,7 @@ import json
 import subprocess
 import time
 
-def pipeline_admin(exit_flag, app_config, api_info, aset_id):
+def pipeline_admin(app_config, api_info, aset_id):
     """Manages the pipelines for a given aset. Loops forever at low yield, so
     removes itself from dask queue.
 
@@ -58,8 +58,7 @@ def pipeline_admin(exit_flag, app_config, api_info, aset_id):
                     api = faw_pipelines_util.Api(pipe_info, db)
                     col_name = api._file_col_name()
                     if col_name not in db.list_collection_names():
-                        # issues/5975
-                        faw_analysis_set.as_create_id_collection(exit_flag=exit_flag,
+                        faw_analysis_set.as_create_id_collection(
                                 db=db,
                                 app_config=app_config,
                                 aset_id=pipe_info['aset'],

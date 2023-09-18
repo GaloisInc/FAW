@@ -43,8 +43,7 @@ so this is just a guess at an upper limit. It's also intentionally an
 overestimate to leave room for DB maintenance, package installs, etc.
 """
 
-# `exit_flag` is issues/5975
-def as_parse_main(exit_flag, app_config, api_info):
+def as_parse_main(app_config, api_info):
     """Continuously goes through `COL_NAME` to find documents which need to be
     parsed; distributes files to workers by batch.
     """
