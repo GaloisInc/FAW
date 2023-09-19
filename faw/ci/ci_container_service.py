@@ -721,7 +721,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         # in the same image. So, clone the latest mongodb from the official
         # image.
         'obs__mongo': {
-            'from': 'mongo:4.4.12',
+            'from': 'mongo:6.0.10-jammy',
             'copy_output': {
                 '/var/log/mongodb': True,
                 #'/var/lib/dpkg/info': True,

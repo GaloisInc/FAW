@@ -111,7 +111,7 @@ def main(pdf_dir, mongodb, host, port, hostname, in_docker, production, config,
     # https://docs.mongodb.com/manual/reference/limits/
     async def admin_cfg():
         await app_mongodb_conn.client.admin.command({
-                'setFeatureCompatibilityVersion': '4.4'})
+                'setFeatureCompatibilityVersion': '6.0'})
     loop.run_until_complete(admin_cfg())
 
     app_config_refresh = loop.create_task(_config_check_loop())
