@@ -1,7 +1,7 @@
 bokeh >= 2.1.1
 cachetools
-click==7.*
-dask[complete] == 2023.5.0
+click==8.*
+dask[complete,distributed] == 2023.5.0
 graphlib-backport==1.0.3  # Backport of py39+ graphlib stdlib module
 jupyter-server-proxy
 motor
