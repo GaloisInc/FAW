@@ -721,7 +721,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         # in the same image. So, clone the latest mongodb from the official
         # image.
         'obs__mongo': {
-            'from': 'mongo:6.0.10-jammy',
+            'from': 'mongo:4.4.12',
             'copy_output': {
                 '/var/log/mongodb': True,
                 #'/var/lib/dpkg/info': True,
@@ -737,9 +737,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
                 '/etc/apt/sources.list.d/mongodb-org.list': True,
                 #'/etc/apt/trusted.gpg.d/mongodb.gpg': True,
                 '/etc/mongod.conf.orig': True,
-
                 # For newer versions of Ubuntu, must copy libcrypt* and libssl*
-                # Trying a funny formulation that avoids explicit x86 dependency
                 '/usr/lib/*/libcrypto.so*': '/usr/lib/',
                 '/usr/lib/*/libssl.so*': '/usr/lib/',
             },
@@ -847,7 +845,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             # Ensure that e.g. curl, python3, python3-pip, and wget all get installed
             stage_commands = [
                     'ENV DEBIAN_FRONTEND=noninteractive',
-                    'RUN apt-get update && apt-get install -y curl python3 python3-pip wget',
+                    'RUN apt-get update && apt-get install -y curl python3.10 python3-pip wget',
                     ] + stage_commands
         dockerfile.extend(stage_commands)
 
