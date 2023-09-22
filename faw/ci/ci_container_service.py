@@ -751,7 +751,10 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         # Development extensions... add not-compiled code directories.
         dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
-            RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
+            RUN wget -qO - https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | apt-key add -
+            RUN echo "deb https://deb.nodesource.com/node_16.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+            RUN apt-get update
+            RUN apt-get -y install --no-install-recommends nodejs
             # Install watchgod, which allows for live-reloading analysis sets
             # on file changes.
             RUN pip3 install watchgod
@@ -761,7 +764,10 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         dockerfile_middle.append(rf'''
             FROM base AS ui-builder
             # Install npm locally, only for the build.
-            RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
+            RUN wget -qO - https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | apt-key add -
+            RUN echo "deb https://deb.nodesource.com/node_16.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+            RUN apt-get update
+            RUN apt-get -y install --no-install-recommends nodejs
             COPY {build_faw_dir}/faw/pdf-observatory/common /home/pdf-observatory/common
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
             RUN cd /home/pdf-observatory/ui \
