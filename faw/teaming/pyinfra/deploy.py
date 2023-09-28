@@ -4,16 +4,18 @@ import json
 import os
 import shlex
 
+import pyinfra
 from pyinfra import host, inventory
+from pyinfra.facts.deb import DebPackages
 from pyinfra.operations import apt, files, server, yum
 from pyinfra_docker import deploy_docker
 
-SUDO = True
+pyinfra.config.SUDO = True
 user = config.deploy_name
 userhome = f'/home/{user}'
 webhost = inventory.get_group('web_host')[0].name
 
-use_apt = host.fact.deb_packages
+use_apt = host.get_fact(DebPackages)
 pkg_man = apt if use_apt else yum
 
 if use_apt:
