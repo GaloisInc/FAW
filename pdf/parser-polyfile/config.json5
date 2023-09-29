@@ -4,7 +4,7 @@
       exec: ['python3', 'main.py', '<inputFile>'],
       // Keep DB version on old version; no need to reprocess all 1M+ eval3
       // files
-      version: 'polyfile-v0.5.0-faw1',
+      version: 'polyfile-v0.5.0-faw2',
       parse: {
         type: 'regex-counter',
         version: '1',
@@ -31,7 +31,7 @@
     stages: {
       final: {
         commands: [
-          'RUN pip3 install "polyfile >= 0.5.0"',
+          'RUN pip3 install "polyfile >= 0.5.0" "graphviz >= 0.20.1"',
           // Polyfile now requires 7zip as of 2021-05-04
           'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y p7zip-full',
         ],
