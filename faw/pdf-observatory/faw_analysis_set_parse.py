@@ -100,6 +100,10 @@ def as_parse_main(app_config, api_info):
                     .sort([('priority_order', 1)])
                     .limit(work_max - outstanding.count())
                     )
+
+            # Before dispatch, ensure all requested parser versions are valid
+            data = _as_parse_main_version_cleanup(app_config, col, data)
+
             num_added = 0
             for doc in data:
                 num_added += 1
@@ -240,6 +244,52 @@ def _as_parse_ensure_idle_versions(app_config, db):
         db['misc'].update_one({'_id': 'as_idle'},
                 {'$set': {'parser_versions': versions}},
                 upsert=True)
+
+
+def _as_parse_main_version_cleanup(app_config, col, docs_cursor):
+    '''Validate that requested parsers exist in the config. If they do not,
+    purge them from the record.
+
+    TODO OPTIMIZE this function could probably use clever caching to avoid a few
+    database hits.
+    '''
+    docs = list(docs_cursor)
+    parsers = set()
+    for d in docs:
+        parsers.update(d['parsers'].keys())
+    parsers.discard('idle_compute')  # Always valid, no need to unset
+    # Convert to expected datatype
+    query_aset = {'definition': {
+            'features': [{'parser': p} for p in parsers],
+            'rules': []}}
+    versions, _ = faw_analysis_set_util.aset_parser_versions_calculate(
+            app_config, col.database, query_aset)
+
+    all_updates = []
+    for d in docs:
+        query = {'_id': d['_id']}
+        update = {}
+
+        for p, pv in list(d['parsers'].items()):
+            if p == 'idle_compute':
+                continue
+            if versions[p] != pv:
+                # Out of date and/or disabled. Cancel this part of the parse
+                query[f'parsers.{p}'] = pv
+                update[f'parsers.{p}'] = True
+
+                # Update local mirror as well
+                d['parsers'].pop(p)
+
+        if update:
+            all_updates.append(pymongo.UpdateOne(
+                    query,
+                    {'$unset': update}))
+
+    if all_updates:
+        col.bulk_write(all_updates, ordered=False)
+
+    return docs
 
 
 def _dask_as_parse_file(app_config, api_info, doc):
