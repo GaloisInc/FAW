@@ -18,7 +18,7 @@ def run_httpd(request_path: str, output_path: str, apache_port: int = DEFAULT_AP
         subprocess.check_call(["/usr/bin/httpd_harness", request_path], env={
             "POLYDB": output_path,
             "POLYTRACKER_STDOUT_SINK": "1",
-            "APACHE_PORT": apache_port
+            "APACHE_PORT": str(apache_port)
         }, timeout=timeout)
     except TimeoutError:
         sys.stderr.write(f"Apache timed out after {timeout} seconds")
