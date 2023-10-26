@@ -1,0 +1,91 @@
+{
+  parsers: {
+    "http-differential": {
+      version: 'polytracker-http-differential-v1.0',
+      exec: ['python3', 'main.py', '<inputFile>'],
+      timeout: 120,
+      parse: {
+        type: 'regex-counter',
+        version: '1.7',
+        stdstar: {
+          '^"(([^"\\\\]|\\\\.)*?)","(([^"\\\\]|\\\\.)*?)","': {
+            nameGroup: 'INFIX: "\\g<3>"',
+            nameReplace: {
+              '[0-9]+': '<INT>',
+            },
+            fallthrough: true,
+          },
+          '^.*$': {
+            nameReplace: {'[0-9]+': '<INT>'},
+          }
+        },
+      },
+    },
+  },
+  build: {
+    stages: {
+      polytracker: {
+        from: 'trailofbits/polytracker:httpd',
+        copy_output: {
+          '/polytracker/examples/http/picohttpparser/src/example_picohttpparser_track': '/usr/bin/picohttpparser_track',
+          '/polytracker/examples/http/httpd/httpd/httpd_track': '/usr/bin/httpd_track',
+          '/polytracker/examples/http/httpd/httpd.conf': '/usr/local/apache2/conf/httpd.conf',
+          '/lib/x86_64-linux-gnu/libc.so.6': '/usr/lib/polytracker_libc.so.6',
+          '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2': '/usr/lib/polytracker_ld-linux-x86-64.so.2',
+        },
+        commands: [
+          "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config netcat curl autoconf libtool-bin",
+          "RUN pip3 install graphtage",
+          "WORKDIR /polytracker/examples/http/picohttpparser",
+          "RUN git clone https://github.com/h2o/picohttpparser.git src",
+          "RUN cp Makefile example_picohttpparser.c /polytracker/examples/http/picohttpparser/src/",
+          "WORKDIR /polytracker/examples/http/picohttpparser/src",
+          "RUN polytracker build make -j$((`nproc`+1))",
+          "RUN polytracker instrument-targets --taint --ftrace example_picohttpparser",
+          "RUN mv example_picohttpparser.instrumented example_picohttpparser_track",
+          "WORKDIR /polytracker/examples/http/httpd",
+          "RUN git clone --branch 2.4.13 --single-branch https://github.com/apache/httpd.git",
+          "WORKDIR /polytracker/examples/http/httpd/httpd",
+          "RUN mkdir -p srclib/apr srclib/apr-util srclib/pcre srclib/expat",
+          "RUN curl https://archive.apache.org/dist/apr/apr-1.7.0.tar.gz -o apr-1.7.0.tar.gz",
+          "RUN tar xfz apr-1.7.0.tar.gz -C srclib/apr --strip-components 1 && rm apr-1.7.0.tar.gz",
+          "RUN curl https://archive.apache.org/dist/apr/apr-util-1.6.1.tar.gz -o apr-util-1.6.1.tar.gz",
+          "RUN tar xfz apr-util-1.6.1.tar.gz -C srclib/apr-util --strip-components 1 && rm apr-util-1.6.1.tar.gz",
+          "RUN curl -L https://sourceforge.net/projects/pcre/files/pcre/8.39/pcre-8.39.tar.gz/download -o pcre-8.39.tar.gz",
+          "RUN tar xfz pcre-8.39.tar.gz -C srclib/pcre --strip-components 1 && rm pcre-8.39.tar.gz",
+          "RUN curl -L https://github.com/libexpat/libexpat/releases/download/R_2_4_7/expat-2.4.7.tar.gz -o expat-2.4.7.tar.gz",
+          "RUN tar xfz expat-2.4.7.tar.gz -C srclib/expat --strip-components 1 && rm expat-2.4.7.tar.gz",
+          "WORKDIR /polytracker/examples/http/httpd/httpd/srclib/pcre",
+          "RUN polytracker build ./configure --disable-shared",
+          "RUN polytracker build make",
+          "WORKDIR /polytracker/examples/http/httpd/httpd/srclib/expat",
+          "RUN polytracker build ./configure --disable-shared",
+          "RUN polytracker build make",
+          "WORKDIR /polytracker/examples/http/httpd/httpd",
+          "RUN polytracker build ./buildconf",
+          "RUN CFLAGS=\"-I$(pwd)/srclib/pcre -I$(pwd)/srclib/expat/lib\" LDFLAGS=\"-L$(pwd)/srclib/pcre/.libs -L$(pwd)/srclib/expat/lib/.libs\" polytracker build ./configure --disable-shared --with-mpm=prefork --with-pcre=srclib/pcre/pcre-config --with-included-apr --enable-mods-static='authz_core unixd'",
+          "RUN CFLAGS=\"-I$(pwd)/srclib/pcre -I$(pwd)/srclib/expat/lib\" LDFLAGS=\"-L$(pwd)/srclib/pcre/.libs -L$(pwd)/srclib/expat/lib/.libs\" polytracker build make -j$((`nproc`+1))",
+          "RUN polytracker instrument-targets --taint --ftrace httpd",
+          "RUN mv httpd.instrumented httpd_track",
+          "RUN cp httpd_track httpd",
+          "RUN polytracker build make install"
+        ],
+      },
+      final: {
+        commands: [
+          "RUN apt-get update && apt-get -y upgrade && apt-get install -y git pkg-config netcat",
+          "WORKDIR /",
+          "RUN git clone --branch 6548-post-processing-cluster-input-bytes --single-branch https://github.com/trailofbits/polytracker.git",
+          "WORKDIR /polytracker",
+          "RUN pip3 install graphtage",
+          "RUN pip3 install .",
+          "WORKDIR /",
+          "RUN mkdir -p /usr/local/apache2/htdocs",
+          "RUN mkdir -p /usr/local/apache2/logs",
+          "COPY {dist}/httpd_harness /usr/bin",
+          "RUN chmod 755 /usr/bin/httpd_harness"
+        ],
+      }
+    },
+  }
+}

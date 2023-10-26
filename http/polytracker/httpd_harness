@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+set -e
+
+APACHE_ROOT=/usr/local/apache2
+
+PID_FILE="$APACHE_ROOT"/logs/httpd.pid
+
+if [ -f $PID_FILE ]; then
+  APACHE_PID=$(cat $PID_FILE)
+  if ps -p $APACHE_PID > /dev/null; then
+    echo "Apache is already running in a different process; waiting for it to end..."
+    while ps -p $APACHE_PID > /dev/null; do
+      sleep 1
+    done
+    rm -f $PID_FILE
+  fi
+fi
+
+sed -i 's/:80/:'"$APACHE_PORT"'/g' "$APACHE_ROOT"/conf/httpd.conf
+while ! nc -z localhost $APACHE_PORT; do
+  sleep .1
+done
+
+httpd_track -X &
+
+echo "Waiting for the Apache to start..."
+until [ -f $PID_FILE ]
+do
+     sleep 1
+done
+# needed for server initialization in single-worker mode
+sleep 2
+echo "Started!"
+
+function cleanup {
+  echo "Stopping httpd..."
+  APACHE_PID=$(cat $PID_FILE)
+  kill "$APACHE_PID"
+  wait "$APACHE_PID"
+  rm -f $PID_FILE
+}
+
+trap cleanup EXIT
+
+# send request (from text file - first command line arg) to instrumented httpd
+nc localhost $APACHE_PORT <"$1"
+
+# Oddly, these cause issues with TDAG production and does not include socket fds among TDAG sources
+# but only when run from the same terminal
+# $APACHE_ROOT/bin/apachectl stop
+# $APACHE_ROOT/bin/apachectl graceful-stop

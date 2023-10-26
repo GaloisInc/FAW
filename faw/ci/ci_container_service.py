@@ -737,6 +737,11 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
                 '/etc/apt/sources.list.d/mongodb-org.list': True,
                 #'/etc/apt/trusted.gpg.d/mongodb.gpg': True,
                 '/etc/mongod.conf.orig': True,
+
+                # For newer versions of Ubuntu, must copy libcrypt* and libssl*
+                # Trying a funny formulation that avoids explicit x86 dependency
+                '/usr/lib/*/libcrypto.so*': '/usr/lib/',
+                '/usr/lib/*/libssl.so*': '/usr/lib/',
             },
         },
     }
