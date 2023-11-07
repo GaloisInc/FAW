@@ -1,0 +1,37 @@
+<!DOCTYPE html><html>
+<head><title>FAW Clustering plugin</title>
+<script>
+{{ vue_source }}
+</script>
+<style lang="text/css">
+{{ css }}
+</style>
+<script>
+window.data = {{ window_data }};
+{{ main_source }}
+</script>
+</head>
+<body>
+<div id="app">If you see this, Vue is loading or broken</div>
+<script>
+let app = new Vue(
+    {
+        el: '#app',
+        data: Object.freeze(window.data),
+        template: `<div>
+            <vue-header :debug-str="data.debug_str" />
+            <dialect-wizard
+                :search-settings-init="data.search_settings"
+                :dialect-settings-init="data.dialect_settings"
+                :num-files="data.num_files"
+                :feature-text="data.feature_text"
+                :feature-counts="data.feature_counts"
+                :partitions="data.partitions"
+                :target-size="data.target_size"
+            />
+        </div>`
+    }
+);
+</script>
+</body>
+</html>
