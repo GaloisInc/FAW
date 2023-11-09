@@ -108,7 +108,7 @@ Vue.component('dialect-wizard', {
         </ul>
     </div>
     <div><label>
-        Min attributable risk to exclude a feature: 
+        Similar features are also excluded if above attributable risk threshold: 
         <input v-model.number="dialectSettings.exclusion_min_attr_risk" type="number" />
     </label></div>
     <hr>
@@ -158,7 +158,7 @@ Vue.component('dialect-wizard', {
                 </li>
             </ul>
         </div>
-        <div>
+        <div class="partitions">
             <p v-if="partitions.length === 0">No Partitions</p>
             <p v-else>{{partitions.length}} Partition{{partitions.length > 1 ? 's' : ''}}</p>
             <ol v-if="partitions.length !== 0">
@@ -174,43 +174,49 @@ Vue.component('dialect-wizard', {
                     </details>
                     <ol>
                         <li v-for="dialect of partition.dialects">
-                            <p :style="dialect.highlight ? 'background-color: yellow;' : ''">
+                            <div :style="dialect.highlight ? 'background-color: yellow;' : ''">
                                 <template v-if="dialect.negated">NOT </template>
                                 <code>{{featureText[dialect.hero_feature]}}</code><br/>
                                 {{featureFractionReport(dialect.size_target, dialect.size_global)}}
-                            </p>
+                            </div>
                             <button @click="targetFeature(dialect.hero_feature, true)">Target (AND)</button>
                             <button @click="targetFeature(dialect.hero_feature, false)">Target (AND NOT)</button>
                             <button @click="excludeFeature(dialect.hero_feature)">Exclude</button>
                             <details v-if="dialect.filenames_outside_target.length > 0">
                                 <summary>{{dialect.filenames_outside_target.length}} files outside target</summary>
                                 <ul>
-                                    <li v-for="filename in dialect.filenames_outside_target">{{filename}}</li>
+                                    <li
+                                        v-for="([filename, highlight], i) in dialect.filenames_outside_target"
+                                        :style="highlight ? 'background-color: yellow;' : ''"
+                                    >
+                                        {{filename}}
+                                    </li>
                                 </ul>
                             </details>
                             <details>
                                 <summary>Implied Features ({{dialect.similar_features.length}})</summary>
                                 <ul>
                                     <li v-for="simFeature in dialect.similar_features">
-                                        <p :style="simFeature.highlight ? 'background-color: yellow;' : ''">
+                                        <div :style="simFeature.highlight ? 'background-color: yellow;' : ''">
                                             <template v-if="simFeature.negated">NOT </template>
                                             <code>{{featureText[simFeature.feature]}}</code><br/>
                                             Attributable risk: {{simFeature.attr_risk.toFixed(2)}}<br/>
                                             {{featureFractionReport(simFeature.size_target, simFeature.size_global)}}
-                                        </p>
+                                        </div>
                                     </li>
                                 </ul>
                             </details>
                         </li>
                     </ol>
                     <details>
-                        <summary>Files in Multiple/No Dialects ({{partition.slop_files.length}})</summary>
+                        <summary :style="partition.slop_files.some(slopFile => slopFile.highlight) ? 'background-color: yellow;' : ''"
+                        >Files in Multiple/No Dialects ({{partition.slop_files.length}})</summary>
                         <ul>
-                            <li v-for="([n, slopFiles], i) of slopFileHistogram(partition.slop_files)">
+                            <li v-for="([n, [slopFiles, highlightAny]], i) of slopFileHistogram(partition.slop_files)">
                                 <details>
-                                    <summary>{{slopFiles.length}} files in {{n}} dialects</summary>
+                                    <summary :style="highlightAny ? 'background-color: yellow;' : ''">{{slopFiles.length}} files in {{n}} dialects</summary>
                                     <ul>
-                                        <li v-for="slopFile of slopFiles">
+                                        <li v-for="slopFile of slopFiles" :style="slopFile.highlight ? 'background-color: yellow;' : ''">
                                             {{slopFile.filename}} <br/>
                                             In {{slopFile.in_dialects.length}} dialects: 
                                             {{slopFile.in_dialects.map((x) => x + 1)}}
@@ -359,15 +365,18 @@ Vue.component('dialect-wizard', {
         slopFileHistogram(slopFiles) {
             // Organize slop files into dialect-count-major
             // Used when displaying partitions
-            const hist = {};
+
+            // Mapping from dialect count to [list of files, highlight any]
+            const slopFilesByDialectCount = {};
             for (const slopFile of slopFiles) {
-                if (slopFile.in_dialects.length in hist) {
-                    hist[slopFile.in_dialects.length].push(slopFile);
+                if (slopFile.in_dialects.length in slopFilesByDialectCount) {
+                    slopFilesByDialectCount[slopFile.in_dialects.length][0].push(slopFile);
+                    slopFilesByDialectCount[slopFile.in_dialects.length][1] |= slopFile.highlight;
                 } else {
-                    hist[slopFile.in_dialects.length] = [slopFile];
+                    slopFilesByDialectCount[slopFile.in_dialects.length] = [[slopFile], slopFile.highlight];
                 }
             }
-            const sortedHist = Object.entries(hist);
+            const sortedHist = Object.entries(slopFilesByDialectCount);
             sortedHist.sort((pairA, pairB) => pairB[0] - pairA[0]);
             return sortedHist;
         },

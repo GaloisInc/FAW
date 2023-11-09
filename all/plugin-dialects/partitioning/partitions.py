@@ -1,5 +1,5 @@
 import dataclasses
-from typing import List, Mapping, Optional, Sequence, Tuple
+from typing import List, Mapping, Optional, Sequence, Tuple, Generic, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -9,6 +9,13 @@ import scipy.special
 
 from partitioning.filtering import TargetRestrictionMode, select_valid_heroes
 from partitioning.similarity import bernoulli_entropy_weights, pairwise_attributable_risk
+
+T = TypeVar("T")
+
+@dataclasses.dataclass
+class WithDebugLines(Generic[T]):
+    value: T
+    debug_lines: Sequence[str]
 
 
 def best_partitions(
@@ -23,7 +30,7 @@ def best_partitions(
     exclusion_min_attr_risk: float,
     feature_names: Sequence[str],  # TODO remove
 # ) -> Sequence[Sequence[int]]:  # feature indices in feature_files
-) -> Tuple[Sequence[Sequence[int]], List[str]]:  # feature indices in feature_files
+) -> WithDebugLines[Sequence[Sequence[int]]]:  # feature indices in feature_files
 
     target_files = target_files_from_cnf(feature_files, target_features_cnf)
 
@@ -46,15 +53,27 @@ def best_partitions(
         max_slop_files=max_slop_files,
     )
     if len(valid_heroes) == 0:
-        return [], ['no candidate hero features', str(target_files)]
-    num_files_with_candidate_feature_outside_target = np.sum(
-        np.delete(feature_files[valid_heroes, :], target_files, axis=1),
-        axis=1,
-    )
-    partitions, debug_lines = _find_partition_heroes(
+        return WithDebugLines([], ['no candidate hero features', str(target_files)])
+    # TODO consider slop properly here
+    if target_restriction_mode == 'target_only':
+        hero_slop = np.sum(
+            np.delete(feature_files[valid_heroes, :], target_files, axis=1),
+            axis=1,
+        )
+    elif target_restriction_mode == 'homogeneous_outside':
+        feature_counts_outside_target = np.sum(
+            np.delete(feature_files[valid_heroes, :], target_files, axis=1),
+            axis=1,
+        )
+        hero_slop = np.minimum(
+            feature_counts_outside_target,
+            feature_files.shape[1] - target_files.size - feature_counts_outside_target,
+        )
+
+    partitions_with_debug_lines = _find_partition_heroes(
         valid_heroes=valid_heroes,
         target_feature_files=target_feature_files,
-        hero_slop=num_files_with_candidate_feature_outside_target,
+        hero_slop=hero_slop,
         max_slop_files=max_slop_files,
         max_dialects=max_dialects,
         max_partitions=10,  # TODO unhardcode
@@ -62,7 +81,10 @@ def best_partitions(
     )
 
     # transform back to indices in the original, pre-deduplication feature_files
-    return [unique_feature_indices[partition] for partition in partitions], debug_lines
+    return WithDebugLines(
+        [unique_feature_indices[partition] for partition in partitions_with_debug_lines.value],
+        partitions_with_debug_lines.debug_lines,
+    )
 
 
 def target_files_from_cnf(
@@ -94,7 +116,7 @@ def _find_partition_heroes(
     max_dialects,
     max_partitions,
     hero_names: Sequence[str]  # TODO remove
-) -> Tuple[List[List[int]], List[str]]:
+) -> WithDebugLines[List[List[int]]]:
     # New version of partition search, without recursion
     num_target_files = target_feature_files.shape[1]
 
@@ -114,16 +136,18 @@ def _find_partition_heroes(
         total=num_target_files,
     )
     # TODO is the entropy reasonable as a factor here?
-    # TODO should we weight by feature rarity as well?
-    # TODO is logsumexp 
+    # TODO should we weight by file rarity as well?
     hero_weights = scipy.special.logsumexp(
         # Take absolute value, since anti-attribution should also count here
-        np.abs(pairwise_attr_risk), axis=1,
-        b=(1 / pairwise_attr_risk.shape[1]),  # noramlizing factor (multiplied in here instead of subtracted after the log for better numeric stability)
+        np.abs(pairwise_attr_risk),
+        axis=1,
+        # noramlizing factor (multiplied in here instead of subtracted after
+        # the log for better numeric stability)
+        b=(1 / pairwise_attr_risk.shape[1]),
     ) * hero_feature_entropy
-    hero_weights = np.mean(
-        np.abs(pairwise_attr_risk), axis=1,
-    ) * hero_feature_entropy
+    # hero_weights = np.mean(
+    #     np.abs(pairwise_attr_risk), axis=1,
+    # ) * hero_feature_entropy
 
     incomplete_partition_stack: List[_PartialPartition] = [_PartialPartition([], None)]
     good_partitions: List[List[int]] = []
@@ -234,9 +258,12 @@ def _find_partition_heroes(
         )
 
     # Convert hero indices to feature indices and return
-    return [
-        valid_heroes[partition] for partition in good_partitions
-    ], []
+    return WithDebugLines(
+        [
+            valid_heroes[partition] for partition in good_partitions
+        ],
+        [],
+    )
 
 
 # TODO remove if unused

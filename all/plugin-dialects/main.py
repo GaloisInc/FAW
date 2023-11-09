@@ -73,13 +73,14 @@ class Dialect(TypedDict):
     size_target: int
     size_global: int
     highlight: bool
-    filenames_outside_target: List[str]
+    filenames_outside_target: List[Tuple[str, bool]]
 
 
 class SlopFile(TypedDict):
     filename: str
     in_dialects: List[int]
     """Indices of dialects containing this file"""
+    highlight: bool
 
 
 class Partition(TypedDict):
@@ -139,7 +140,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             dialect_settings.targeted_features_cnf,
         )
         target_size = len(target_files)
-        partition_hero_feature_indices, debug_lines = partitioning.best_partitions(
+        partition_hero_indices_with_debug_lines = partitioning.best_partitions(
             feature_files,
             target_features_cnf=dialect_settings.targeted_features_cnf,
             min_feature_samples=dialect_settings.min_feature_samples,
@@ -149,6 +150,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             exclusion_min_attr_risk=dialect_settings.exclusion_min_attr_risk,
             feature_names=features,
         )
+        debug_lines = partition_hero_indices_with_debug_lines.debug_lines
 
         def build_similar_features(feature: int) -> List[SimilarFeature]:
             similarities_and_features: Sequence[Tuple[float, int]] = partitioning.features_attributable_to(
@@ -173,7 +175,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             return similar_features
 
         partitions = []
-        for dialect_hero_feature_indices in partition_hero_feature_indices:
+        for dialect_hero_feature_indices in partition_hero_indices_with_debug_lines.value:
             dialect_feature_files = feature_files[dialect_hero_feature_indices, :]
             target_file_dialect_membership_counts = np.sum(
                 dialect_feature_files[:, target_files], axis=0
@@ -197,7 +199,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 if highlight_file_index is not None else False
                             ),
                             filenames_outside_target=[
-                                filenames[file_index]
+                                (filenames[file_index], bool(file_index == highlight_file_index))
                                 for file_index in np.nonzero(
                                     np.delete(feature_files[hero_feature_index, :], target_files)
                                 )[0]
@@ -216,6 +218,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         SlopFile(
                             filename=filenames[file_index := target_files[target_file_index]],
                             in_dialects=dialect_feature_files[:, file_index].nonzero()[0].tolist(),
+                            highlight=bool(file_index == highlight_file_index),
                         )
                         for target_file_index in (target_file_dialect_membership_counts != 1).nonzero()[0]
                     ],

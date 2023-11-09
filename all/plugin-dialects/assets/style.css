@@ -2,3 +2,6 @@
     border: 1px solid black;
     margin-block: 0.5em;
 } */
+.partitions li + li {
+    margin-top: 1em;
+}
