@@ -259,7 +259,7 @@
                     // XPDF takes down old binaries periodically; however, they
                     // maintain archives of old source. For parity with Safedocs
                     // program, build from source.
-                    'RUN apt-get update && apt-get install -y qt5-default',
+                    'RUN apt-get update && apt-get install -y qtbase5-dev qt5-qmake',
                     'RUN mkdir -p /opt/xpdf \
                         && cd /opt/xpdf \
                         && wget https://dl.xpdfreader.com/old/xpdf-4.02.tar.gz \

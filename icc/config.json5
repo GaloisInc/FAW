@@ -175,7 +175,7 @@ outputs:  \n\
             // to specify their own 'from' keys.
 
             base: {
-                'from': 'ubuntu:21.04',
+                'from': 'ubuntu:22.04',
                 commands: [
                     // Base packages
                     'RUN apt-get update && apt-get install -y \

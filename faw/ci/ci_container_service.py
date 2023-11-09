@@ -737,9 +737,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
                 '/etc/apt/sources.list.d/mongodb-org.list': True,
                 #'/etc/apt/trusted.gpg.d/mongodb.gpg': True,
                 '/etc/mongod.conf.orig': True,
-
                 # For newer versions of Ubuntu, must copy libcrypt* and libssl*
-                # Trying a funny formulation that avoids explicit x86 dependency
                 '/usr/lib/*/libcrypto.so*': '/usr/lib/',
                 '/usr/lib/*/libssl.so*': '/usr/lib/',
             },
@@ -753,7 +751,9 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         # Development extensions... add not-compiled code directories.
         dockerfile_final.append(r'''
             # Install npm globally, so it's available for debug mode
-            RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
+            RUN wget -qO - https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | apt-key add -
+            RUN echo "deb https://deb.nodesource.com/node_16.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+            RUN apt-get update && apt-get -y install --no-install-recommends nodejs
             # Install watchgod, which allows for live-reloading analysis sets
             # on file changes.
             RUN pip3 install watchgod
@@ -763,7 +763,9 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         dockerfile_middle.append(rf'''
             FROM base AS ui-builder
             # Install npm locally, only for the build.
-            RUN curl -sL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs
+            RUN wget -qO - https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | apt-key add -
+            RUN echo "deb https://deb.nodesource.com/node_16.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+            RUN apt-get update && apt-get -y install --no-install-recommends nodejs
             COPY {build_faw_dir}/faw/pdf-observatory/common /home/pdf-observatory/common
             COPY {build_faw_dir}/faw/pdf-observatory/ui /home/pdf-observatory/ui
             RUN cd /home/pdf-observatory/ui \
@@ -847,7 +849,7 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             # Ensure that e.g. curl, python3, python3-pip, and wget all get installed
             stage_commands = [
                     'ENV DEBIAN_FRONTEND=noninteractive',
-                    'RUN apt-get update && apt-get install -y curl python3 python3-pip wget',
+                    'RUN apt-get update && apt-get install -y curl python3.10 python3-pip wget',
                     ] + stage_commands
         dockerfile.extend(stage_commands)
 

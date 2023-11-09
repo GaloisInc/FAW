@@ -497,7 +497,7 @@ with open(sys.argv[1], 'w') as html: \n\
             // copying, e.g., requirements.txt
 
             base: {
-                'from': 'ubuntu:20.04',
+                from: 'ubuntu:22.04',
                 commands: [
                     'ENV DEBIAN_FRONTEND=noninteractive',
 
@@ -516,7 +516,7 @@ with open(sys.argv[1], 'w') as html: \n\
                         gettext \
                         autopoint \
                         autoconf \
-                        python3-dev \
+                        python3.10-dev \
                         libssl-dev \
                         cmake \
                         libfreetype6-dev \
@@ -531,7 +531,7 @@ with open(sys.argv[1], 'w') as html: \n\
                     // uses a nuclear option to select all available ubuntu fonts packages.
                     'RUN echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections',
                     "RUN apt-get update \
-                      && apt-get install -y ttf-mscorefonts-installer ttf-dejavu-core \
+                      && apt-get install -y ttf-mscorefonts-installer fonts-dejavu \
                       && apt-cache search -n ^fonts- \
                         | awk '{{print $1}}' \
                         | grep -v fonts-mathematica \
