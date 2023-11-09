@@ -144,6 +144,80 @@
                 '-e', '<inputFile>'],
             version: 'pdfid_v0_2_7__py3',
             parse: {
+                /** Parser output post-processing specification for type 'regex-counter'
+
+                type:
+                  To use the regex counter, must be 'regex-counter'.
+                  There's also another parser type, 'program-stdin', which executes another
+                  command on the parser output to post-process it. This parser tpye is not
+                  documented here.
+                version:
+                  Increment this when this "parse" block is changed. This automatically
+                  reruns post-processing on the raw parser output without rerunning
+                  the parser itself.
+                stdout:
+                  Specify rules for regex matches on the output. Must be an object with
+                  regex patterns as keys and transformations as values. The transformations
+                  are applied to the raw parser output, changing the text of the feature
+                  that is visible to the FAW. This allows you to hide irrelevant information
+                  from the FAW, transform numerical logging into numerical features, etc.
+
+                  The transformations can be any of:
+                    nameReplace:
+                      For matched output, replace patterns on the output with strings.
+                      Value is a mapping from a regex to the value to replace with.
+                    nameGroup:
+                      If the value is a number `n`, replace the feature text with the text
+                      of the nth match group. For example:
+                        // Replaces the feature text of matches with "Date":
+                        '^(Date): .*$': {
+                          nameGroup: 1,
+                        }
+
+                      If the value is a string, replace the feature text with the string.
+                      You can refer to match groups within the string. For example:
+                        // replaces the feature text of matches with "Type: " followed by the
+                        // value of the named match group `type`:
+                        '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
+                          nameGroup: 'Type: \\g<type>',
+                        },
+
+                    countGroup, countAsMissing, countAsNumber:
+                      `countGroup` converts parser output to a numeric feature, representing the count
+                      of times this pattern was matched.
+                      The value identifies a match group.
+
+                      If `countAsMissing` is also specified and also equals the content of the
+                      match group, the output is skipped.
+
+                      If `countAsNumber` is `true`, the matched text should parse as a number,
+                      and two new features are added: one with a "_sum" suffix representing
+                      the sum of all numbers matched, and one with a "_nan" suffix representing
+                      the count of times the group failed to parse as a number.
+
+                      It's likely you'll want to specify `nameGroup` or `nameReplace` along
+                      with these fields to strip out the numbers from the feature text.
+
+                      Examples:
+                        // Sum the total number of bytes in the parser output
+                        '^Consumed ([0-9]+) bytes$': {
+                            countGroup: 1,
+                            countAsNumber: true,
+                            nameReplace: {
+                                '[0-9]+': '<INT>',
+                            },
+                        },
+                        // Count matches where RMSE != 0
+                        '^RMSE: (.+)$': {
+                            countGroup: 1,
+                            countAsMissing: ['0', '0.', '0.0']
+                            nameGroup: 'RMSE > 0',
+                        },
+                stderr:
+                  Same schema as `stdout`, but operating on stderr.
+                stdstar:
+                  Same schema as stdout, but operating on both stdout and stderr.
+                */
                 type: 'regex-counter',
                 version: '1',
                 stdout: {
