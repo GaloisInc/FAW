@@ -4,6 +4,7 @@
 """
 
 import os
+import json
 import signal
 import subprocess
 
@@ -15,6 +16,7 @@ log_types = [
 ] + ( ['View /var/log/ci-container'] if os.path.exists('/var/log/ci-container') else [] ) + [
     'Database REPL',
     'Bash shell',
+    'Show Dev Mounts',
     'Restart FAW service',
 ]
 
@@ -42,8 +44,10 @@ def main():
             _wrapped_call(['faw-db-console.py'])
         elif log_types[li].startswith('Bash shell'):
             _wrapped_call(['/usr/bin/bash'])
+        elif log_types[li].startswith('Show Dev Mounts'):
+            _show_devmounts()
         elif log_types[li].startswith('Restart'):
-            subprocess.call(['faw-restart.sh'])   
+            subprocess.call(['faw-restart.sh'])
         else:
             raise NotImplementedError(log_types[li])
 
@@ -55,6 +59,27 @@ def _wrapped_call(cmd):
         subprocess.call(cmd)
     finally:
         signal.signal(signal.SIGINT, old)
+
+
+def _show_devmounts():
+    # we have tunnelled all valid environment variables
+    # to this container, so we can get hold of the paths that way.
+    devmount_env = {
+        env: os.getenv(env)
+        for env in os.environ.keys()
+        if env.startswith('FAW_DEVMOUNTS-')
+    }
+
+    print('{0:<20}{1:<10}{2}'.format('DevMount', 'Status', 'Host Path'))
+    print('{0:<20}{1:<10}{2}'.format('--------', '------', '---------'))
+    for data in devmount_env.values():
+        value = json.loads(data)
+        active = True if value['host_path'] else False
+        message = '{0:<20}{1:<10}{2}'.format(
+            value['name'], "Active" if active else "Inactive",
+            value['host_path'] or ''
+        )
+        print(message)
 
 
 if __name__ == '__main__':

@@ -18,12 +18,16 @@ running end-user copies of the Galois Format Analysis Workbench.
 import argparse
 import asyncio
 import atexit
+import collections
 import dataclasses
+import glob
 import io
+import json
 import hashlib
 import logging
 import os
 import pathlib
+import queue
 import re
 import shlex
 import shutil
@@ -195,9 +199,19 @@ def main():
         config_data, config, build_dir, build_faw_dir = None, None, None, None
         development = False
 
+    # Pick out the dev mounts if any
+    devmounts = _get_devmounts_config(config_data)
+
+    # Config Update: If any parsers have specified devmount dependencies, and
+    # the specified devmount has been mounted, update the parser versions to
+    # force a reparse at startup
+    if config_data:
+        valid_devmount_keys = {k for k, info in devmounts.items() if info.valid}
+        _update_affected_parser_versions(config_data, valid_devmount_keys)
+
     # Check that observatory image is loaded / built
     _check_image(development=development, config=config, config_data=config_data,
-            build_dir=build_dir, build_faw_dir=build_faw_dir)
+            build_dir=build_dir, build_faw_dir=build_faw_dir, devmounts=devmounts)
 
     # If we are in build mode, we have no more work to do in the CI container
     if build_mode:
@@ -266,10 +280,18 @@ def main():
                     '-c', 'cd /home/pdf-observatory/ci && npm install && npm run build'
                 ])
 
+        # Start the builder thread
+        builder_thread = start_builder(
+            development=development, config_dir=config, build_dir=build_dir,
+            build_faw_dir=build_faw_dir, faw_container_id=docker_id, devmounts=devmounts
+        )
+
         # Distribution folder is mounted in docker container, but workbench.py
         # holds the schema.
-        def watch_for_config_changes(development=development, config_dir=config,
-            build_dir=build_dir, build_faw_dir=build_faw_dir, docker_id=docker_id):
+        def watch_for_config_changes(
+            development=development, config_dir=config, build_dir=build_dir,
+            build_faw_dir=build_faw_dir, docker_id=docker_id, builder_thread=builder_thread
+        ):
             # Where, in the docker container, to dump the new config
             cfg_dst = '/home/config.json'
 
@@ -299,25 +321,14 @@ def main():
                             new_config=new_config, old_config=last_config,
                             development=development, config_dir=config_dir,
                             build_dir=build_dir, build_faw_dir=build_faw_dir,
-                            current_docker_id=docker_id
+                            current_docker_id=docker_id, builder_thread=builder_thread
                         )
 
                         last_config = new_config
 
-                        # Docker cp is weird... if stdin, it's a tarred
-                        # directory
-                        buf = io.BytesIO()
-                        with tarfile.TarFile(fileobj=buf, mode='w') as tf:
-                            finfo = tarfile.TarInfo(os.path.basename(cfg_dst))
-                            finfo.size = len(new_config_file)
-                            finfo.mtime = time.time()
-                            tf.addfile(finfo, io.BytesIO(new_config_file))
-                        buf.seek(0)
-                        p_ts = subprocess.Popen(['docker', 'cp', '-',
-                            f'{docker_id}:{os.path.dirname(cfg_dst)}'],
-                            stdin=subprocess.PIPE)
-                        p_ts.communicate(input=buf.read())
-                        p_ts.wait()
+                        # Copy the new config file to FAW
+                        logging.info('Pushing updated config to FAW')
+                        _update_faw_config(new_config_file, docker_id, cfg_dst)
                 except:
                     traceback.print_exc()
 
@@ -344,10 +355,19 @@ def main():
     # which the FAW server would be accessible (from the host)
     server_thread = start_server(config, port)
 
+    # Start the devmounts watcher
+    devmounts_watcher_thread = start_devmount_watcher(
+        config_dir=config, build_dir=build_dir, devmounts=devmounts,
+        faw_docker_id=docker_id, builder_thread=builder_thread
+    )
+
     # To ensure that we kill the FAW container (which we are just
     # about to start) on exiting, including during abnormal exits,
     # we will register ourselves an atexit listener
-    def on_exit(faw_docker_id=docker_id, server_thread=server_thread):
+    def on_exit(
+        faw_docker_id=docker_id, server_thread=server_thread,
+        builder_thread=builder_thread, devmounts_watcher_thread=devmounts_watcher_thread
+    ):
         logging.info("In at exit processing")
         # Because we are in an exit handler, let us not throw an exception
         r = subprocess.run(f"docker ps -a | grep {faw_docker_id}", shell=True)
@@ -360,6 +380,14 @@ def main():
         server_thread.stop_server()
         server_thread.join(3)
 
+        # And the builder thread
+        builder_thread.stop()
+        builder_thread.join(3)
+
+        # As well as the devmounts watcher
+        devmounts_watcher_thread.stop()
+        devmounts_watcher_thread.join(6)
+
         # Without this sleep, the script exits before the logging script has an
         # opportunity to collect error messages. So, wait a bit before exiting
         time.sleep(3)
@@ -371,6 +399,32 @@ def main():
         '-v', f'{pdf_dir}:/home/pdf-files:ro',
         '-v', f'{IMAGE_TAG+VOLUME_SUFFIX}:/data/db'
     ]
+
+    # We will also pass some basic devmount related information to the
+    # FAW container. This is primarily so that programs (like faw-cli)
+    # running in the FAW container can get a picture of what devmounts
+    # are in play.
+    # NOTE: This is purely informational. The regular functioning of
+    # FAW does not rely on the existence of these variables; in fact
+    # the paths specified here will not even be accessible from the FAW!
+    # NOTE: We *can* pass more information this way, but a concern is
+    # that part of the information is somewhat dynamic (affected stages,
+    # affected parsers etc). However with the environment variable based
+    # "transmission", this information is passed only once at the start
+    # to the CLI. So if we should display more information, alternatives
+    # can be considered: for example, invoke the devmounts information
+    # display portion within the CI container or create an endpoint that
+    # gives more information about the current state of devmounts. These
+    # options all have some pain points that need to be resolved.
+    devmounts_env_params = []
+    for i, (env, info) in enumerate(devmounts.items()):
+        dct = dict(
+            name=env,
+            host_path=os.getenv(env, '')
+        )
+        devmounts_env_params.extend(
+            ['-e', f'FAW_DEVMOUNTS-{i+1}={json.dumps(dct)}']
+        )
 
     # In build mode, this variable will not be set:
     if 'FAW_HOST_CI_LOG_DIR' in os.environ:
@@ -386,7 +440,7 @@ def main():
         '-p', f'{port}:8123',
         # Disable core dumps
         '--ulimit', 'core=0',
-    ] + volume_mount_params + extra_flags
+    ] + volume_mount_params + devmounts_env_params + extra_flags
 
     logging.info(f"FAW command line: {faw_command_line}")
     subprocess.check_call(faw_command_line)
@@ -647,6 +701,11 @@ def _check_config_file(config, build_dir):
                     },
                 },
             },
+            s.Optional('devmounts'): {
+                str: {
+                    'triggers': [str]
+                },
+            },
         },
         **schema_views,
     })
@@ -660,7 +719,7 @@ def _check_config_file(config, build_dir):
     return config_data
 
 
-def _check_image(development, config, config_data, build_dir, build_faw_dir):
+def _check_image(development, config, config_data, build_dir, build_faw_dir, devmounts):
     """Ensure that the docker image is loaded, if we are using a packaged
     version, or rebuild latest, if using a development version.
 
@@ -671,6 +730,7 @@ def _check_image(development, config, config_data, build_dir, build_faw_dir):
         build_dir (str): The Docker build context folder.
         build_faw_dir (str): The path, relative to the docker build context,
             of the FAW code.
+        devmounts (Dict[str, _DevMountInfo]): Information regarding dev mounts
     """
     build_local = development or os.path.lexists(os.path.join(faw_dir,
             'faw', 'pdf-observatory'))
@@ -695,7 +755,7 @@ def _check_image(development, config, config_data, build_dir, build_faw_dir):
     assert config_data is not None, 'required --config?'
 
     # Generate the contents for the dockerfile
-    dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir)
+    dockerfile_contents = _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir, devmounts)
     logging.info('='*79)
     logging.info(dockerfile_contents)
     logging.info('='*79)
@@ -707,7 +767,7 @@ def _check_image(development, config, config_data, build_dir, build_faw_dir):
     # Return the tag for the build
     return img_tag
 
-def _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir):
+def _create_dockerfile_contents(development, config, config_data, build_dir, build_faw_dir, devmounts):
     dockerfile = []
     dockerfile_middle = []
     dockerfile_final = []
@@ -817,6 +877,13 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
             COPY {shlex.quote(config_rel_dir)} /home/dist
             ''')
 
+    # Dependencies between devmounts and stages are
+    # inferred from commands, clear out the current state
+    # as we will be collecting this again.
+    # TODO: This need some more thought.
+    for info in devmounts.values():
+        info.clear_dependent_stages()
+
     for stage, stage_def in {**config_data['build']['stages'],
             **stages_hardcoded}.items():
         if not stages_written and stage != 'base':
@@ -825,12 +892,11 @@ def _create_dockerfile_contents(development, config, config_data, build_dir, bui
         stage_commands = stage_def.get('commands', [])
         stage_commands_new = []
         for s in stage_commands:
-            try:
-                ss = s.format(dist=config_rel_dir, disttarg='/home/dist')
-            except KeyError:
-                raise KeyError(f'While formatting: {s}')
-            else:
-                stage_commands_new.append(ss)
+            new_commands = _preprocess_build_stage_command(
+                command=s, devmounts=devmounts, faw_context_dir=build_dir,
+                stage_name=stage, dist=config_rel_dir, disttarg='/home/dist'
+            )
+            stage_commands_new.extend(new_commands)
         stage_commands = stage_commands_new
 
         if stage == 'final':
@@ -975,6 +1041,74 @@ def _build_docker_image(build_dir, config, suffix, dockerfile_contents):
     else:
         return IMAGE_TAG + suffix
 
+
+def _preprocess_build_stage_command(*, command, devmounts, faw_context_dir, stage_name, dist, disttarg):
+    try:
+        # Expand variables if any in the command
+        s = command.format(dist=dist, disttarg=disttarg).strip()
+
+        # Handle FAW_DEVMOUNT
+        if s.startswith('FAW_DEVMOUNT'):
+            # FAW_DEVMOUNT is expected to have the following syntax
+            # `FAW_DEVMOUNT <devmount_env> <target path>
+            # TODO: We could consider relaxing the syntax to support <devmount_env>/<src_path>
+            parts = shlex.split(s)
+            devmount_env, target_path = parts[1], parts[2]
+
+            # Only proceed if this is a valid devmount. Otherwise we ignore this command
+            # entirely (i.e. make it a noop)
+            assert devmount_env in devmounts, f"{devmount_env} does not correspond to a known dev mount"
+
+            devmount = devmounts[devmount_env]
+            if not devmount.valid:
+                logging.info(f"Ignoring DEVMOUNT {devmount_env} as it is not valid")
+                return []
+            else:
+                logging.info(f"Found valid DEVMOUNT {devmount_env} mapping to {devmount.mounted_path}")
+
+            # To access the mounted folder during the FAW image build, we need to make
+            # it available at a position relative to its context directory, which in this case
+            # is the faw_context_dir parameter.
+
+            # The workbench already computes the absolute path of where the mounted folder
+            # should go and passes it to us via the env variable 'FAW_DEVMOUNT_ROOT'. (It is
+            # chosen to be a subdirectory of the FAW root dir which contains the workbench.py
+            # script; for all our current use cases, this directory should be under the
+            # faw_context_dir)
+
+            devmount_rootdir = os.getenv('FAW_DEVMOUNT_ROOT')
+            build_dir_devmount_target = os.path.join(devmount_rootdir, devmount_env)
+            relative_devmount_target = os.path.relpath(build_dir_devmount_target, start=faw_context_dir)
+            assert not relative_devmount_target.startswith('..'), \
+                f"Internal error: devmount target: {build_dir_devmount_target} not under {faw_context_dir}"
+
+            logging.info(f"Copying {devmount.mounted_path} to {build_dir_devmount_target}")
+
+            # We first delete the target path it already exists, to avoid mixing up old and the new.
+            if os.path.exists(build_dir_devmount_target):
+                shutil.rmtree(build_dir_devmount_target)
+            os.makedirs(build_dir_devmount_target)
+
+            subprocess.check_call([
+                f'tar -c --exclude-ignore=.gitignore -C {devmount.mounted_path} . | tar -x -C {build_dir_devmount_target}'
+            ], shell=True)
+
+            # Store the stage name to track dependencies between devmounts and stages
+            devmount.add_dependent_stage(stage_name)
+
+            # With all that in place, we can now issue a COPY (or ADD) command with the real target
+            # path, so that the rest of the build can proceed. But we should clear out the target
+            # path if it exists to avoid mixing and matching the old and the new
+            return [
+                f"RUN rm -rf {target_path}",
+                f"COPY {relative_devmount_target} {target_path}"
+            ]
+        else:
+            return [s]
+    except KeyError:
+        raise KeyError(f'While formatting: {s}')
+
+
 def _export_config_json(config_data):
     import json
     config_data_client = config_data.copy()
@@ -998,6 +1132,29 @@ def _generate_copy_commands(stage, stage_def, *, force_prefix=None):
             commands.append(f'COPY --from={stage} {k} {v}')
 
     return commands
+
+
+def _update_faw_config(config_file_bytes, faw_docker_id, dest_path):
+    # Docker cp is requires a tarred directory if we are sending stuff via stdin
+    logging.info('Pushing updated config to FAW')
+
+    # Create a tar file with a single config file
+    buf = io.BytesIO()
+    with tarfile.TarFile(fileobj=buf, mode='w') as tf:
+        finfo = tarfile.TarInfo(os.path.basename(dest_path))
+        finfo.size = len(config_file_bytes)
+        finfo.mtime = time.time()
+        tf.addfile(finfo, io.BytesIO(config_file_bytes))
+    buf.seek(0)
+
+    # Push it to FAW via a `docker cp` command
+    process = subprocess.Popen(
+        ['docker', 'cp', '-', f'{faw_docker_id}:{os.path.dirname(dest_path)}'],
+        stdin=subprocess.PIPE
+    )
+    process.communicate(input=buf.read())
+    process.wait()
+
 
 def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
     # Only spin up mongo -- the only reason we make it externally connectible is
@@ -1151,7 +1308,7 @@ def _mongo_copy(db_name, copy_mongo_from, copy_mongo_to):
 
 def _check_build_stage_change_and_update(
     *, new_config, old_config, development, config_dir, build_dir,
-    build_faw_dir, current_docker_id
+    build_faw_dir, current_docker_id, builder_thread
 ):
     logging.info(f"Checking for stage updates ...")
 
@@ -1180,57 +1337,175 @@ def _check_build_stage_change_and_update(
         logging.info("No updated stages. Returning")
         return
 
-    # To build a new image, first create the dockerfile contents
-    dockerfile_contents = _create_dockerfile_contents(
-        development=development, config=config_dir,
-        config_data=new_config, build_dir=build_dir,
-        build_faw_dir=build_faw_dir
+    # Initiate a build and wait for it to complete
+    build_id = time.time_ns()
+    logging.info(f'Initiate build due to build changes - ID: {build_id}')
+
+    notify_event = threading.Event()
+    builder_thread.initiate_build(
+        config_data=new_config, updated_stages_map=updated_stages, notify_event=notify_event
     )
+    notify_event.wait()
 
-    # We need to collect all the outputs from the updated stages in some place
-    # where we can extract them out of the image (the container really) cleanly.
-    # To this end, we insert extra COPY commands to the dockerfile that copy
-    # the files under a specific temp directory, but retaining the full path.
-    # We then create a tar file with all the copied files for extraction.
-    temp_name = str(uuid.uuid4())
-    temp_dir_name = os.path.join('/tmp', temp_name)
-    commands = []
-    for stage_name, stage_data in updated_stages.items():
-        copy_cmds = _generate_copy_commands(stage_name, stage_data, force_prefix=temp_dir_name)
-        commands.extend(copy_cmds)
+    logging.info(f'Build completed - ID: {build_id}')
 
-    tar_file_name = f"/tmp/{temp_name}.tar"
-    tar_command = f"RUN cd {temp_dir_name} && find . -type f -print0 | tar -cvf {tar_file_name} --null -T -"
-    commands.append(tar_command)
 
-    dockerfile_contents += ("\n" + "\n".join(commands))
+@dataclasses.dataclass
+class _BuildInfo:
+    config_data: dict
+    updated_stages_map: dict
+    notify_event: threading.Event
 
-    # Finally build the image
-    # NOTE: Currently we are using the same image tag that is currently
-    # running in FAW.
-    logging.info("Rebuilding FAW ...")
-    image_tag = _build_docker_image(
-        build_dir=build_dir, config=config_dir, suffix="-dev", dockerfile_contents=dockerfile_contents
-    )
-    logging.info("Completed Rebuild")
 
-    # Create a container with this image and copy files appropriately
-    new_container_id = f"{image_tag}-rebuild"
+def start_builder(*, development, config_dir, build_dir, build_faw_dir, faw_container_id, devmounts):
 
-    try:
-        subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
-        logging.info(f"Completed Container Creation - {new_container_id}")
+    class BuilderThread(threading.Thread):
+        def __init__(self):
+            super().__init__(daemon=True)
+            self._queue = queue.Queue()
+            self._stop_event = threading.Event()
 
-        # Copy the tar file we created during the build process locally and then stream it out to the
-        # destination container. NOTE: The explicit tar creation above ensures that the resultant tar
-        # has the right hierarchy to allow us to do this.
-        logging.info("Starting to copy files ...")
-        subprocess.check_call(["docker", "cp", f"{new_container_id}:{tar_file_name}", tar_file_name])
-        subprocess.check_call(f"docker cp - {current_docker_id}:/ < {tar_file_name}", shell=True)
-        logging.info("Copying files completed")
-    finally:
-        subprocess.run(['docker', 'rm', new_container_id])
-        logging.info(f"Removed Container - {new_container_id}")
+        def initiate_build(self, *, config_data, updated_stages_map, notify_event):
+            info = _BuildInfo(
+                config_data=config_data, updated_stages_map=updated_stages_map,
+                notify_event=notify_event
+            )
+            self._queue.put(info)
+
+        def stop(self):
+            self._stop_event.set()
+
+        def run(self):
+            # TODO: Reconsider this wait strategy (wrt to thread exit)
+            while True:
+                try:
+                    # Get the next task from the queue (or block for a second
+                    # till there is one)
+                    info = self._queue.get(timeout=1)
+                except queue.Empty:
+                    # Exception on time out. If we have not been asked to stop,
+                    # go try again
+                    if not self._stop_event.is_set():
+                        continue
+
+                # Check if we were asked to stop before we get to the actual build
+                if self._stop_event.is_set():
+                    return
+
+                # Initiate the actual build
+                self._build_stages_and_update(info)
+
+                # And notify waiters
+                info.notify_event.set()
+
+        def _build_stages_and_update(self, build_info):
+            dockerfile_contents = _create_dockerfile_contents(
+                development=development, config=config_dir,
+                config_data=build_info.config_data, build_dir=build_dir,
+                build_faw_dir=build_faw_dir, devmounts=devmounts
+            )
+
+            # We need to collect all the outputs from the updated stages in some place
+            # where we can extract them out of the image (the container really) cleanly.
+            # To this end, we insert extra COPY commands to the dockerfile that copy
+            # the files under a specific temp directory, but retaining the full path.
+            # We then create a tar file with all the copied files for extraction.
+            temp_name = str(uuid.uuid4())
+            temp_dir_name = os.path.join('/tmp', temp_name)
+            commands = []
+            for stage_name, stage_data in build_info.updated_stages_map.items():
+                copy_cmds = _generate_copy_commands(stage_name, stage_data, force_prefix=temp_dir_name)
+                commands.extend(copy_cmds)
+
+            tar_file_name = f"/tmp/{temp_name}.tar"
+            tar_command = f"RUN cd {temp_dir_name} && find . -type f -print0 | tar -cvf {tar_file_name} --null -T -"
+            commands.append(tar_command)
+
+            dockerfile_contents += ("\n" + "\n".join(commands))
+
+            # Finally build the image
+            # NOTE: Currently we are using the same image tag that is currently
+            # running in FAW.
+            logging.info("Rebuilding FAW ...")
+            image_tag = _build_docker_image(
+                build_dir=build_dir, config=config_dir,
+                suffix="-dev", dockerfile_contents=dockerfile_contents
+            )
+            logging.info("Completed Rebuild")
+
+            # Create a container with this image and copy files appropriately
+            new_container_id = f"{image_tag}-rebuild"
+
+            try:
+                subprocess.check_call(['docker', 'create', f"--name={new_container_id}", image_tag])
+                logging.info(f"Completed Container Creation - {new_container_id}")
+
+                # Copy the tar file we created during the build process locally and then stream it out to the
+                # destination container. NOTE: The explicit tar creation above ensures that the resultant tar
+                # has the right hierarchy to allow us to do this.
+                logging.info("Starting to copy files ...")
+                subprocess.check_call(["docker", "cp", f"{new_container_id}:{tar_file_name}", tar_file_name])
+                subprocess.check_call(f"docker cp - {faw_container_id}:/ < {tar_file_name}", shell=True)
+                logging.info("Copying files completed")
+            finally:
+                subprocess.run(['docker', 'rm', new_container_id])
+                logging.info(f"Removed Container - {new_container_id}")
+
+    # Run it in a thread
+    t = BuilderThread()
+    t.start()
+
+    return t
+
+
+@dataclasses.dataclass
+class _DevMountInfo:
+    valid: bool
+    mounted_path: str
+    trigger_paths: list
+    dependent_stages: set = dataclasses.field(default_factory=set)
+
+    def add_dependent_stage(self, stage_name):
+        self.dependent_stages.add(stage_name)
+
+    def clear_dependent_stages(self):
+        self.dependent_stages = set()
+
+def _get_devmounts_config(config_data):
+    devmounts = dict()
+    for name, config in config_data['build'].get('devmounts', {}).items():
+        # If this is an operational devmount, we would expect workbench to
+        # have mounted it at a standard path.
+        mounted_path = f"/home/devmounts/{name}"
+        if os.path.lexists(mounted_path):
+            trigger_paths = config.get('triggers', [])
+            devmount_info = _DevMountInfo(valid=True, mounted_path=mounted_path, trigger_paths=trigger_paths)
+        else:
+            devmount_info = _DevMountInfo(valid=False, mounted_path=None, trigger_paths=[])
+
+        devmounts[name] = devmount_info
+
+    return devmounts
+
+
+def _update_affected_parser_versions(config_data, devmount_names):
+    """
+    Given the current configuration and a set of devmount names,
+    look through the configurations for parsers that depend on any of
+    the specified devmounts and update their versions
+    """
+    for parser_name, parser in config_data['parsers'].items():
+        if 'devmount_dependencies' not in parser:
+            continue
+
+        # If any of the specified devmount dependencies have been affected by the changes
+        # above, we update the parser version to a new value.
+        trigger_devmounts = list(devmount
+                                 for devmount in (parser['devmount_dependencies'])
+                                 if devmount in devmount_names)
+        if (trigger_devmounts):
+            logging.info(f'Updating {parser_name} due to updates on devmount(s): {trigger_devmounts}')
+            parser['version'] = str(uuid.uuid4())
 
 
 def start_server(config_dir, faw_port):
@@ -1311,6 +1586,102 @@ def start_server(config_dir, faw_port):
 
     # Run it in a thread
     t = ServerThread()
+    t.start()
+
+    return t
+
+
+def start_devmount_watcher(*, config_dir, build_dir, devmounts, faw_docker_id, builder_thread):
+
+    import watchfiles
+
+    class DevMountWatcher(threading.Thread):
+        def __init__(self):
+            super().__init__(daemon=True)
+            self._stop_event = threading.Event()
+
+            # Compute the set of files we need to look for and
+            # map it to the stages we would need to rebuild in
+            # case they change. We also collect a map from files
+            # to devmounts.
+            self._path_stages_map = collections.defaultdict(set)
+            self._path_devmounts_map = collections.defaultdict(set)
+            for name, info in devmounts.items():
+                if not info.valid:
+                    continue
+
+                all_paths = []
+                for p in info.trigger_paths:
+                    full_path = os.path.join(info.mounted_path, p)
+                    paths = glob.glob(full_path, recursive=True)
+                    all_paths.extend(paths)
+
+                for path in all_paths:
+                    for stage_name in info.dependent_stages:
+                        self._path_stages_map[path].add(stage_name)
+
+                    self._path_devmounts_map[path].add(name)
+
+            logging.info(f"Watching {list(self._path_stages_map.keys())}")
+
+        def stop(self):
+            self._stop_event.set()
+
+        def run(self):
+            for changes in watchfiles.watch(*self._path_stages_map.keys(), yield_on_timeout=True):
+                # If we have been asked to stop, do that
+                if self._stop_event.is_set():
+                    return
+
+                # Figure out the set of stages we need to rebuild as well as
+                # devmounts that were affected by this
+                updated_stage_names = set()
+                affected_devmounts = set()
+                for change, path in changes:
+                    # We react to everything other than deletion of the path in question
+                    # For deletion, we will just log the fact
+                    if change == watchfiles.Change.deleted:
+                        logging.info(f'Trigger path "{path}" has been deleted')
+                        continue
+
+                    stage_names = self._path_stages_map.get(path, set())
+                    updated_stage_names.update(stage_names)
+
+                    devmounts = self._path_devmounts_map.get(path, set())
+                    affected_devmounts.update(devmounts)
+
+                # If there are no changed stages continue
+                if not updated_stage_names:
+                    continue
+
+                logging.info(f"The following devmounts have been affected: {affected_devmounts}")
+                logging.info(f"The following stages have been updated: {updated_stage_names}")
+
+                # Collect the data needed to initiate the build, then initiate it and wait for
+                # it to finish
+                updated_config = _check_config_file(config=config_dir, build_dir=build_dir)
+                updated_stages = {
+                    stage: stage_info
+                    for stage, stage_info in updated_config['build']['stages'].items()
+                    if stage in updated_stage_names
+                }
+                notify_event = threading.Event()
+
+                builder_thread.initiate_build(
+                    config_data=updated_config, updated_stages_map=updated_stages, notify_event=notify_event
+                )
+
+                notify_event.wait()
+
+                # Finally we need to update the versions of any parsers that might have been affected by the
+                # changes above.
+                _update_affected_parser_versions(updated_config, affected_devmounts)
+
+                # Push the changed config to FAW and it should trigger a reparse
+                updated_config_bytes = _export_config_json(updated_config).encode('utf-8')
+                _update_faw_config(updated_config_bytes, faw_docker_id, '/home/config.json')
+
+    t = DevMountWatcher()
     t.start()
 
     return t

@@ -5,6 +5,7 @@ import atexit
 import itertools
 import os
 from pathlib import Path
+import pyjson5
 import re
 import shlex
 import shutil
@@ -70,10 +71,21 @@ def main():
     args = parse_args()
 
     # Compute all the mount paths for the CI container
-    mount_paths = compute_mount_paths(args.config_dir, args.file_dir,
-            [args.copy_mongo_from, args.copy_mongo_to])
+    standard_mount_paths = compute_mount_paths(
+        args.config_dir, args.file_dir,
+        [args.copy_mongo_from, args.copy_mongo_to]
+    )
+    devmounts_env_vars, dev_mount_paths = compute_devmount_paths(args.config_dir)
     mount_paths_as_args = list(
-        itertools.chain.from_iterable((("-v", f"{src}:{target}") for (src, target) in mount_paths))
+        itertools.chain.from_iterable(
+            (("-v", f"{src}:{target}") for (src, target) in standard_mount_paths + dev_mount_paths)
+        )
+    )
+
+    devmounts_env_as_args = list(
+        itertools.chain.from_iterable(
+            (("-e", f"{var}={value}") for (var, value) in devmounts_env_vars)
+        )
     )
 
     # And the full command line for running the CI container as a service
@@ -120,6 +132,27 @@ def main():
 
     # Otherwise run an interactive process in the CI container to support, well, interactivity
     else:
+        # We also specify a directory to the CI container to use as a temporary root
+        # to store devmount related content. For why we need this, take a look at the
+        # ci-container-service.py.
+
+        # The choice of this directory is not arbitrary. It needs to satisfy the following conditions:
+        # 1. It must be accessible from within the CI container
+        # 2. It must be within the build context of the FAW image (as invoked from the CI container)
+        # 3. It should be deterministic (so that s6 scripts know/can compute its path)
+        # 4. But it must be instance specific
+
+        # Picking a new directory, keyed by the current process id, in the current script's dir should
+        # satisfy all those requirements. The script dir is directly mounted with *exactly the same path*
+        # in to the CI container and is (for all currently known situations) part of the build context of
+        # the FAW image.
+
+        # NOTE: We are passing the full directory path here since we need the path to be "well-known"
+        # in the ci-container-dockerfile where we generate scripts to delete this folder among other
+        # things.
+        faw_dir_p = to_absolute_path(__file__).parent
+        devmount_root_dir = faw_dir_p / Path(f'.devmounts-{os.getpid()}')
+
         command_line = (
             ["python3", str(interactive_script_path)] +
             ['--config-dir', str(to_absolute_path(args.config_dir))] +
@@ -129,10 +162,12 @@ def main():
         command = (
             ['docker', 'run']
             + mount_paths_as_args
+            + devmounts_env_as_args
             + ['-p', f"{args.port_ci}:9001"]
             + ['-e', f'FAW_CI_CMD={ci_container_cmd}']
             + ['-e', f'FAW_CONTAINER_NAME={faw_container_name}']
             + ['-e', f'FAW_HOST_CI_LOG_DIR={CI_CONTAINER_LOG_PATH_HOST}']
+            + ['-e', f'FAW_DEVMOUNT_ROOT={str(devmount_root_dir)}']
             + ['--name', cname]
             + ['--add-host', 'host.docker.internal:host-gateway']
             + ['-it', '--rm', imgname]
@@ -379,6 +414,72 @@ def compute_mount_paths(config_dir, file_dir, maybe_file_list):
 def to_absolute_path(path):
     return Path(path).resolve()
 
+
+def compute_devmount_paths(config_dir):
+    """
+    Do a light-weight parse of config.json5(s) both at the top-level and in plugin folders
+    to pick out any devmount configurations. For each valid devmount, pick the source and
+    target paths for mounting within the CI container. Note that the target location
+    must be derivable independently within the CI container as well.
+    """
+
+    # NOTE: Each devmount section is a dictionary where the key is an environment
+    # variable and value is a configuration (of type 'dict') for that devmount. At this
+    # level, we only care about the environment variables (i.e. keys) and whether
+    # they are valid (i.e. defined). The configuration etc will be dealt with by the
+    # CI container separately.
+    devmount_vars = set()
+
+    # A simple function to extend a set, but issue a warning if the new elements
+    # overlap with the old
+    def _warn_update_set(current, values):
+        overlaps = current.intersection(values)
+        if overlaps:
+            for name in overlaps:
+                print(f'Warning: A devmount by the name "{name}" already exists')
+
+        current.update(values)
+
+    with open((os.path.join(config_dir, 'config.json5'))) as f:
+        config_data = pyjson5.load(f)
+        if v := safe_dict_fetch(config_data, 'build', 'devmounts'):
+            _warn_update_set(devmount_vars, v.keys())
+
+    for child_path in os.listdir(config_dir):
+        child_path = os.path.join(config_dir, child_path)
+        if not os.path.isdir(child_path):
+            continue
+
+        child_config_path = os.path.join(child_path, 'config.json5')
+        if os.path.lexists(child_config_path):
+            with open(child_config_path) as f:
+                child_config_data = pyjson5.load(f)
+                if v := safe_dict_fetch(child_config_data, 'build', 'devmounts'):
+                    _warn_update_set(devmount_vars, v.keys())
+
+    valid_devmounts = set()
+    active_devmounts = [(v, os.getenv(v)) for v in devmount_vars if os.getenv(v)]
+    for v, path in active_devmounts:
+        if not os.path.exists(path) or not os.path.isdir(path):
+            print(f'Warning: The directory: <{path}> corresponding to devmount {v} does not exist. It will not be mounted!')
+        else:
+            valid_devmounts.add(v)
+
+    devmounts_path_map = [(os.getenv(v), f"/home/devmounts/{v}") for v in valid_devmounts]
+    devmounts_env_map = [(v, os.getenv(v)) for v in valid_devmounts]
+    return (devmounts_env_map, devmounts_path_map)
+
+
+def safe_dict_fetch(dct, *args):
+    last = dct
+    for k in args:
+        if not isinstance(last, dict) or k not in last:
+            # print("Looked for " + str(args) + ", did not find")
+            return None
+        else:
+            last = last[k]
+
+    return last
 
 
 if __name__ == '__main__':
