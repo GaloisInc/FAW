@@ -3,7 +3,10 @@
     dialects: {
       label: 'Dialect Wizard',
       type: 'program',
-      exec: ['python3', 'main.py', '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>'],
+      exec: [
+        'python3', '-m', 'dialectsplugin',
+        '<workbenchApiUrl>', '<jsonArguments>', '<outputHtml>',
+      ],
       execStdin: '<statsbyfile>',
     },
   },

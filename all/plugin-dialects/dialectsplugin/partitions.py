@@ -1,5 +1,5 @@
 import dataclasses
-from typing import List, Mapping, Optional, Sequence, Tuple, Generic, TypeVar
+from typing import List, Mapping, Optional, Sequence, Generic, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -7,8 +7,8 @@ import scipy.spatial
 import scipy.special
 
 
-from partitioning.filtering import TargetRestrictionMode, select_valid_heroes
-from partitioning.similarity import bernoulli_entropy_weights, pairwise_attributable_risk
+from dialectsplugin.filtering import TargetRestrictionMode, deduplicated_feature_indices, feature_slop, select_valid_heroes
+from dialectsplugin.similarity import bernoulli_entropy_weights, pairwise_attributable_risk
 
 T = TypeVar("T")
 
@@ -25,50 +25,45 @@ def best_partitions(
     min_feature_samples: int,
     target_restriction_mode: TargetRestrictionMode,
     max_slop_files: int,
-    max_dialects: int = 3,
+    max_dialects: int,
+    max_partitions: int,
     excluded_features: npt.NDArray[np.int_],
     exclusion_min_attr_risk: float,
-    feature_names: Sequence[str],  # TODO remove
-# ) -> Sequence[Sequence[int]]:  # feature indices in feature_files
+    feature_names: Sequence[str],
 ) -> WithDebugLines[Sequence[Sequence[int]]]:  # feature indices in feature_files
 
     target_files = target_files_from_cnf(feature_files, target_features_cnf)
 
-    # Drop exact duplicate rows, with indices to reconstruct the original
-    # TODO should consider features dupes when they coincide exactly
-    #   within the target, but not outside it. For now we don't.
-    #   Would need to keep the dupes with the least out-of-target representation
-    feature_files, unique_feature_indices, unique_inverse_indices = np.unique(
-        feature_files, axis=0, return_index=True, return_inverse=True
+    feature_slop_ = feature_slop(
+        feature_files=feature_files,
+        target_restriction_mode=target_restriction_mode,
+        target_files=target_files,
     )
-    target_feature_files = feature_files[:, target_files]
 
+    unique_features = deduplicated_feature_indices(
+        feature_files=feature_files,
+        target_files=target_files,
+        feature_slop=feature_slop_,
+    )
+    unique_feature_files = feature_files[unique_features, :]
+    unique_feature_slop = feature_slop_[unique_features]
+    target_feature_files = feature_files[
+        np.ix_(unique_features, target_files)
+    ]
+
+    # These hero indices are indices into unique_feature_files
     valid_heroes = select_valid_heroes(
-        feature_files,
+        unique_feature_files,
         target_files=target_files,
         min_feature_samples=max(min_feature_samples, max_slop_files),
-        target_restriction_mode=target_restriction_mode,
-        excluded_features=unique_inverse_indices[excluded_features],
+        feature_slop=unique_feature_slop,
+        excluded_features=excluded_features,
         exclusion_min_attr_risk=exclusion_min_attr_risk,
         max_slop_files=max_slop_files,
     )
     if len(valid_heroes) == 0:
         return WithDebugLines([], ['no candidate hero features', str(target_files)])
-    # TODO consider slop properly here
-    if target_restriction_mode == 'target_only':
-        hero_slop = np.sum(
-            np.delete(feature_files[valid_heroes, :], target_files, axis=1),
-            axis=1,
-        )
-    elif target_restriction_mode == 'homogeneous_outside':
-        feature_counts_outside_target = np.sum(
-            np.delete(feature_files[valid_heroes, :], target_files, axis=1),
-            axis=1,
-        )
-        hero_slop = np.minimum(
-            feature_counts_outside_target,
-            feature_files.shape[1] - target_files.size - feature_counts_outside_target,
-        )
+    hero_slop = unique_feature_slop[valid_heroes]
 
     partitions_with_debug_lines = _find_partition_heroes(
         valid_heroes=valid_heroes,
@@ -76,13 +71,13 @@ def best_partitions(
         hero_slop=hero_slop,
         max_slop_files=max_slop_files,
         max_dialects=max_dialects,
-        max_partitions=10,  # TODO unhardcode
-        hero_names=np.array(feature_names)[unique_feature_indices][valid_heroes]
+        max_partitions=max_partitions,
+        hero_names=np.array(feature_names)[unique_features][valid_heroes]
     )
 
     # transform back to indices in the original, pre-deduplication feature_files
     return WithDebugLines(
-        [unique_feature_indices[partition] for partition in partitions_with_debug_lines.value],
+        [unique_features[partition] for partition in partitions_with_debug_lines.value],
         partitions_with_debug_lines.debug_lines,
     )
 
@@ -115,7 +110,7 @@ def _find_partition_heroes(
     max_slop_files: int,
     max_dialects,
     max_partitions,
-    hero_names: Sequence[str]  # TODO remove
+    hero_names: Sequence[str],
 ) -> WithDebugLines[List[List[int]]]:
     # New version of partition search, without recursion
     num_target_files = target_feature_files.shape[1]
@@ -145,9 +140,6 @@ def _find_partition_heroes(
         # the log for better numeric stability)
         b=(1 / pairwise_attr_risk.shape[1]),
     ) * hero_feature_entropy
-    # hero_weights = np.mean(
-    #     np.abs(pairwise_attr_risk), axis=1,
-    # ) * hero_feature_entropy
 
     incomplete_partition_stack: List[_PartialPartition] = [_PartialPartition([], None)]
     good_partitions: List[List[int]] = []
@@ -242,12 +234,12 @@ def _find_partition_heroes(
         candidate_slop_contribution = hero_slop_contribution[candidate_heroes]
         candidate_weights = (
             hero_weights[candidate_heroes]  # between 0 and 1
-            * ((allowable_slop - candidate_slop_contribution) / allowable_slop)  # between 0 and 1; fraction of slop that will remain available
-            * candidate_rarity_satisfaction  # between 0 and 1
+            + ((allowable_slop - candidate_slop_contribution) / allowable_slop)  # between 0 and 1; fraction of slop that will remain available
+            + candidate_rarity_satisfaction  # between 0 and 1
         )
         # TODO check if this sort is too slow....
         # Sort ascending, since we want to extend the stack in ascending order (last item is popped)
-        candidate_sort_indices = np.argsort(candidate_weights, kind="stable")#[::-1]
+        candidate_sort_indices = np.argsort(candidate_weights, kind="stable")
 
         incomplete_partition_stack.extend(
             _PartialPartition(
@@ -259,21 +251,6 @@ def _find_partition_heroes(
 
     # Convert hero indices to feature indices and return
     return WithDebugLines(
-        [
-            valid_heroes[partition] for partition in good_partitions
-        ],
+        [valid_heroes[partition] for partition in good_partitions],
         [],
     )
-
-
-# TODO remove if unused
-def screen(a, b):
-    # `screen` is a method of aggregating values between 0 and 1
-    # that always returns a greater value than both inputs,
-    # as opposed to multiplication, that returns a lesser value.
-    # Traditionally this is used as an image blend mode in photo editing software.
-    return (1 - ((1 - a) * (1 - b)))
-
-
-def screen_array(arr: npt.NDArray[np.float_], axis) -> npt.NDArray[np.float_]:
-    return 1 - np.product(1 - arr, axis=axis)

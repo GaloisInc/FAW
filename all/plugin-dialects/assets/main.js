@@ -131,6 +131,19 @@ Vue.component('dialect-wizard', {
         <input v-model.number="dialectSettings.max_slop_files" type="number" />
     </label></div>
     <hr>
+    <details>
+        <summary>Results Size Limits</summary>
+        <label>
+            Max partitions
+            <input v-model.number="dialectSettings.max_partitions" type="number" />
+        </label>
+        <br/>
+        <label>
+            Max dialects per partition
+            <input v-model.number="dialectSettings.max_dialects" type="number" />
+        </label>
+    </details>
+    <hr>
     <div>
         Highlight file: 
         <input type="text" v-model="dialectSettings.highlighted_filename" />

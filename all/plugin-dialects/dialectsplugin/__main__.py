@@ -1,93 +1,17 @@
 import collections
 import dataclasses
-from typing import Any, DefaultDict, Dict, List, Optional, Sequence, Set, Tuple, TypedDict, Literal
+from typing import Any, DefaultDict, Dict, List, Optional, Sequence, Tuple
 import ujson as json
 import numpy as np
 import numpy.typing as npt
-import re
-import scipy.sparse
-import scipy.stats
 import sys
 import typer
 import jinja2
 
-import partitioning
-
-
-@dataclasses.dataclass
-class SearchSettings:
-    """Settings for the feature search widget"""
-    feature_search_expanded: bool = True
-    feature_search_regex: str = ''
-    feature_search_regex_case_sensitive: bool = False
-    sort_order: Literal['ascending', 'descending', 'entropy'] = 'entropy'
-
-
-@dataclasses.dataclass
-class DialectWizardSettings:
-    """Settings for the dialect wizard itself"""
-    targeted_features_cnf: Dict[int, bool] = (
-        dataclasses.field(default_factory=dict)
-    )
-    """Mapping from feature index to whether feature must be present.
-
-    If empty, target all files.
-    """
-    find_dialects: bool = False
-    # TODO maybe min_entropy or similar would be useful as well?
-    min_feature_samples: int = 20
-    target_restriction_mode: partitioning.TargetRestrictionMode = 'homogeneous_outside'
-    # restrict_to_target: bool = True
-    highlighted_filename: str = ''
-    excluded_features: List[int] = ()  # TODO not implemented yet
-    """Feature indices to exclude as dialect choices"""
-    exclusion_min_attr_risk: float = 0.9
-    """Minimum risk attributable to an excluded feature for exclusion"""
-    max_slop_files: int = 10
-
-    def __post_init__(self):
-        self.targeted_features_cnf = {
-            int(feature): included
-            for feature, included in self.targeted_features_cnf.items()
-        }
-        self.excluded_features = [
-            int(feature) for feature in self.excluded_features
-        ]
-
-
-class SimilarFeature(TypedDict):
-    feature: int
-    negated: bool  # TODO not used yet
-    attr_risk: float
-    """Similarity metric; risk attributable to the other feature"""
-    size_target: int
-    size_global: int
-    highlight: bool
-
-
-class Dialect(TypedDict):
-    hero_feature: int
-    similar_features: List[SimilarFeature]
-    """Mapping from feature index to similarity of this feature to the hero"""
-    negated: bool  # TODO not used yet
-    size_target: int
-    size_global: int
-    highlight: bool
-    filenames_outside_target: List[Tuple[str, bool]]
-
-
-class SlopFile(TypedDict):
-    filename: str
-    in_dialects: List[int]
-    """Indices of dialects containing this file"""
-    highlight: bool
-
-
-class Partition(TypedDict):
-    dialects: List[Dialect]
-    partition_quality: Dict[str, float]
-    """Aggregate partition quality metrics by name"""
-    slop_files: List[SlopFile]
+from dialectsplugin.similarity import features_attributable_to
+from dialectsplugin.settings import SearchSettings, DialectWizardSettings, SimilarFeature, Partition, Dialect, SlopFile
+from dialectsplugin.partitions import best_partitions, target_files_from_cnf
+from dialectsplugin.quality import quality_metrics
 
 
 def main(workbench_api_url: str, json_arguments: str, output_html: str):
@@ -132,15 +56,14 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     for feature, file_indices in file_indices_by_feature.items():
         feature_files[feature_to_index[feature], file_indices] = 1
 
-    # Now get partition(s) using API in partitioning package
-    # TODO move this logic into the package too
+    # TODO factor some of this into other modules
     if dialect_settings.find_dialects:
-        target_files: npt.NDArray[np.int_] = partitioning.target_files_from_cnf(
+        target_files: npt.NDArray[np.int_] = target_files_from_cnf(
             feature_files,
             dialect_settings.targeted_features_cnf,
         )
         target_size = len(target_files)
-        partition_hero_indices_with_debug_lines = partitioning.best_partitions(
+        partition_hero_indices_with_debug_lines = best_partitions(
             feature_files,
             target_features_cnf=dialect_settings.targeted_features_cnf,
             min_feature_samples=dialect_settings.min_feature_samples,
@@ -148,12 +71,14 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             max_slop_files=dialect_settings.max_slop_files,
             excluded_features=dialect_settings.excluded_features,
             exclusion_min_attr_risk=dialect_settings.exclusion_min_attr_risk,
+            max_dialects=dialect_settings.max_dialects,
+            max_partitions=dialect_settings.max_partitions,
             feature_names=features,
         )
         debug_lines = partition_hero_indices_with_debug_lines.debug_lines
 
         def build_similar_features(feature: int) -> List[SimilarFeature]:
-            similarities_and_features: Sequence[Tuple[float, int]] = partitioning.features_attributable_to(
+            similarities_and_features: Sequence[Tuple[float, int]] = features_attributable_to(
                 feature=feature,
                 feature_files=feature_files,
                 min_risk=min(0.25, dialect_settings.exclusion_min_attr_risk - 0.05),
@@ -212,7 +137,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             partition_file_indices,
                             target_feature_files,
                         ))
-                        for metric_name, metric_func in partitioning.quality_metrics.items()
+                        for metric_name, metric_func in quality_metrics.items()
                     },
                     slop_files=[
                         SlopFile(

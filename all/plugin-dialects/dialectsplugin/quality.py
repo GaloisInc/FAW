@@ -1,10 +1,8 @@
 import numpy as np
 import numpy.typing as npt
-import scipy as sp
 import scipy.stats
-import scipy.sparse as sps
 
-from typing import List, Dict, Set, Tuple, TypedDict, Iterable, Callable, Collection, TypeVar, Iterator, Sequence
+from typing import Dict, Callable, Collection, Sequence
 
 
 def dialect_size_entropy_partition_quality(
