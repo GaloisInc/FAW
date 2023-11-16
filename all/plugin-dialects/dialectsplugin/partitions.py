@@ -1,5 +1,5 @@
 import dataclasses
-from typing import List, Mapping, Optional, Sequence, Generic, TypeVar
+from typing import List, Mapping, Optional, Sequence, Generic, TypeVar, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -27,6 +27,7 @@ def best_partitions(
     max_slop_files: int,
     max_dialects: int,
     max_partitions: int,
+    no_partition_overlap: bool,
     excluded_features: npt.NDArray[np.int_],
     exclusion_min_attr_risk: float,
     feature_names: Sequence[str],
@@ -72,6 +73,8 @@ def best_partitions(
         max_slop_files=max_slop_files,
         max_dialects=max_dialects,
         max_partitions=max_partitions,
+        exclusion_min_attr_risk=exclusion_min_attr_risk,
+        no_partition_overlap=no_partition_overlap,
         hero_names=np.array(feature_names)[unique_features][valid_heroes]
     )
 
@@ -96,7 +99,7 @@ def target_files_from_cnf(
 
 @dataclasses.dataclass
 class _PartialPartition:
-    partition: List[int]
+    heroes: List[int]
     """Hero indices (not feature indices)"""
     last_contribution: Optional[int]
     """Coverage of last feature added to partition (coverage = #files - slop)"""
@@ -108,8 +111,10 @@ def _find_partition_heroes(
     target_feature_files: npt.NDArray[np.bool_],
     hero_slop: npt.NDArray[np.int_],
     max_slop_files: int,
-    max_dialects,
-    max_partitions,
+    max_dialects: int,
+    max_partitions: int,
+    no_partition_overlap: bool,
+    exclusion_min_attr_risk: float,  # only used when no_partition_overlap
     hero_names: Sequence[str],
 ) -> WithDebugLines[List[List[int]]]:
     # New version of partition search, without recursion
@@ -130,7 +135,6 @@ def _find_partition_heroes(
         counts=hero_file_counts,
         total=num_target_files,
     )
-    # TODO is the entropy reasonable as a factor here?
     # TODO should we weight by file rarity as well?
     hero_weights = scipy.special.logsumexp(
         # Take absolute value, since anti-attribution should also count here
@@ -143,10 +147,11 @@ def _find_partition_heroes(
 
     incomplete_partition_stack: List[_PartialPartition] = [_PartialPartition([], None)]
     good_partitions: List[List[int]] = []
+    avoiding_features_mask = np.zeros_like(valid_heroes, dtype=np.bool_)
     while incomplete_partition_stack and len(good_partitions) < max_partitions:
         # Remove the most recently inserted item
         prior = incomplete_partition_stack.pop()
-        seed_partition = prior.partition
+        seed_partition = prior.heroes
         seed_partition_features = valid_heroes[seed_partition]
 
         partition_sum = np.sum(target_feature_files[seed_partition_features, :], axis=0)
@@ -163,6 +168,18 @@ def _find_partition_heroes(
         ):
             # Done; success
             good_partitions.append(seed_partition)
+            if no_partition_overlap:
+                # Remove any similar features from future consideration
+                similar_features_mask = np.any(
+                    pairwise_attr_risk[np.ix_(seed_partition, valid_heroes)] >= exclusion_min_attr_risk,
+                    axis=0
+                )
+                avoiding_features_mask |= similar_features_mask
+                incomplete_partition_stack = [
+                    partial_partition
+                    for partial_partition in incomplete_partition_stack
+                    if not np.any(avoiding_features_mask[partial_partition.heroes])
+                ]
             continue
         elif len(seed_partition) == max_dialects:
             # Can't add more dialects
@@ -186,6 +203,10 @@ def _find_partition_heroes(
         hero_overlap_contribution = np.sum(
             hero_feature_files[:, covered_files], axis=1
         )
+        # Note: This hero slop contribution is only an upper bound--a file out of
+        # the target but in multiple dialects contributes extra slop for each
+        # dialect. This isn't the correct logic, but it's faster this way.
+        # TODO try the real logic here and see if it's faster
         hero_slop_contribution = hero_slop + hero_overlap_contribution
         candidate_heroes_mask = hero_slop_contribution <= allowable_slop
         candidate_heroes_mask &= (
@@ -203,6 +224,8 @@ def _find_partition_heroes(
             candidate_heroes_mask &= (
                 hero_additional_coverage <= prior.last_contribution
             )
+        if no_partition_overlap:
+            candidate_heroes_mask &= ~avoiding_features_mask
         candidate_heroes = np.nonzero(candidate_heroes_mask)[0]
         num_candidates = len(candidate_heroes)
         if num_candidates == 0:
@@ -237,13 +260,12 @@ def _find_partition_heroes(
             + ((allowable_slop - candidate_slop_contribution) / allowable_slop)  # between 0 and 1; fraction of slop that will remain available
             + candidate_rarity_satisfaction  # between 0 and 1
         )
-        # TODO check if this sort is too slow....
         # Sort ascending, since we want to extend the stack in ascending order (last item is popped)
         candidate_sort_indices = np.argsort(candidate_weights, kind="stable")
 
         incomplete_partition_stack.extend(
             _PartialPartition(
-                partition=seed_partition + [candidate_i],
+                heroes=seed_partition + [candidate_i],
                 last_contribution=hero_additional_coverage[candidate_i],
             )
             for candidate_i in candidate_heroes[candidate_sort_indices]

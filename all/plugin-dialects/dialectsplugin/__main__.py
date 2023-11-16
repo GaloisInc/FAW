@@ -73,6 +73,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             exclusion_min_attr_risk=dialect_settings.exclusion_min_attr_risk,
             max_dialects=dialect_settings.max_dialects,
             max_partitions=dialect_settings.max_partitions,
+            no_partition_overlap=dialect_settings.no_partition_overlap,
             feature_names=features,
         )
         debug_lines = partition_hero_indices_with_debug_lines.debug_lines

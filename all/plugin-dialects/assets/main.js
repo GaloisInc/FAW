@@ -142,6 +142,11 @@ Vue.component('dialect-wizard', {
             Max dialects per partition
             <input v-model.number="dialectSettings.max_dialects" type="number" />
         </label>
+        <br/>
+        <label>
+            No overlap between partitions
+            <input v-model="dialectSettings.no_partition_overlap" type="checkbox" />
+        </label>
     </details>
     <hr>
     <div>

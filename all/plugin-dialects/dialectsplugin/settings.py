@@ -36,6 +36,7 @@ class DialectWizardSettings:
     max_slop_files: int = 10
     max_dialects: int = 6
     max_partitions: int = 10
+    no_partition_overlap: bool = False
 
     def __post_init__(self):
         self.targeted_features_cnf = {
