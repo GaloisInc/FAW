@@ -107,47 +107,55 @@ Vue.component('dialect-wizard', {
             </li>
         </ul>
     </div>
-    <div><label>
+    <label>
         Similar features are also excluded if above attributable risk threshold: 
         <input v-model.number="dialectSettings.exclusion_min_attr_risk" type="number" />
-    </label></div>
+    </label>
     <hr>
-    <div><label>
+    <label>
         Min dialect size: 
         <input v-model.number="dialectSettings.min_feature_samples" type="number" />
-    </label></div>
-    <div>
-        <label>
-            Dialect out-of-target requirement: 
-            <select v-model="dialectSettings.target_restriction_mode">
-                <option value="target_only">Not represented outside target</option>
-                <option value="homogeneous_outside">Homogeneous outside target</option>
-                <option value="ignore_outside">No restriction (ignore out of target)</option>
-            </select>
-        </label>
-    </div>
-    <div><label>
-        Max files in multiple/no dialects: 
+    </label>
+    <br/>
+    <label>
+        Dialect out-of-target requirement: 
+        <select v-model="dialectSettings.target_restriction_mode">
+            <option value="target_only">Not represented outside target</option>
+            <option value="homogeneous_outside">Homogeneous outside target</option>
+            <option value="ignore_outside">No restriction (ignore out of target)</option>
+        </select>
+    </label>
+    <br/>
+    <span v-if="dialectSettings.target_restriction_mode === 'target_only'">
+        Out-of-target files with the dialects' hero features count against max outliers.
+    </span>
+    <span v-else-if="dialectSettings.target_restriction_mode === 'homogeneous_outside'">
+        Out-of-target files with (or without, whichever is fewer) the dialects' hero
+        features count against max outliers.
+    </span>
+    <span v-else>
+        Out-of-target files do not count against max outliers.
+    </span>
+    <br/>
+    <label>
+        Max files in multiple/no dialects (outliers): 
         <input v-model.number="dialectSettings.max_slop_files" type="number" />
-    </label></div>
+    </label>
     <hr>
-    <details>
-        <summary>Results Size Limits</summary>
-        <label>
-            Max partitions
-            <input v-model.number="dialectSettings.max_partitions" type="number" />
-        </label>
-        <br/>
-        <label>
-            Max dialects per partition
-            <input v-model.number="dialectSettings.max_dialects" type="number" />
-        </label>
-        <br/>
-        <label>
-            No overlap between partitions
-            <input v-model="dialectSettings.no_partition_overlap" type="checkbox" />
-        </label>
-    </details>
+    <label>
+        Max partitions
+        <input v-model.number="dialectSettings.max_partitions" type="number" />
+    </label>
+    <br/>
+    <label>
+        Max dialects per partition
+        <input v-model.number="dialectSettings.max_dialects" type="number" />
+    </label>
+    <br/>
+    <label>
+        Disallow very similar dialects between partitions
+        <input v-model="dialectSettings.no_partition_overlap" type="checkbox" />
+    </label>
     <hr>
     <div>
         Highlight file: 
