@@ -1,16 +1,24 @@
 import dataclasses
-from typing import List, Mapping, Optional, Sequence, Generic, TypeVar, Set
+from typing import Generic, List, Mapping, Optional, Sequence, Set, TypeVar
 
 import numpy as np
 import numpy.typing as npt
 import scipy.spatial
 import scipy.special
 
-
-from dialectsplugin.filtering import TargetRestrictionMode, deduplicated_feature_indices, feature_slop, select_valid_heroes
-from dialectsplugin.similarity import bernoulli_entropy_weights, pairwise_attributable_risk
+from dialectsplugin.filtering import (
+    TargetRestrictionMode,
+    deduplicated_feature_indices,
+    feature_slop,
+    select_valid_heroes,
+)
+from dialectsplugin.similarity import (
+    bernoulli_entropy_weights,
+    pairwise_attributable_risk,
+)
 
 T = TypeVar("T")
+
 
 @dataclasses.dataclass
 class WithDebugLines(Generic[T]):
@@ -31,8 +39,7 @@ def best_partitions(
     excluded_features: npt.NDArray[np.int_],
     exclusion_min_attr_risk: float,
     feature_names: Sequence[str],
-) -> WithDebugLines[Sequence[Sequence[int]]]:  # feature indices in feature_files
-
+) -> WithDebugLines[Sequence[npt.NDArray[np.int_]]]:  # feature indices in feature_files
     target_files = target_files_from_cnf(feature_files, target_features_cnf)
 
     feature_slop_ = feature_slop(
@@ -48,9 +55,7 @@ def best_partitions(
     )
     unique_feature_files = feature_files[unique_features, :]
     unique_feature_slop = feature_slop_[unique_features]
-    target_feature_files = feature_files[
-        np.ix_(unique_features, target_files)
-    ]
+    target_feature_files = feature_files[np.ix_(unique_features, target_files)]
 
     # These hero indices are indices into unique_feature_files
     valid_heroes = select_valid_heroes(
@@ -63,7 +68,7 @@ def best_partitions(
         max_slop_files=max_slop_files,
     )
     if len(valid_heroes) == 0:
-        return WithDebugLines([], ['no candidate hero features', str(target_files)])
+        return WithDebugLines([], ["no candidate hero features", str(target_files)])
     hero_slop = unique_feature_slop[valid_heroes]
 
     partitions_with_debug_lines = _find_partition_heroes(
@@ -75,7 +80,7 @@ def best_partitions(
         max_partitions=max_partitions,
         exclusion_min_attr_risk=exclusion_min_attr_risk,
         no_partition_overlap=no_partition_overlap,
-        hero_names=np.array(feature_names)[unique_features][valid_heroes]
+        hero_names=np.array(feature_names)[unique_features][valid_heroes],
     )
 
     # transform back to indices in the original, pre-deduplication feature_files
@@ -136,14 +141,17 @@ def _find_partition_heroes(
         total=num_target_files,
     )
     # TODO should we weight by file rarity as well?
-    hero_weights = scipy.special.logsumexp(
-        # Take absolute value, since anti-attribution should also count here
-        np.abs(pairwise_attr_risk),
-        axis=1,
-        # noramlizing factor (multiplied in here instead of subtracted after
-        # the log for better numeric stability)
-        b=(1 / pairwise_attr_risk.shape[1]),
-    ) * hero_feature_entropy
+    hero_weights = (
+        scipy.special.logsumexp(
+            # Take absolute value, since anti-attribution should also count here
+            np.abs(pairwise_attr_risk),
+            axis=1,
+            # noramlizing factor (multiplied in here instead of subtracted after
+            # the log for better numeric stability)
+            b=(1 / pairwise_attr_risk.shape[1]),
+        )
+        * hero_feature_entropy
+    )
 
     incomplete_partition_stack: List[_PartialPartition] = [_PartialPartition([], None)]
     good_partitions: List[List[int]] = []
@@ -171,8 +179,9 @@ def _find_partition_heroes(
             if no_partition_overlap:
                 # Remove any similar features from future consideration
                 similar_features_mask = np.any(
-                    pairwise_attr_risk[np.ix_(seed_partition, valid_heroes)] >= exclusion_min_attr_risk,
-                    axis=0
+                    pairwise_attr_risk[np.ix_(seed_partition, valid_heroes)]
+                    >= exclusion_min_attr_risk,
+                    axis=0,
                 )
                 avoiding_features_mask |= similar_features_mask
                 incomplete_partition_stack = [
@@ -200,9 +209,7 @@ def _find_partition_heroes(
         # - Features contributing less than the previous feature in the
         #   partition, so we always build partitions starting with the biggest
         #   features (and avoid blowing up the stack with duplicates)
-        hero_overlap_contribution = np.sum(
-            hero_feature_files[:, covered_files], axis=1
-        )
+        hero_overlap_contribution = np.sum(hero_feature_files[:, covered_files], axis=1)
         # Note: This hero slop contribution is only an upper bound--a file out of
         # the target but in multiple dialects contributes extra slop for each
         # dialect. This isn't the correct logic, but it's faster this way.
@@ -210,9 +217,8 @@ def _find_partition_heroes(
         hero_slop_contribution = hero_slop + hero_overlap_contribution
         candidate_heroes_mask = hero_slop_contribution <= allowable_slop
         candidate_heroes_mask &= (
-            (hero_file_counts - hero_slop_contribution) / hero_file_counts
-            >= 0.5
-        )
+            hero_file_counts - hero_slop_contribution
+        ) / hero_file_counts >= 0.5
         hero_additional_coverage = np.sum(
             hero_feature_files[:, remaining_files], axis=1
         )
@@ -221,9 +227,7 @@ def _find_partition_heroes(
             >= num_target_files - num_covered_files
         )
         if prior.last_contribution is not None:
-            candidate_heroes_mask &= (
-                hero_additional_coverage <= prior.last_contribution
-            )
+            candidate_heroes_mask &= hero_additional_coverage <= prior.last_contribution
         if no_partition_overlap:
             candidate_heroes_mask &= ~avoiding_features_mask
         candidate_heroes = np.nonzero(candidate_heroes_mask)[0]
@@ -231,7 +235,9 @@ def _find_partition_heroes(
         if num_candidates == 0:
             continue
 
-        candidate_file_features = hero_feature_files[np.ix_(candidate_heroes, ~partition_mask)]
+        candidate_file_features = hero_feature_files[
+            np.ix_(candidate_heroes, ~partition_mask)
+        ]
         coverage_by_candidates = np.sum(candidate_file_features, axis=0)
         if (
             coverage_by_candidates.size - np.count_nonzero(coverage_by_candidates)
@@ -257,7 +263,9 @@ def _find_partition_heroes(
         candidate_slop_contribution = hero_slop_contribution[candidate_heroes]
         candidate_weights = (
             hero_weights[candidate_heroes]  # between 0 and 1
-            + ((allowable_slop - candidate_slop_contribution) / allowable_slop)  # between 0 and 1; fraction of slop that will remain available
+            + (
+                (allowable_slop - candidate_slop_contribution) / allowable_slop
+            )  # between 0 and 1; fraction of slop that will remain available
             + candidate_rarity_satisfaction  # between 0 and 1
         )
         # Sort ascending, since we want to extend the stack in ascending order (last item is popped)

@@ -5,8 +5,7 @@ import numpy.typing as npt
 
 from dialectsplugin.similarity import file_distribution_attributable_risk
 
-
-TargetRestrictionMode = Literal['target_only', 'homogeneous_outside', 'ignore_outside']
+TargetRestrictionMode = Literal["target_only", "homogeneous_outside", "ignore_outside"]
 
 
 def select_valid_heroes(
@@ -26,7 +25,9 @@ def select_valid_heroes(
     """
     candidate_heroes_mask = np.ones(feature_files.shape[0], dtype=np.bool_)
 
-    feature_counts: npt.NDArray[np.int_] = np.sum(feature_files[:, target_files], axis=1)
+    feature_counts: npt.NDArray[np.int_] = np.sum(
+        feature_files[:, target_files], axis=1
+    )
     candidate_heroes_mask &= feature_slop < max_slop_files
     candidate_heroes_mask &= feature_counts >= min_feature_samples
     candidate_heroes_mask &= feature_counts <= len(target_files) - min_feature_samples
@@ -72,12 +73,12 @@ def feature_slop(
     target_files: npt.NDArray[np.int_],
     target_restriction_mode: TargetRestrictionMode,
 ) -> npt.NDArray[np.int_]:
-    if target_restriction_mode == 'target_only':
+    if target_restriction_mode == "target_only":
         return np.sum(
             np.delete(feature_files, target_files, axis=1),
             axis=1,
         )
-    elif target_restriction_mode == 'homogeneous_outside':
+    elif target_restriction_mode == "homogeneous_outside":
         feature_counts_outside_target = np.sum(
             np.delete(feature_files, target_files, axis=1),
             axis=1,

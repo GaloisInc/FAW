@@ -86,7 +86,7 @@ def similar_features_to(
     )
     sims_and_feats = [
         (similarities[i], i)
-        for i in top_similar_features[-min(max_similar_features, len(similarities)):]
+        for i in top_similar_features[-min(max_similar_features, len(similarities)) :]
         if similarities[i] >= min_similarity and i != feature
     ]
     sims_and_feats.sort(reverse=True)
@@ -114,7 +114,7 @@ def features_attributable_to(
     )
     sims_and_feats = [
         (attr_risks[i], i)
-        for i in top_similar_features[-min(max_attributed_features, len(attr_risks)):]
+        for i in top_similar_features[-min(max_attributed_features, len(attr_risks)) :]
         if attr_risks[i] >= min_risk and i != feature
     ]
     sims_and_feats.sort(reverse=True)

@@ -1,8 +1,8 @@
+from typing import Callable, Collection, Dict, Sequence
+
 import numpy as np
 import numpy.typing as npt
 import scipy.stats
-
-from typing import Dict, Callable, Collection, Sequence
 
 
 def dialect_size_entropy_partition_quality(
@@ -13,6 +13,7 @@ def dialect_size_entropy_partition_quality(
     entropy = scipy.stats.entropy(dialect_sizes)
     # higher entropy is better; means dialects are more even
     return entropy
+
 
 def min_cosine_distance_partition_quality(
     partition: Collection[Sequence[int]],
@@ -32,14 +33,18 @@ def min_cosine_distance_partition_quality(
     # values: proportion of files in dialect w/ feature
     table = np.zeros((file_features.shape[0], len(partition)), dtype=np.float_)
     for i_dialect, dialect in enumerate(partition):
-        table[:, i_dialect] = np.mean(file_features[:, dialect], axis=1)  # mean since we care about proportions
+        table[:, i_dialect] = np.mean(
+            file_features[:, dialect], axis=1
+        )  # mean since we care about proportions
 
     # Now, we find the minimum cosine dist between columns
     # There is a faster vectorized way to compute this
     min_cos_dist = np.inf
     for i in range(len(partition)):
         for j in range(i + 1, len(partition)):
-            min_cos_dist = min(min_cos_dist, scipy.spatial.distance.cosine(table[:, i], table[:, j]))
+            min_cos_dist = min(
+                min_cos_dist, scipy.spatial.distance.cosine(table[:, i], table[:, j])
+            )
     return min_cos_dist
 
 
@@ -49,13 +54,15 @@ def min_distance_partition_quality(
     *,
     distance_metric: Callable,  # scipy distance metric function or equivalent
 ) -> float:
-    # generic version of the above 
+    # generic version of the above
     # rows: feature
     # columns: partition
     # values: proportion of files in dialect w/ feature
     table = np.zeros((file_features.shape[0], len(partition)), dtype=np.float_)
     for i_dialect, dialect in enumerate(partition):
-        table[:, i_dialect] = np.mean(file_features[:, dialect], axis=1)  # mean since we care about proportions
+        table[:, i_dialect] = np.mean(
+            file_features[:, dialect], axis=1
+        )  # mean since we care about proportions
 
     # Now, we find the minimum dist between columns
     # There is a faster vectorized way to compute this
@@ -75,7 +82,9 @@ def min_cosine_distance_with_negation_partition_quality(
     # values: proportion of files in dialect w/ feature
     table = np.zeros((file_features.shape[0], len(partition)), dtype=np.float_)
     for i_dialect, dialect in enumerate(partition):
-        table[:, i_dialect] = np.mean(file_features[:, dialect], axis=1)  # mean since we care about proportions
+        table[:, i_dialect] = np.mean(
+            file_features[:, dialect], axis=1
+        )  # mean since we care about proportions
 
     # Now, for each cell, invert about 0.5 if greater than 0.5
     table = np.minimum(table, 1 - table)
@@ -85,7 +94,9 @@ def min_cosine_distance_with_negation_partition_quality(
     min_cos_dist = np.inf
     for i in range(len(partition)):
         for j in range(i + 1, len(partition)):
-            min_cos_dist = min(min_cos_dist, scipy.spatial.distance.cosine(table[:, i], table[:, j]))
+            min_cos_dist = min(
+                min_cos_dist, scipy.spatial.distance.cosine(table[:, i], table[:, j])
+            )
     return min_cos_dist
 
 
@@ -105,7 +116,9 @@ def dialect_cosine_distance_partition_quality(
     # values: proportion of files in dialect w/ feature
     table = np.zeros((file_features.shape[0], len(partition)), dtype=np.float_)
     for i_dialect, dialect in enumerate(partition):
-        table[:, i_dialect] = np.mean(file_features[:, dialect], axis=1)  # mean since we care about proportions
+        table[:, i_dialect] = np.mean(
+            file_features[:, dialect], axis=1
+        )  # mean since we care about proportions
 
     # Now we want the average similarity between the columns
 
@@ -116,7 +129,9 @@ def dialect_cosine_distance_partition_quality(
         for j in range(i + 1, len(partition)):
             # TODO is this the right distance metric
             # distance_matrix[i, j] = scipy.spatial.distance.cityblock(table[:, i], table[:, j])
-            distance_matrix[i, j] = scipy.spatial.distance.cosine(table[:, i], table[:, j])
+            distance_matrix[i, j] = scipy.spatial.distance.cosine(
+                table[:, i], table[:, j]
+            )
     # Only average the cells we filled
     return np.mean(distance_matrix[np.triu_indices_from(distance_matrix)])
 
@@ -140,6 +155,7 @@ def hamming_distance_partition_quality(
         dialect_distances.append(distances)
     return np.mean(np.column_stack(dialect_distances))
 
+
 def hamming_correlation_partition_quality(
     partition: Collection[Sequence[int]],
     file_features: npt.NDArray[np.bool_],
@@ -161,11 +177,13 @@ def hamming_correlation_partition_quality(
     return np.mean(np.column_stack(dialect_distances))
 
 
-quality_metrics: Dict[str, Callable[[Collection[Sequence[int]], npt.NDArray[np.bool_]], float]] = {
-    'size_entropy': dialect_size_entropy_partition_quality,
-    'hamming_corr': hamming_correlation_partition_quality,
-    'hamming_dist': hamming_distance_partition_quality,
-    'cosine_dist': dialect_cosine_distance_partition_quality,
-    'min_cosine_dist': min_cosine_distance_partition_quality,
-    'min_cosine_dist_with_negation': min_cosine_distance_with_negation_partition_quality,
+quality_metrics: Dict[
+    str, Callable[[Collection[Sequence[int]], npt.NDArray[np.bool_]], float]
+] = {
+    "size_entropy": dialect_size_entropy_partition_quality,
+    "hamming_corr": hamming_correlation_partition_quality,
+    "hamming_dist": hamming_distance_partition_quality,
+    "cosine_dist": dialect_cosine_distance_partition_quality,
+    "min_cosine_dist": min_cosine_distance_partition_quality,
+    "min_cosine_dist_with_negation": min_cosine_distance_with_negation_partition_quality,
 }

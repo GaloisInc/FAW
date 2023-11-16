@@ -1,25 +1,36 @@
 import collections
 import dataclasses
+import sys
 from typing import Any, DefaultDict, Dict, List, Optional, Sequence, Tuple
-import ujson as json
+
+import jinja2
 import numpy as np
 import numpy.typing as npt
-import sys
 import typer
-import jinja2
+import ujson as json
 
-from dialectsplugin.similarity import features_attributable_to
-from dialectsplugin.settings import SearchSettings, DialectWizardSettings, SimilarFeature, Partition, Dialect, SlopFile
 from dialectsplugin.partitions import best_partitions, target_files_from_cnf
 from dialectsplugin.quality import quality_metrics
+from dialectsplugin.settings import (
+    Dialect,
+    DialectWizardSettings,
+    Partition,
+    SearchSettings,
+    SimilarFeature,
+    SlopFile,
+)
+from dialectsplugin.similarity import features_attributable_to
 
 
 def main(workbench_api_url: str, json_arguments: str, output_html: str):
-
     # Load parameters
-    json_args = {'search_settings': {}, 'dialect_settings': {}, **json.loads(json_arguments)}
-    search_settings = SearchSettings(**json_args['search_settings'])
-    dialect_settings = DialectWizardSettings(**json_args['dialect_settings'])
+    json_args = {
+        "search_settings": {},
+        "dialect_settings": {},
+        **json.loads(json_arguments),
+    }
+    search_settings = SearchSettings(**json_args["search_settings"])
+    dialect_settings = DialectWizardSettings(**json_args["dialect_settings"])
 
     # build feature matrix
     filename_to_index: Dict[str, int] = {}
@@ -31,7 +42,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             continue
 
         obj: Dict[str, Any] = json.loads(line)
-        filename = obj.pop('_id')
+        filename = obj.pop("_id")
         file_index = len(filename_to_index)
         filenames.append(filename)
         filename_to_index[filename] = file_index
@@ -46,7 +57,9 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
 
     highlight_file_index: Optional[int] = None
     if dialect_settings.highlighted_filename:
-        highlight_file_index = filename_to_index.get(dialect_settings.highlighted_filename)
+        highlight_file_index = filename_to_index.get(
+            dialect_settings.highlighted_filename
+        )
 
     # feature x file
     # Not bothering with a sparse array yet since they're a royal pain
@@ -79,7 +92,9 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         debug_lines = partition_hero_indices_with_debug_lines.debug_lines
 
         def build_similar_features(feature: int) -> List[SimilarFeature]:
-            similarities_and_features: Sequence[Tuple[float, int]] = features_attributable_to(
+            similarities_and_features: Sequence[
+                Tuple[float, int]
+            ] = features_attributable_to(
                 feature=feature,
                 feature_files=feature_files,
                 min_risk=min(0.25, dialect_settings.exclusion_min_attr_risk - 0.05),
@@ -87,21 +102,26 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
             )
             similar_features: List[SimilarFeature] = []
             for attr_risk, similar_feature in similarities_and_features:
-                similar_features.append(SimilarFeature(
-                    feature=int(similar_feature),
-                    negated=False,
-                    attr_risk=float(attr_risk),
-                    size_target=float(np.sum(target_feature_files[similar_feature])),
-                    size_global=float(np.sum(feature_files[similar_feature])),
-                    highlight=(
-                        bool(feature_files[similar_feature, highlight_file_index])
-                        if highlight_file_index is not None else False
-                    ),
-                ))
+                similar_features.append(
+                    SimilarFeature(
+                        feature=int(similar_feature),
+                        negated=False,
+                        attr_risk=float(attr_risk),
+                        size_target=int(np.sum(target_feature_files[similar_feature])),
+                        size_global=int(np.sum(feature_files[similar_feature])),
+                        highlight=(
+                            bool(feature_files[similar_feature, highlight_file_index])
+                            if highlight_file_index is not None
+                            else False
+                        ),
+                    )
+                )
             return similar_features
 
         partitions = []
-        for dialect_hero_feature_indices in partition_hero_indices_with_debug_lines.value:
+        for (
+            dialect_hero_feature_indices
+        ) in partition_hero_indices_with_debug_lines.value:
             dialect_feature_files = feature_files[dialect_hero_feature_indices, :]
             target_file_dialect_membership_counts = np.sum(
                 dialect_feature_files[:, target_files], axis=0
@@ -118,35 +138,58 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             hero_feature=int(hero_feature_index),
                             similar_features=build_similar_features(hero_feature_index),
                             negated=False,
-                            size_target=float(np.sum(target_feature_files[hero_feature_index, :])),
-                            size_global=float(np.sum(feature_files[hero_feature_index, :])),
+                            size_target=int(
+                                np.sum(target_feature_files[hero_feature_index, :])
+                            ),
+                            size_global=int(
+                                np.sum(feature_files[hero_feature_index, :])
+                            ),
                             highlight=(
-                                bool(feature_files[hero_feature_index, highlight_file_index])
-                                if highlight_file_index is not None else False
+                                bool(
+                                    feature_files[
+                                        hero_feature_index, highlight_file_index
+                                    ]
+                                )
+                                if highlight_file_index is not None
+                                else False
                             ),
                             filenames_outside_target=[
-                                (filenames[file_index], bool(file_index == highlight_file_index))
+                                (
+                                    filenames[file_index],
+                                    bool(file_index == highlight_file_index),
+                                )
                                 for file_index in np.nonzero(
-                                    np.delete(feature_files[hero_feature_index, :], target_files)
+                                    np.delete(
+                                        feature_files[hero_feature_index, :],
+                                        target_files,
+                                    )
                                 )[0]
                             ],
                         )
                         for hero_feature_index in dialect_hero_feature_indices
                     ],
                     partition_quality={
-                        metric_name: float(metric_func(
-                            partition_file_indices,
-                            target_feature_files,
-                        ))
+                        metric_name: float(
+                            metric_func(
+                                partition_file_indices,
+                                target_feature_files,
+                            )
+                        )
                         for metric_name, metric_func in quality_metrics.items()
                     },
                     slop_files=[
                         SlopFile(
-                            filename=filenames[file_index := target_files[target_file_index]],
-                            in_dialects=dialect_feature_files[:, file_index].nonzero()[0].tolist(),
+                            filename=filenames[
+                                file_index := target_files[target_file_index]
+                            ],
+                            in_dialects=dialect_feature_files[:, file_index]
+                            .nonzero()[0]
+                            .tolist(),
                             highlight=bool(file_index == highlight_file_index),
                         )
-                        for target_file_index in (target_file_dialect_membership_counts != 1).nonzero()[0]
+                        for target_file_index in (
+                            target_file_dialect_membership_counts != 1
+                        ).nonzero()[0]
                     ],
                 )
             )
@@ -155,32 +198,33 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         debug_lines = []
         target_size = 0
 
-    with open(output_html, 'w') as f, \
-            open('./assets/vue.js') as f_vue, \
-            open('./assets/main.js') as f_main, \
-            open('./assets/style.css') as f_style, \
-            open('./assets/index.html.jinja') as f_html_template:
+    with open(output_html, "w") as f, open("./assets/vue.js") as f_vue, open(
+        "./assets/main.js"
+    ) as f_main, open("./assets/style.css") as f_style, open(
+        "./assets/index.html.jinja"
+    ) as f_html_template:
         data = {
-            'api_url': workbench_api_url,
-            'debug_str': '\n'.join(debug_lines),
-            'feature_text': features,
-            'feature_counts': [
+            "api_url": workbench_api_url,
+            "debug_str": "\n".join(debug_lines),
+            "feature_text": features,
+            "feature_counts": [
                 len(file_indices_by_feature[feature_text]) for feature_text in features
             ],
-            'num_files': len(filenames),
-            'partitions': partitions,
-            'target_size': target_size,
-            'search_settings': dataclasses.asdict(search_settings),
-            'dialect_settings': dataclasses.asdict(dialect_settings),
+            "num_files": len(filenames),
+            "partitions": partitions,
+            "target_size": target_size,
+            "search_settings": dataclasses.asdict(search_settings),
+            "dialect_settings": dataclasses.asdict(dialect_settings),
         }
-        f.write(jinja2.Template(f_html_template.read()).render(
-            vue_source=f_vue.read(),
-            css=f_style.read(),
-            window_data=json.dumps(data),
-            main_source=f_main.read(),
-        ))
+        f.write(
+            jinja2.Template(f_html_template.read()).render(
+                vue_source=f_vue.read(),
+                css=f_style.read(),
+                window_data=json.dumps(data),
+                main_source=f_main.read(),
+            )
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     typer.run(main)
-
