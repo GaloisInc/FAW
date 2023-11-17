@@ -1,7 +1,8 @@
-/* .feature-search {
-    border: 1px solid black;
-    margin-block: 0.5em;
-} */
-.partitions li + li {
+.partitions-list > li + li,
+.implied-features-list > li + li,
+.dialects-list > li + li {
     margin-top: 1em;
 }
+/* .file-list > li:nth-child(2n) {
+    background-color: rgba(0,0,0,0.1);
+} */

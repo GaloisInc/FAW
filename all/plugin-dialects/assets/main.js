@@ -184,10 +184,10 @@ Vue.component('dialect-wizard', {
                 </li>
             </ul>
         </div>
-        <div class="partitions">
+        <div class="partitions-container">
             <p v-if="partitions.length === 0">No Partitions</p>
             <p v-else>{{partitions.length}} Partition{{partitions.length > 1 ? 's' : ''}}</p>
-            <ol v-if="partitions.length !== 0">
+            <ol v-if="partitions.length !== 0" class="partitions-list">
                 <li v-for="partition of partitions">
                     <b>{{partition.dialects.length}} Dialects</b>
                     <details>
@@ -198,7 +198,7 @@ Vue.component('dialect-wizard', {
                             </li>
                         </ul>
                     </details>
-                    <ol>
+                    <ol class="dialects-list">
                         <li v-for="dialect of partition.dialects">
                             <div :style="dialect.highlight ? 'background-color: yellow;' : ''">
                                 <template v-if="dialect.negated">NOT </template>
@@ -210,7 +210,7 @@ Vue.component('dialect-wizard', {
                             <button @click="excludeFeature(dialect.hero_feature)">Exclude</button>
                             <details v-if="dialect.filenames_outside_target.length > 0">
                                 <summary>{{dialect.filenames_outside_target.length}} files outside target</summary>
-                                <ul>
+                                <ul class="file-list">
                                     <li
                                         v-for="([filename, highlight], i) in dialect.filenames_outside_target"
                                         :style="highlight ? 'background-color: yellow;' : ''"
@@ -221,7 +221,7 @@ Vue.component('dialect-wizard', {
                             </details>
                             <details>
                                 <summary>Implied Features ({{dialect.similar_features.length}})</summary>
-                                <ul>
+                                <ul class="implied-features-list">
                                     <li v-for="simFeature in dialect.similar_features">
                                         <div :style="simFeature.highlight ? 'background-color: yellow;' : ''">
                                             <template v-if="simFeature.negated">NOT </template>
@@ -241,7 +241,7 @@ Vue.component('dialect-wizard', {
                             <li v-for="([n, [slopFiles, highlightAny]], i) of slopFileHistogram(partition.slop_files)">
                                 <details>
                                     <summary :style="highlightAny ? 'background-color: yellow;' : ''">{{slopFiles.length}} files in {{n}} dialects</summary>
-                                    <ul>
+                                    <ul class="file-list">
                                         <li v-for="slopFile of slopFiles" :style="slopFile.highlight ? 'background-color: yellow;' : ''">
                                             {{slopFile.filename}} <br/>
                                             In {{slopFile.in_dialects.length}} dialects: 

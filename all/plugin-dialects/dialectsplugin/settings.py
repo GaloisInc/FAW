@@ -24,12 +24,10 @@ class DialectWizardSettings:
     If empty, target all files.
     """
     find_dialects: bool = False
-    # TODO maybe min_entropy or similar would be useful as well?
     min_feature_samples: int = 20
     target_restriction_mode: TargetRestrictionMode = "homogeneous_outside"
-    # restrict_to_target: bool = True
     highlighted_filename: str = ""
-    excluded_features: List[int] = []  # TODO not implemented yet
+    excluded_features: List[int] = dataclasses.field(default_factory=list)
     """Feature indices to exclude as dialect choices"""
     exclusion_min_attr_risk: float = 0.9
     """Minimum risk attributable to an excluded feature for exclusion"""

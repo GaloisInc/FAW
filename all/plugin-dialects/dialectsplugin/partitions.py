@@ -48,7 +48,7 @@ def best_partitions(
         target_files=target_files,
     )
 
-    unique_features = deduplicated_feature_indices(
+    unique_features, unique_features_inverse = deduplicated_feature_indices(
         feature_files=feature_files,
         target_files=target_files,
         feature_slop=feature_slop_,
@@ -63,7 +63,7 @@ def best_partitions(
         target_files=target_files,
         min_feature_samples=max(min_feature_samples, max_slop_files),
         feature_slop=unique_feature_slop,
-        excluded_features=excluded_features,
+        excluded_features=unique_features_inverse[excluded_features],
         exclusion_min_attr_risk=exclusion_min_attr_risk,
         max_slop_files=max_slop_files,
     )
@@ -200,8 +200,8 @@ def _find_partition_heroes(
 
         # TODO cache some of these if necessary
         # Remove from consideration:
-        # - features which would contribute too much slop
-        # - features that are less than half in the remaining files
+        # - features which would contribute too much slop on their own
+        # - features that would contribute more slop than coverage
         #   - includes features already in partition
         # - very small features, smaller than one equal part of
         #   the remaining files if all allowable dialects spent
@@ -216,12 +216,10 @@ def _find_partition_heroes(
         # TODO try the real logic here and see if it's faster
         hero_slop_contribution = hero_slop + hero_overlap_contribution
         candidate_heroes_mask = hero_slop_contribution <= allowable_slop
-        candidate_heroes_mask &= (
-            hero_file_counts - hero_slop_contribution
-        ) / hero_file_counts >= 0.5
         hero_additional_coverage = np.sum(
             hero_feature_files[:, remaining_files], axis=1
         )
+        candidate_heroes_mask &= hero_overlap_contribution < hero_additional_coverage
         candidate_heroes_mask &= (
             hero_additional_coverage * (max_dialects - len(seed_partition))
             >= num_target_files - num_covered_files
@@ -244,7 +242,7 @@ def _find_partition_heroes(
             > allowable_slop
         ):
             # There are too many unreachable files
-            # TODO when there are _almost_ too many unreachable files, prune more heavily, considering the max partition size
+            # TODO when there are _almost_ too many unreachable files, maybe prune more heavily, considering the max partition size?
             continue
 
         # Prefer:
@@ -264,8 +262,9 @@ def _find_partition_heroes(
         candidate_weights = (
             hero_weights[candidate_heroes]  # between 0 and 1
             + (
+                # between 0 and 1; fraction of slop that will remain available
                 (allowable_slop - candidate_slop_contribution) / allowable_slop
-            )  # between 0 and 1; fraction of slop that will remain available
+            )
             + candidate_rarity_satisfaction  # between 0 and 1
         )
         # Sort ascending, since we want to extend the stack in ascending order (last item is popped)

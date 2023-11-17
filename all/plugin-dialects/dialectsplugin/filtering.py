@@ -48,8 +48,10 @@ def deduplicated_feature_indices(
     *,
     target_files: npt.NDArray[np.int_],
     feature_slop: npt.NDArray[np.int_],
-) -> npt.NDArray[np.int_]:
-    """Return indices of unique features, by file distribution.
+) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_]]:
+    """Return indices of unique features, by file distribution,
+    and return the index indices into the unique features that
+    can be used to reconstruct feature_files[:, target_files].
 
     Features with the same file distribution within the target are removed, keeping
     the dupe with the least slop contribution.
@@ -57,14 +59,18 @@ def deduplicated_feature_indices(
     target_feature_files = feature_files[:, target_files]  # deduplicate by this
     slop_priority_indices = np.argsort(feature_slop)  # prioritize by this
 
-    _, unique_feature_indices_sorted = np.unique(
+    _, unique_features_sorted, unique_features_sorted_inverse = np.unique(
         # sorted by slop (lowest first)
         target_feature_files[slop_priority_indices, :],
         axis=0,
         return_index=True,
+        return_inverse=True,
     )
     # convert those indices back to indices into target_feature_files
-    return slop_priority_indices[unique_feature_indices_sorted]
+    return (
+        slop_priority_indices[unique_features_sorted],
+        unique_features_sorted_inverse[np.argsort(slop_priority_indices)],
+    )
 
 
 def feature_slop(
