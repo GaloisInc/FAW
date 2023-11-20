@@ -6,7 +6,7 @@
             version: '4',
             parse: {
                 type: 'regex-counter',
-                version: '2',
+                version: '3',
                 stdout: {
                     '^(HTTP version is [0-9]\\.[0-9])$': {
                         nameGroup: 1,
@@ -17,8 +17,12 @@
                     '^(No message body)$': {
                         nameGroup: 1,
                     },
-                    '^(Consumed [0-9]+ bytes before body)$': {
-                        nameGroup: 1,
+                    '^Consumed ([0-9]+) bytes before body$': {
+                        countGroup: 1,
+                        countAsNumber: true,
+                        nameReplace: {
+                            '[0-9]+': '<INT>',
+                        },
                     },
                     '^(Header: .+)$': {
                         nameGroup: 1,
@@ -26,11 +30,19 @@
                     '^(Path is .*)$': {
                         nameGroup: 1,
                     },
-                    '^(Total stream length: [0-9]+)$': {
-                        nameGroup: 1,
+                    '^Total stream length: ([0-9]+)$': {
+                        countGroup: 1,
+                        countAsNumber: true,
+                        nameReplace: {
+                            '[0-9]+': '<INT>',
+                        },
                     },
-                    '^(Body length: [0-9]+)$': {
-                        nameGroup: 1,
+                    '^Body length: ([0-9]+)$': {
+                        countGroup: 1,
+                        countAsNumber: true,
+                        nameReplace: {
+                            '[0-9]+': '<INT>',
+                        },
                     },
                 },
                 stderr: {
