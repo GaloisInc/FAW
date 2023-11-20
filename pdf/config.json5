@@ -163,9 +163,6 @@
                   from the FAW, transform numerical logging into numerical features, etc.
 
                   The transformations can be any of:
-                    nameReplace:
-                      For matched output, replace patterns on the output with strings.
-                      Value is a mapping from a regex to the value to replace with.
                     nameGroup:
                       If the value is a number `n`, replace the feature text with the text
                       of the nth match group. For example:
@@ -181,6 +178,14 @@
                         '(?P<type>/[a-zA-Z]+) (?P<amt>-?\\d+(\\.\\d+)?|/[A-Z][a-zA-Z]+)$': {
                           nameGroup: 'Type: \\g<type>',
                         },
+
+                      If both nameReplace and nameGroup are specified, nameGroup is processed
+                      first.
+                    nameReplace:
+                      For matched output, replace patterns on the output with strings.
+                      Value is a mapping from a regex to the value to replace with.
+                      If both nameReplace and nameGroup are specified, nameReplace is processed
+                      second.
 
                     countGroup, countAsMissing, countAsNumber:
                       `countGroup` converts parser output to a numeric feature, representing the count
