@@ -9,8 +9,8 @@ TargetRestrictionMode = Literal["target_only", "homogeneous_outside", "ignore_ou
 
 
 def select_valid_heroes(
-    feature_files: npt.NDArray[np.bool_],
     *,
+    feature_files: npt.NDArray[np.bool_],
     target_files: npt.NDArray[np.int_],
     min_feature_samples: int,
     feature_slop: npt.NDArray[np.int_],
@@ -23,14 +23,16 @@ def select_valid_heroes(
     min_feature_samples is the min # of positive and negative samples _within_
     the target required for consideration
     """
+    min_feature_samples = max(min_feature_samples, max_slop_files)
     candidate_heroes_mask = np.ones(feature_files.shape[0], dtype=np.bool_)
 
     feature_counts: npt.NDArray[np.int_] = np.sum(
         feature_files[:, target_files], axis=1
     )
-    candidate_heroes_mask &= feature_slop < max_slop_files
+    candidate_heroes_mask &= feature_slop <= max_slop_files
     candidate_heroes_mask &= feature_counts >= min_feature_samples
-    candidate_heroes_mask &= feature_counts <= len(target_files) - min_feature_samples
+    # We also need enough space to fit at least one more valid dialect in
+    candidate_heroes_mask &= feature_counts + min_feature_samples <= len(target_files)
 
     for feature in excluded_features:
         # TODO should this be restricted to the target?
@@ -67,6 +69,7 @@ def deduplicated_feature_indices(
         return_inverse=True,
     )
     # convert those indices back to indices into target_feature_files
+    # (i.e. undo the sort by slop)
     return (
         slop_priority_indices[unique_features_sorted],
         unique_features_sorted_inverse[np.argsort(slop_priority_indices)],

@@ -72,64 +72,82 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
     # TODO factor some of this into other modules
     if dialect_settings.find_dialects:
         target_files: npt.NDArray[np.int_] = target_files_from_cnf(
-            feature_files,
-            dialect_settings.targeted_features_cnf,
+            feature_files=feature_files,
+            target_features_cnf=dialect_settings.targeted_features_cnf,
         )
         target_size = len(target_files)
-        partition_hero_indices_with_debug_lines = best_partitions(
-            feature_files,
+        partitions_with_debug_lines = best_partitions(
+            feature_files=feature_files,
             target_features_cnf=dialect_settings.targeted_features_cnf,
             min_feature_samples=dialect_settings.min_feature_samples,
             target_restriction_mode=dialect_settings.target_restriction_mode,
             max_slop_files=dialect_settings.max_slop_files,
-            excluded_features=dialect_settings.excluded_features,
+            excluded_features=np.asarray(
+                dialect_settings.excluded_features, dtype=np.int_
+            ),
             exclusion_min_attr_risk=dialect_settings.exclusion_min_attr_risk,
             max_dialects=dialect_settings.max_dialects,
             max_partitions=dialect_settings.max_partitions,
+            allow_inverted_features=dialect_settings.allow_inverted_features,
             no_partition_overlap=dialect_settings.no_partition_overlap,
             feature_names=features,
         )
-        debug_lines = partition_hero_indices_with_debug_lines.debug_lines
+        debug_lines = partitions_with_debug_lines.debug_lines
 
         def build_similar_features(feature: int) -> List[SimilarFeature]:
             similarities_and_features: Sequence[
                 Tuple[float, int]
             ] = features_attributable_to(
                 feature=feature,
-                feature_files=feature_files,
-                min_risk=min(0.25, dialect_settings.exclusion_min_attr_risk - 0.05),
+                feature_files=np.concatenate(
+                    [feature_files, ~feature_files], axis=0, dtype=np.bool_
+                ),
+                min_risk=min(0.5, dialect_settings.exclusion_min_attr_risk - 0.05),
                 max_attributed_features=10,  # Arbitrary; TODO unhardcode
             )
             similar_features: List[SimilarFeature] = []
-            for attr_risk, similar_feature in similarities_and_features:
+            for attr_risk, similar_feature_maybe_inverted in similarities_and_features:
+                inverted = similar_feature_maybe_inverted >= feature_files.shape[0]
+                similar_feature = (
+                    similar_feature_maybe_inverted - feature_files.shape[0]
+                    if inverted
+                    else similar_feature_maybe_inverted
+                )
+                size_target = np.sum(target_feature_files[similar_feature])
+                size_global = np.sum(feature_files[similar_feature])
+                highlight = (
+                    feature_files[similar_feature, highlight_file_index]
+                    if highlight_file_index is not None
+                    else False
+                )
+                if inverted:
+                    size_target = target_feature_files.shape[1] - size_target
+                    size_global = feature_files.shape[1] - size_global
+                    highlight = highlight_file_index is not None and not highlight
                 similar_features.append(
                     SimilarFeature(
                         feature=int(similar_feature),
-                        negated=False,
+                        inverted=bool(inverted),
                         attr_risk=float(attr_risk),
-                        size_target=int(np.sum(target_feature_files[similar_feature])),
-                        size_global=int(np.sum(feature_files[similar_feature])),
-                        highlight=(
-                            bool(feature_files[similar_feature, highlight_file_index])
-                            if highlight_file_index is not None
-                            else False
-                        ),
+                        size_target=int(size_target),
+                        size_global=int(size_global),
+                        highlight=bool(highlight),
                     )
                 )
             return similar_features
 
         partitions = []
-        for (
-            dialect_hero_feature_indices
-        ) in partition_hero_indices_with_debug_lines.value:
-            dialect_feature_files = feature_files[dialect_hero_feature_indices, :]
+        for partition in partitions_with_debug_lines.value:
+            dialect_feature_files = feature_files[partition.hero_features, :]
+            # Invert file distributions of inverted heroes in place
+            dialect_feature_files[partition.inverted] ^= True
+            dialect_target_feature_files = dialect_feature_files[:, target_files]
             target_file_dialect_membership_counts = np.sum(
-                dialect_feature_files[:, target_files], axis=0
+                dialect_target_feature_files, axis=0
             )
             target_feature_files = feature_files[:, target_files]
             partition_file_indices: List[Sequence[int]] = [
-                np.nonzero(target_feature_files[hero_feature_index, :])[0]
-                for hero_feature_index in dialect_hero_feature_indices
+                np.nonzero(row)[0] for row in dialect_target_feature_files
             ]
             partitions.append(
                 Partition(
@@ -137,17 +155,17 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                         Dialect(
                             hero_feature=int(hero_feature_index),
                             similar_features=build_similar_features(hero_feature_index),
-                            negated=False,
+                            inverted=bool(inverted),
                             size_target=int(
-                                np.sum(target_feature_files[hero_feature_index, :])
+                                np.sum(dialect_target_feature_files[dialect_index, :])
                             ),
                             size_global=int(
-                                np.sum(feature_files[hero_feature_index, :])
+                                np.sum(dialect_feature_files[dialect_index, :])
                             ),
                             highlight=(
                                 bool(
-                                    feature_files[
-                                        hero_feature_index, highlight_file_index
+                                    dialect_feature_files[
+                                        dialect_index, highlight_file_index
                                     ]
                                 )
                                 if highlight_file_index is not None
@@ -160,13 +178,15 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 )
                                 for file_index in np.nonzero(
                                     np.delete(
-                                        feature_files[hero_feature_index, :],
+                                        dialect_feature_files[dialect_index, :],
                                         target_files,
                                     )
                                 )[0]
                             ],
                         )
-                        for hero_feature_index in dialect_hero_feature_indices
+                        for dialect_index, (hero_feature_index, inverted) in enumerate(
+                            zip(partition.hero_features, partition.inverted)
+                        )
                     ],
                     partition_quality={
                         metric_name: float(
@@ -182,9 +202,11 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                             filename=filenames[
                                 file_index := target_files[target_file_index]
                             ],
-                            in_dialects=dialect_feature_files[:, file_index]
-                            .nonzero()[0]
-                            .tolist(),
+                            in_dialects=(
+                                dialect_feature_files[:, file_index]
+                                .nonzero()[0]
+                                .tolist()
+                            ),
                             highlight=bool(file_index == highlight_file_index),
                         )
                         for target_file_index in (

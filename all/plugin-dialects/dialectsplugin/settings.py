@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Literal, Sequence, Tuple, TypedDict
+from typing import Dict, List, Literal, Tuple, TypedDict
 
 from dialectsplugin.filtering import TargetRestrictionMode
 
@@ -34,6 +34,7 @@ class DialectWizardSettings:
     max_slop_files: int = 10
     max_dialects: int = 6
     max_partitions: int = 10
+    allow_inverted_features: bool = False
     no_partition_overlap: bool = False
 
     def __post_init__(self):
@@ -46,7 +47,7 @@ class DialectWizardSettings:
 
 class SimilarFeature(TypedDict):
     feature: int
-    negated: bool  # TODO not used yet
+    inverted: bool
     attr_risk: float
     """Similarity metric; risk attributable to the other feature"""
     size_target: int
@@ -58,7 +59,7 @@ class Dialect(TypedDict):
     hero_feature: int
     similar_features: List[SimilarFeature]
     """Mapping from feature index to similarity of this feature to the hero"""
-    negated: bool  # TODO not used yet
+    inverted: bool
     size_target: int
     size_global: int
     highlight: bool

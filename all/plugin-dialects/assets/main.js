@@ -20,9 +20,9 @@ function isEmpty(o) {
 
 Vue.component('vue-header', {
     template: `<div class="header">
-        <details v-if="debugStr.length" style="white-space: pre-wrap">
-            <summary>DEBUG</summary>
-            {{debugStr}}
+        <details v-if="debugStr.length">
+            <summary>Debug Info</summary>
+            <pre>{{debugStr}}</pre>
         </details>
     </div>`,
     props: {
@@ -109,12 +109,12 @@ Vue.component('dialect-wizard', {
     </div>
     <label>
         Similar features are also excluded if above attributable risk threshold: 
-        <input v-model.number="dialectSettings.exclusion_min_attr_risk" type="number" />
+        <input v-model.number="dialectSettings.exclusion_min_attr_risk" type="number" min="-1" max="1" />
     </label>
     <hr>
     <label>
         Min dialect size: 
-        <input v-model.number="dialectSettings.min_feature_samples" type="number" />
+        <input v-model.number="dialectSettings.min_feature_samples" type="number" min="1" />
     </label>
     <br/>
     <label>
@@ -139,22 +139,27 @@ Vue.component('dialect-wizard', {
     <br/>
     <label>
         Max files in multiple/no dialects (outliers): 
-        <input v-model.number="dialectSettings.max_slop_files" type="number" />
+        <input v-model.number="dialectSettings.max_slop_files" type="number" min="0" />
     </label>
     <hr>
     <label>
         Max partitions
-        <input v-model.number="dialectSettings.max_partitions" type="number" />
+        <input v-model.number="dialectSettings.max_partitions" type="number" min="1" />
     </label>
     <br/>
     <label>
         Max dialects per partition
-        <input v-model.number="dialectSettings.max_dialects" type="number" />
+        <input v-model.number="dialectSettings.max_dialects" type="number" min="2" />
     </label>
     <br/>
     <label>
         Disallow very similar dialects between partitions
         <input v-model="dialectSettings.no_partition_overlap" type="checkbox" />
+    </label>
+    <br/>
+    <label>
+        Include dialects based on inverted features
+        <input v-model="dialectSettings.allow_inverted_features" type="checkbox" />
     </label>
     <hr>
     <div>
@@ -201,7 +206,7 @@ Vue.component('dialect-wizard', {
                     <ol class="dialects-list">
                         <li v-for="dialect of partition.dialects">
                             <div :style="dialect.highlight ? 'background-color: yellow;' : ''">
-                                <template v-if="dialect.negated">NOT </template>
+                                <template v-if="dialect.inverted">NOT </template>
                                 <code>{{featureText[dialect.hero_feature]}}</code><br/>
                                 {{featureFractionReport(dialect.size_target, dialect.size_global)}}
                             </div>
@@ -224,7 +229,7 @@ Vue.component('dialect-wizard', {
                                 <ul class="implied-features-list">
                                     <li v-for="simFeature in dialect.similar_features">
                                         <div :style="simFeature.highlight ? 'background-color: yellow;' : ''">
-                                            <template v-if="simFeature.negated">NOT </template>
+                                            <template v-if="simFeature.inverted">NOT </template>
                                             <code>{{featureText[simFeature.feature]}}</code><br/>
                                             Attributable risk: {{simFeature.attr_risk.toFixed(2)}}<br/>
                                             {{featureFractionReport(simFeature.size_target, simFeature.size_global)}}

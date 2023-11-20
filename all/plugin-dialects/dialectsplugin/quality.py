@@ -73,7 +73,7 @@ def min_distance_partition_quality(
     return min_dist
 
 
-def min_cosine_distance_with_negation_partition_quality(
+def min_cosine_distance_with_inversion_partition_quality(
     partition: Collection[Sequence[int]],
     file_features: npt.NDArray[np.bool_],
 ) -> float:
@@ -180,10 +180,10 @@ def hamming_correlation_partition_quality(
 quality_metrics: Dict[
     str, Callable[[Collection[Sequence[int]], npt.NDArray[np.bool_]], float]
 ] = {
-    "size_entropy": dialect_size_entropy_partition_quality,
-    "hamming_corr": hamming_correlation_partition_quality,
-    "hamming_dist": hamming_distance_partition_quality,
-    "cosine_dist": dialect_cosine_distance_partition_quality,
-    "min_cosine_dist": min_cosine_distance_partition_quality,
-    "min_cosine_dist_with_negation": min_cosine_distance_with_negation_partition_quality,
+    "Size Entropy": dialect_size_entropy_partition_quality,
+    "Hamming Correlation": hamming_correlation_partition_quality,
+    "Hamming Distance": hamming_distance_partition_quality,
+    "Cosine Distance": dialect_cosine_distance_partition_quality,
+    "Minimum Cosine Distance": min_cosine_distance_partition_quality,
+    "Minimum Cosine Distance With Inversion": min_cosine_distance_with_inversion_partition_quality,
 }
