@@ -41,10 +41,10 @@ def file_distribution_attributable_risk(
     Anti-attributable => -1.0
     """
     # TODO Slow calculation; should be improved if we stick with it
-    a = np.sum((antecedent == 1) & (consequent == 1), axis=-1)
-    b = np.sum((antecedent == 1) & (consequent == 0), axis=-1)
-    c = np.sum((antecedent == 0) & (consequent == 1), axis=-1)
-    d = np.sum((antecedent == 0) & (consequent == 0), axis=-1)
+    a = np.sum(antecedent & consequent, axis=-1, dtype=np.float_)
+    b = np.sum(antecedent & ~consequent, axis=-1, dtype=np.float_)
+    c = np.sum(~antecedent & consequent, axis=-1, dtype=np.float_)
+    d = np.sum(~antecedent & ~consequent, axis=-1, dtype=np.float_)
     # Assume entirely unrelated if we have 0 in a denominator
     return np.nan_to_num((a / (a + b)) - (c / (c + d)), 0.0, 0.0, 0.0)
 
@@ -134,9 +134,21 @@ def pairwise_attributable_risk(
         consequent feature
     """
     # TODO can do this faster (can eliminate at least one matrix op using a sum)
-    a = antecedent_feature_files @ consequent_feature_files.T
-    b = antecedent_feature_files @ ~consequent_feature_files.T
-    c = ~antecedent_feature_files @ consequent_feature_files.T
-    d = ~antecedent_feature_files @ ~consequent_feature_files.T
+    antecedent_feature_files_complement = ~antecedent_feature_files
+    consequent_feature_files_complement = ~consequent_feature_files
+    # Use np.matmul instead of @ notation to convert to float matrices
+    # (otherwise we end up with int matrices)
+    a = np.matmul(antecedent_feature_files, consequent_feature_files.T, dtype=np.float_)
+    b = np.matmul(
+        antecedent_feature_files, consequent_feature_files_complement.T, dtype=np.float_
+    )
+    c = np.matmul(
+        antecedent_feature_files_complement, consequent_feature_files.T, dtype=np.float_
+    )
+    d = np.matmul(
+        antecedent_feature_files_complement,
+        consequent_feature_files_complement.T,
+        dtype=np.float_,
+    )
     # Assume entirely unrelated if we have 0 in a denominator
     return np.nan_to_num((a / (a + b)) - (c / (c + d)), 0.0, 0.0, 0.0)

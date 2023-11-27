@@ -78,7 +78,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         target_size = len(target_files)
         partitions_with_debug_lines = best_partitions(
             feature_files=feature_files,
-            target_features_cnf=dialect_settings.targeted_features_cnf,
+            target_files=target_files,
             min_feature_samples=dialect_settings.min_feature_samples,
             target_restriction_mode=dialect_settings.target_restriction_mode,
             max_slop_files=dialect_settings.max_slop_files,

@@ -1,4 +1,5 @@
 import dataclasses
+import enum
 from typing import Generic, List, Mapping, Optional, Sequence, TypeVar
 
 import numpy as np
@@ -67,7 +68,7 @@ class _InversionInfo:
 def best_partitions(
     *,
     feature_files: npt.NDArray[np.bool_],
-    target_features_cnf: Mapping[int, bool],
+    target_files: npt.NDArray[np.int_],
     min_feature_samples: int,
     target_restriction_mode: TargetRestrictionMode,
     max_slop_files: int,
@@ -79,11 +80,7 @@ def best_partitions(
     exclusion_min_attr_risk: float,
     feature_names: Sequence[str],
 ) -> WithDebugLines[Sequence[Partition]]:
-    target_files = target_files_from_cnf(
-        feature_files=feature_files, target_features_cnf=target_features_cnf
-    )
-
-    # Save the cutover point for:
+    # Save the inversion cutover point for:
     # - Partition search, to avoid repeating some ops (like pairwise attr risk)
     # - Converting back to original feature indices
     first_inverted_feature = feature_files.shape[0]
@@ -185,6 +182,44 @@ class _PartialPartition:
     """Coverage of last feature added to partition (coverage = #files - slop)"""
 
 
+class _AttributionStatus(enum.Enum):
+    SUFFICIENTLY_DIFFERENT = enum.auto()
+    ATTRIBUTABLE_TO_OTHER = enum.auto()
+    OTHER_ATTRIBUTABLE = enum.auto()
+    MUTUALLY_ATTRIBUTABLE = enum.auto()
+
+
+def _partition_redundancy(
+    *,
+    partition: List[int],
+    base_partition: List[int],
+    pairwise_attr_risk: npt.NDArray[np.float_],
+    min_attr_risk: float,
+) -> _AttributionStatus:
+    if len(partition) != len(base_partition):
+        return _AttributionStatus.SUFFICIENTLY_DIFFERENT
+    attributable_to_other = np.all(
+        np.any(
+            pairwise_attr_risk[np.ix_(base_partition, partition)] >= min_attr_risk,
+            axis=1,
+        )
+    )
+    other_attributable = np.all(
+        np.any(
+            pairwise_attr_risk[np.ix_(partition, base_partition)] >= min_attr_risk,
+            axis=1,
+        )
+    )
+    if attributable_to_other and other_attributable:
+        return _AttributionStatus.MUTUALLY_ATTRIBUTABLE
+    elif attributable_to_other:
+        return _AttributionStatus.ATTRIBUTABLE_TO_OTHER
+    elif other_attributable:
+        return _AttributionStatus.OTHER_ATTRIBUTABLE
+    else:
+        return _AttributionStatus.SUFFICIENTLY_DIFFERENT
+
+
 def _find_partition_heroes(
     *,
     valid_heroes: npt.NDArray[np.int_],
@@ -265,29 +300,82 @@ def _find_partition_heroes(
     terminated_too_many_dialects = 0
     terminated_no_candidates = 0
     terminated_unreachable_files = 0
+    discarded_redundant_partition = 0
     while incomplete_partition_stack and len(good_partitions) < max_partitions:
         # Remove the most recently inserted item
         prior = incomplete_partition_stack.pop()
-        seed_partition = prior.heroes
-        seed_partition_features = valid_heroes[seed_partition]
+        partition = prior.heroes
+        partition_features = valid_heroes[partition]
 
-        partition_sum = np.sum(target_feature_files[seed_partition_features, :], axis=0)
+        partition_sum = np.sum(target_feature_files[partition_features, :], axis=0)
         partition_mask = partition_sum > 0
         partition_overlap = np.sum(partition_sum > 1)
         num_covered_files = np.sum(partition_mask)
-        allowable_slop = max_slop_files - partition_overlap
+        partition_inherent_slop = np.sum(hero_slop[partition])
+        allowable_slop = max_slop_files - partition_overlap - partition_inherent_slop
 
         # Check if seed already is good
         if (
             num_target_files - num_covered_files <= allowable_slop
-            and len(seed_partition) >= 2
+            and len(partition) >= 2
         ):
+            # This is a legal partition!
+
+            # Confirm that this isn't a duplicate of an existing partition.
+            # If each feature in this partition is highly attributable to
+            # a feature in another, we discard it.
+            discard_this_partition = False
+            for i, other_partition in enumerate(good_partitions):
+                partition_attribution_status = _partition_redundancy(
+                    partition=partition,
+                    base_partition=other_partition,
+                    pairwise_attr_risk=hero_hero_pairwise_attr_risk,
+                    min_attr_risk=exclusion_min_attr_risk,
+                )
+                if (
+                    partition_attribution_status
+                    == _AttributionStatus.SUFFICIENTLY_DIFFERENT
+                ):
+                    continue
+                # Partition is a dupe. If only one implies the other, keep that one;
+                # otherwise, decide based on slop
+                if (
+                    partition_attribution_status
+                    == _AttributionStatus.OTHER_ATTRIBUTABLE
+                ):
+                    good_partitions.pop(i)
+                elif (
+                    partition_attribution_status
+                    == _AttributionStatus.ATTRIBUTABLE_TO_OTHER
+                ):
+                    discard_this_partition = True
+                else:
+                    other_partition_slop = np.sum(
+                        np.sum(
+                            target_feature_files[valid_heroes[other_partition], :],
+                            axis=0,
+                        )
+                        != 1
+                    ) + np.sum(hero_slop[other_partition])
+                    this_partition_slop = (
+                        partition_inherent_slop
+                        + partition_overlap
+                        + (num_target_files - num_covered_files)
+                    )
+                    if other_partition_slop > this_partition_slop:
+                        good_partitions.pop(i)
+                    else:
+                        discard_this_partition = True
+                discarded_redundant_partition += 1
+                break
+            if discard_this_partition:
+                continue
             # Done; success
-            good_partitions.append(seed_partition)
+            good_partitions.append(partition)
             if no_partition_overlap:
                 # Remove any similar features from future consideration.
                 risk_attributable_to_partition = hero_hero_pairwise_attr_risk[
-                    seed_partition, :
+                    partition, :
                 ]
                 if inversion_info is not None:
                     # Invert attr risk for inverted features
@@ -305,7 +393,7 @@ def _find_partition_heroes(
                     if not np.any(avoiding_features_mask[partial_partition.heroes])
                 ]
             continue
-        elif len(seed_partition) == max_dialects:
+        elif len(partition) == max_dialects:
             # Can't add more dialects
             terminated_too_many_dialects += 1
             continue
@@ -343,8 +431,7 @@ def _find_partition_heroes(
             candidate_heroes_mask &= ~avoiding_features_mask
         if inversion_info is not None:
             candidate_heroes_mask[
-                hero_has_direct_inverse
-                & np.isin(hero_inverses, seed_partition_features)
+                hero_has_direct_inverse & np.isin(hero_inverses, partition_features)
             ] = 0
 
         num_reachable_files = np.sum(
@@ -360,7 +447,7 @@ def _find_partition_heroes(
 
         # Don't consider very small features yet
         candidate_heroes_mask &= (
-            hero_additional_coverage * (max_dialects - len(seed_partition))
+            hero_additional_coverage * (max_dialects - len(partition))
             >= num_target_files - num_covered_files
         )
 
@@ -403,7 +490,7 @@ def _find_partition_heroes(
 
         incomplete_partition_stack.extend(
             _PartialPartition(
-                heroes=seed_partition + [candidate_i],
+                heroes=partition + [candidate_i],
                 last_contribution=hero_additional_coverage[candidate_i],
             )
             for candidate_i in candidate_heroes[candidate_sort_indices]
@@ -413,9 +500,10 @@ def _find_partition_heroes(
     return WithDebugLines(
         [valid_heroes[partition] for partition in good_partitions],
         [
-            f"{valid_heroes.size} candidate hero features (of {target_feature_files.shape[0]} unique features)",
+            f"{valid_heroes.size} candidate hero features (of {target_feature_files.shape[0]} deduplicated features)",
             f"Terminated search branch due to too many dialects: {terminated_too_many_dialects}",
             f"Terminated search branch due to no candidates: {terminated_no_candidates}",
             f"Terminated search branch due to too many unreachable files: {terminated_unreachable_files}",
+            f"Discarded partition due to similarity with existing partition: {discarded_redundant_partition}",
         ],
     )
