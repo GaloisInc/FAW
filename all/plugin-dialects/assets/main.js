@@ -141,6 +141,11 @@ Vue.component('dialect-wizard', {
         Max files in multiple/no dialects (outliers): 
         <input v-model.number="dialectSettings.max_slop_files" type="number" min="0" />
     </label>
+    <br/>
+    <label>
+        Include dialects based on inverted features
+        <input v-model="dialectSettings.allow_inverted_features" type="checkbox" />
+    </label>
     <hr>
     <label>
         Max partitions
@@ -155,11 +160,6 @@ Vue.component('dialect-wizard', {
     <label>
         Disallow very similar dialects between partitions
         <input v-model="dialectSettings.no_partition_overlap" type="checkbox" />
-    </label>
-    <br/>
-    <label>
-        Include dialects based on inverted features
-        <input v-model="dialectSettings.allow_inverted_features" type="checkbox" />
     </label>
     <hr>
     <div>

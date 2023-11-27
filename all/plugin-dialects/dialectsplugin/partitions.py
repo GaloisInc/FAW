@@ -467,7 +467,7 @@ def _find_partition_heroes(
         # - features that contribute less slop
         # - features with high weight
 
-        # file rarity: 1 when a file is only in 1 file, 0 when it's in all files
+        # file rarity: 1 when a file is only in 1 feature, 0 when it's in all features
         # that is, the number of *other* features that don't have the file, for a feature with it.
         file_rarity = (num_candidates - coverage_by_candidates) / (num_candidates - 1)
         candidate_rarity_satisfaction = scipy.special.logsumexp(
@@ -482,6 +482,7 @@ def _find_partition_heroes(
                 # between 0 and 1; fraction of slop that will remain available
                 (allowable_slop - candidate_slop_contribution)
                 / allowable_slop
+                if allowable_slop > 0 else 0
             )
             + candidate_rarity_satisfaction  # between 0 and 1
         )
