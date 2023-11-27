@@ -308,7 +308,7 @@ where
 * `fraction_of_slop_left` is the fraction of current remaining slop capacity
   that would be left over after adding this feature to the incomplete partition.
   It's 0 when the feature uses up all of the remaining slop, and 1 if it uses
-  none. This term is left out of hte calculation if slop is already exhausted.
+  none. This term is left out of the calculation if slop is already exhausted.
 * `rarity_satisfaction` is a measure of how rare the files covered by the
   feature are. It's the (again, normalized) logsumexp aggregation of
   file rarity, where file rarity is the fraction of *other* features that don't
