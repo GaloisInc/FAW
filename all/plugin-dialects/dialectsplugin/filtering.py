@@ -23,7 +23,7 @@ def select_valid_heroes(
     min_feature_samples is the min # of positive and negative samples _within_
     the target required for consideration
     """
-    min_feature_samples = max(min_feature_samples, max_slop_files)
+    # min_feature_samples = max(min_feature_samples, max_slop_files)
     candidate_heroes_mask = np.ones(feature_files.shape[0], dtype=np.bool_)
 
     feature_counts: npt.NDArray[np.int_] = np.sum(

@@ -424,7 +424,7 @@ def _find_partition_heroes(
         hero_additional_coverage = np.sum(
             hero_feature_files[:, remaining_files], axis=1
         )
-        candidate_heroes_mask &= hero_overlap_contribution < hero_additional_coverage
+        candidate_heroes_mask &= hero_slop_contribution < hero_additional_coverage
         if prior.last_contribution is not None:
             candidate_heroes_mask &= hero_additional_coverage <= prior.last_contribution
         if no_partition_overlap:

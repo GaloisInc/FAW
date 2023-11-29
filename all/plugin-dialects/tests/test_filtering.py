@@ -80,9 +80,7 @@ def test_select_valid_heroes(
 
     for feature in valid_heroes:
         distribution = feature_files[feature]
-        assert np.sum(distribution[target_files]) >= max(
-            min_feature_samples, max_slop_files
-        )
+        assert np.sum(distribution[target_files]) >= min_feature_samples
 
         assert feature_slop[feature] <= max_slop_files
 
@@ -91,8 +89,8 @@ def test_select_valid_heroes(
             feature
             for feature, distribution in enumerate(feature_files[:, target_files])
             if (
-                n_target_files - max(min_feature_samples, max_slop_files)
+                n_target_files - min_feature_samples
                 >= np.sum(distribution)
-                >= max(min_feature_samples, max_slop_files)
+                >= min_feature_samples
             )
         }
