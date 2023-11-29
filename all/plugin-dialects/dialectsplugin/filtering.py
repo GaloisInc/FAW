@@ -12,7 +12,7 @@ def select_valid_heroes(
     *,
     feature_files: npt.NDArray[np.bool_],
     target_files: npt.NDArray[np.int_],
-    min_feature_samples: int,
+    min_dialect_size: int,
     feature_slop: npt.NDArray[np.int_],
     excluded_features: npt.NDArray[np.int_],
     exclusion_min_attr_risk: float,
@@ -20,19 +20,19 @@ def select_valid_heroes(
 ) -> npt.NDArray[np.int_]:
     """Return the indices of features which are valid candidates for dialect heroes.
 
-    min_feature_samples is the min # of positive and negative samples _within_
+    min_dialect_size is the min # of positive and negative samples _within_
     the target required for consideration
     """
-    # min_feature_samples = max(min_feature_samples, max_slop_files)
+    # min_dialect_size = max(min_dialect_size, max_slop_files)
     candidate_heroes_mask = np.ones(feature_files.shape[0], dtype=np.bool_)
 
     feature_counts: npt.NDArray[np.int_] = np.sum(
         feature_files[:, target_files], axis=1
     )
     candidate_heroes_mask &= feature_slop <= max_slop_files
-    candidate_heroes_mask &= feature_counts >= min_feature_samples
+    candidate_heroes_mask &= feature_counts >= min_dialect_size
     # We also need enough space to fit at least one more valid dialect in
-    candidate_heroes_mask &= feature_counts + min_feature_samples <= len(target_files)
+    candidate_heroes_mask &= feature_counts + min_dialect_size <= len(target_files)
 
     for feature in excluded_features:
         # TODO should this be restricted to the target?

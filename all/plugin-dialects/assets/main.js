@@ -114,7 +114,7 @@ Vue.component('dialect-wizard', {
     <hr>
     <label>
         Min dialect size: 
-        <input v-model.number="dialectSettings.min_feature_samples" type="number" min="1" />
+        <input v-model.number="dialectSettings.min_dialect_size" type="number" min="1" />
     </label>
     <br/>
     <label>

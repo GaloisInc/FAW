@@ -24,7 +24,7 @@ class DialectWizardSettings:
     If empty, target all files.
     """
     find_dialects: bool = False
-    min_feature_samples: int = 20
+    min_dialect_size: int = 20
     target_restriction_mode: TargetRestrictionMode = "homogeneous_outside"
     highlighted_filename: str = ""
     excluded_features: List[int] = dataclasses.field(default_factory=list)

@@ -69,7 +69,7 @@ def best_partitions(
     *,
     feature_files: npt.NDArray[np.bool_],
     target_files: npt.NDArray[np.int_],
-    min_feature_samples: int,
+    min_dialect_size: int,
     target_restriction_mode: TargetRestrictionMode,
     max_slop_files: int,
     max_dialects: int,
@@ -113,7 +113,7 @@ def best_partitions(
     valid_heroes = select_valid_heroes(
         feature_files=unique_feature_files,
         target_files=target_files,
-        min_feature_samples=min_feature_samples,
+        min_dialect_size=min_dialect_size,
         feature_slop=unique_feature_slop,
         excluded_features=unique_features_indices[excluded_features],
         exclusion_min_attr_risk=exclusion_min_attr_risk,
@@ -128,6 +128,7 @@ def best_partitions(
         target_feature_files=target_feature_files,
         hero_slop=hero_slop,
         max_slop_files=max_slop_files,
+        min_dialect_size=min_dialect_size,
         max_dialects=max_dialects,
         max_partitions=max_partitions,
         exclusion_min_attr_risk=exclusion_min_attr_risk,
@@ -180,6 +181,12 @@ class _PartialPartition:
     """Hero indices (not feature indices)"""
     last_contribution: Optional[int]
     """Coverage of last feature added to partition (coverage = #files - slop)"""
+    descendants_already_checked: bool = False
+    """Mark a partial partition as having been reenstacked.
+    
+    When we encounter this partition again, we should accept it if none
+    of its descendants were accepted.
+    """
 
 
 class _AttributionStatus(enum.Enum):
@@ -226,6 +233,7 @@ def _find_partition_heroes(
     target_feature_files: npt.NDArray[np.bool_],
     hero_slop: npt.NDArray[np.int_],
     max_slop_files: int,
+    min_dialect_size: int,
     max_dialects: int,
     max_partitions: int,
     no_partition_overlap: bool,
@@ -301,6 +309,7 @@ def _find_partition_heroes(
     terminated_no_candidates = 0
     terminated_unreachable_files = 0
     discarded_redundant_partition = 0
+    discarded_subset_partition = 0
     while incomplete_partition_stack and len(good_partitions) < max_partitions:
         # Remove the most recently inserted item
         prior = incomplete_partition_stack.pop()
@@ -314,12 +323,142 @@ def _find_partition_heroes(
         partition_inherent_slop = np.sum(hero_slop[partition])
         allowable_slop = max_slop_files - partition_overlap - partition_inherent_slop
 
-        # Check if seed already is good
-        if (
+        # Check if seed already is a legal partition
+        legal_partition = (
             num_target_files - num_covered_files <= allowable_slop
             and len(partition) >= 2
-        ):
-            # This is a legal partition!
+        )
+        # We might still be able to fit in more dialects, though
+        space_for_more_dialects = (
+            num_target_files - num_covered_files >= min_dialect_size
+            and len(partition) < max_dialects
+        ) and not prior.descendants_already_checked
+
+        if not space_for_more_dialects and not legal_partition:
+            terminated_too_many_dialects += 1
+            continue
+
+        if space_for_more_dialects:
+            # Now we find valid children of this partition and enstack them
+            covered_files = np.nonzero(partition_mask)[0]
+            remaining_files = np.nonzero(~partition_mask)[0]
+
+            # Some of these could be cached in the search stack entries if necessary
+            # Remove from consideration:
+            # - features which would contribute too much slop on their own
+            # - features that would contribute more slop than coverage
+            #   - includes features already in partition
+            # - very small features, smaller than one equal part of
+            #   the remaining files minus remaining slop if all allowable dialects spent
+            #   - This makes a huge difference to perf
+            # - Features contributing less than the previous feature in the
+            #   partition, so we always build partitions starting with the biggest
+            #   features (and avoid blowing up the stack with duplicates)
+            # - Inverses of features already in the partition
+            hero_overlap_contribution = np.sum(
+                hero_feature_files[:, covered_files], axis=1
+            )
+            # Note: This hero slop contribution is only an upper bound--a file out of
+            #   the target but in multiple dialects contributes extra slop for each
+            #   dialect. This isn't the correct logic, but it's faster this way.
+            #   TODO try the correct logic here and see if it's too much slower
+            hero_slop_contribution = hero_slop + hero_overlap_contribution
+            candidate_heroes_mask = hero_slop_contribution <= allowable_slop
+            hero_additional_coverage = np.sum(
+                hero_feature_files[:, remaining_files], axis=1
+            )
+            candidate_heroes_mask &= hero_slop_contribution < hero_additional_coverage
+            if prior.last_contribution is not None:
+                candidate_heroes_mask &= (
+                    hero_additional_coverage <= prior.last_contribution
+                )
+            if no_partition_overlap:
+                candidate_heroes_mask &= ~avoiding_features_mask
+            if inversion_info is not None:
+                candidate_heroes_mask[
+                    hero_has_direct_inverse & np.isin(hero_inverses, partition_features)
+                ] = 0
+
+            num_reachable_files = np.sum(
+                np.any(
+                    hero_feature_files[np.ix_(candidate_heroes_mask, remaining_files)],
+                    axis=0,
+                )
+            )
+            if remaining_files.size - num_reachable_files > allowable_slop:
+                # There are too many unreachable files.
+                # Note that this will never happen if we have a legal partition.
+                terminated_unreachable_files += 1
+                continue
+
+            # Don't consider very small features yet
+            candidate_heroes_mask &= (
+                hero_additional_coverage * (max_dialects - len(partition))
+                >= num_target_files - num_covered_files - allowable_slop
+            )
+            candidate_heroes = np.nonzero(candidate_heroes_mask)[0]
+        else:
+            candidate_heroes = np.array([], dtype=np.int_)
+
+        if len(candidate_heroes) > 0:
+            if legal_partition:
+                # We should accept this partition if none of its children are better
+                incomplete_partition_stack.append(
+                    dataclasses.replace(prior, descendants_already_checked=True)
+                )
+            num_candidates = len(candidate_heroes)
+            candidate_file_features = hero_feature_files[
+                np.ix_(candidate_heroes, ~partition_mask)
+            ]
+            coverage_by_candidates = np.sum(candidate_file_features, axis=0)
+
+            # Prefer:
+            # - features that cover rare files we don't have yet
+            # - features that contribute less slop
+            # - features with high weight
+
+            # file rarity: 1 when a file is only in 1 feature, 0 when it's in all features
+            # that is, the number of *other* features that don't have the file, for a feature with it.
+            file_rarity = (num_candidates - coverage_by_candidates) / (
+                num_candidates - 1
+            )
+            candidate_rarity_satisfaction = scipy.special.logsumexp(
+                candidate_file_features * file_rarity,
+                axis=1,
+                b=(1 / file_rarity.size),
+            )
+            candidate_slop_contribution = hero_slop_contribution[candidate_heroes]
+            candidate_weights = (
+                hero_weights[candidate_heroes]  # between 0 and 1
+                + (
+                    # between 0 and 1; fraction of slop that will remain available
+                    (allowable_slop - candidate_slop_contribution) / allowable_slop
+                    if allowable_slop > 0
+                    else 0
+                )
+                + candidate_rarity_satisfaction  # between 0 and 1
+            )
+            # Sort ascending, since we want to extend the stack in ascending order (last item is popped)
+            candidate_sort_indices = np.argsort(candidate_weights, kind="stable")
+
+            incomplete_partition_stack.extend(
+                _PartialPartition(
+                    heroes=partition + [candidate_i],
+                    last_contribution=hero_additional_coverage[candidate_i],
+                )
+                for candidate_i in candidate_heroes[candidate_sort_indices]
+            )
+        elif not legal_partition:
+            terminated_no_candidates += 1
+        else:
+            # Time to potentially accept the partition!
+
+            # Check that this isn't a subset of any existing partition
+            # This can happen when a valid partition was reenstacked
+            for other_partition in good_partitions:
+                if set(partition) <= set(other_partition):
+                    discarded_subset_partition += 1
+                    continue
 
             # Confirm that this isn't a duplicate of an existing partition.
             # If each feature in this partition is highly attributable to
@@ -392,110 +531,6 @@ def _find_partition_heroes(
                     for partial_partition in incomplete_partition_stack
                     if not np.any(avoiding_features_mask[partial_partition.heroes])
                 ]
-            continue
-        elif len(partition) == max_dialects:
-            # Can't add more dialects
-            terminated_too_many_dialects += 1
-            continue
-
-        # Now we find valid children of this partition and enstack them
-        covered_files = np.nonzero(partition_mask)[0]
-        remaining_files = np.nonzero(~partition_mask)[0]
-
-        # Some of these could be cached in the search stack entries if necessary
-        # Remove from consideration:
-        # - features which would contribute too much slop on their own
-        # - features that would contribute more slop than coverage
-        #   - includes features already in partition
-        # - very small features, smaller than one equal part of
-        #   the remaining files if all allowable dialects spent
-        #   - This makes a huge difference to perf
-        # - Features contributing less than the previous feature in the
-        #   partition, so we always build partitions starting with the biggest
-        #   features (and avoid blowing up the stack with duplicates)
-        # - Inverses of features already in the partition
-        hero_overlap_contribution = np.sum(hero_feature_files[:, covered_files], axis=1)
-        # Note: This hero slop contribution is only an upper bound--a file out of
-        #   the target but in multiple dialects contributes extra slop for each
-        #   dialect. This isn't the correct logic, but it's faster this way.
-        #   TODO try the correct logic here and see if it's too much slower
-        hero_slop_contribution = hero_slop + hero_overlap_contribution
-        candidate_heroes_mask = hero_slop_contribution <= allowable_slop
-        hero_additional_coverage = np.sum(
-            hero_feature_files[:, remaining_files], axis=1
-        )
-        candidate_heroes_mask &= hero_slop_contribution < hero_additional_coverage
-        if prior.last_contribution is not None:
-            candidate_heroes_mask &= hero_additional_coverage <= prior.last_contribution
-        if no_partition_overlap:
-            candidate_heroes_mask &= ~avoiding_features_mask
-        if inversion_info is not None:
-            candidate_heroes_mask[
-                hero_has_direct_inverse & np.isin(hero_inverses, partition_features)
-            ] = 0
-
-        num_reachable_files = np.sum(
-            np.any(
-                hero_feature_files[np.ix_(candidate_heroes_mask, remaining_files)],
-                axis=0,
-            )
-        )
-        if remaining_files.size - num_reachable_files > allowable_slop:
-            # There are too many unreachable files
-            terminated_unreachable_files += 1
-            continue
-
-        # Don't consider very small features yet
-        candidate_heroes_mask &= (
-            hero_additional_coverage * (max_dialects - len(partition))
-            >= num_target_files - num_covered_files
-        )
-
-        candidate_heroes = np.nonzero(candidate_heroes_mask)[0]
-        num_candidates = len(candidate_heroes)
-        if num_candidates == 0:
-            terminated_no_candidates += 1
-            continue
-
-        candidate_file_features = hero_feature_files[
-            np.ix_(candidate_heroes, ~partition_mask)
-        ]
-        coverage_by_candidates = np.sum(candidate_file_features, axis=0)
-
-        # Prefer:
-        # - features that cover rare files we don't have yet
-        # - features that contribute less slop
-        # - features with high weight
-
-        # file rarity: 1 when a file is only in 1 feature, 0 when it's in all features
-        # that is, the number of *other* features that don't have the file, for a feature with it.
-        file_rarity = (num_candidates - coverage_by_candidates) / (num_candidates - 1)
-        candidate_rarity_satisfaction = scipy.special.logsumexp(
-            candidate_file_features * file_rarity,
-            axis=1,
-            b=(1 / file_rarity.size),
-        )
-        candidate_slop_contribution = hero_slop_contribution[candidate_heroes]
-        candidate_weights = (
-            hero_weights[candidate_heroes]  # between 0 and 1
-            + (
-                # between 0 and 1; fraction of slop that will remain available
-                (allowable_slop - candidate_slop_contribution)
-                / allowable_slop
-                if allowable_slop > 0 else 0
-            )
-            + candidate_rarity_satisfaction  # between 0 and 1
-        )
-        # Sort ascending, since we want to extend the stack in ascending order (last item is popped)
-        candidate_sort_indices = np.argsort(candidate_weights, kind="stable")
-
-        incomplete_partition_stack.extend(
-            _PartialPartition(
-                heroes=partition + [candidate_i],
-                last_contribution=hero_additional_coverage[candidate_i],
-            )
-            for candidate_i in candidate_heroes[candidate_sort_indices]
-        )
 
     # Convert hero indices to feature indices and return
     return WithDebugLines(
@@ -506,5 +541,6 @@ def _find_partition_heroes(
             f"Terminated search branch due to no candidates: {terminated_no_candidates}",
             f"Terminated search branch due to too many unreachable files: {terminated_unreachable_files}",
             f"Discarded partition due to similarity with existing partition: {discarded_redundant_partition}",
+            f"Discarded valid partition in favor of descendant: {discarded_subset_partition}",
         ],
     )
