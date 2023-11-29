@@ -43,14 +43,14 @@ def test_deduplicated_feature_indices():
 
 
 @pytest.mark.parametrize("random_seed", [0, 13546])
-@pytest.mark.parametrize("min_feature_samples", [1, 10])
+@pytest.mark.parametrize("min_dialect_size", [1, 10])
 @pytest.mark.parametrize("max_slop_files", [0, 1, 10])
 @pytest.mark.parametrize("excluded_features", [[], list(range(10))])
 @pytest.mark.parametrize("n_target_files", [100, 70, 2])
 @pytest.mark.parametrize("zero_slop", [True, False])
 def test_select_valid_heroes(
     random_seed: int,
-    min_feature_samples: int,
+    min_dialect_size: int,
     max_slop_files: int,
     excluded_features: list[int],
     n_target_files: int,
@@ -68,7 +68,7 @@ def test_select_valid_heroes(
     valid_heroes = select_valid_heroes(
         feature_files=feature_files,
         target_files=target_files,
-        min_feature_samples=min_feature_samples,
+        min_dialect_size=min_dialect_size,
         feature_slop=feature_slop,
         excluded_features=np.asarray(excluded_features),
         exclusion_min_attr_risk=0.8,
@@ -80,7 +80,7 @@ def test_select_valid_heroes(
 
     for feature in valid_heroes:
         distribution = feature_files[feature]
-        assert np.sum(distribution[target_files]) >= min_feature_samples
+        assert np.sum(distribution[target_files]) >= min_dialect_size
 
         assert feature_slop[feature] <= max_slop_files
 
@@ -89,8 +89,8 @@ def test_select_valid_heroes(
             feature
             for feature, distribution in enumerate(feature_files[:, target_files])
             if (
-                n_target_files - min_feature_samples
+                n_target_files - min_dialect_size
                 >= np.sum(distribution)
-                >= min_feature_samples
+                >= min_dialect_size
             )
         }
