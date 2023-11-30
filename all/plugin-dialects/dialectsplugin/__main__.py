@@ -153,17 +153,20 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 )
             else:
                 out_of_target_files_inverted = False
-            return [
-                (
-                    filenames[file_index],
-                    bool(file_index == highlight_file_index),
-                )
-                for file_index in np.nonzero(
-                    ~out_of_target_file_distribution
-                    if out_of_target_files_inverted
-                    else out_of_target_file_distribution
-                )[0]
-            ]
+            return (
+                bool(out_of_target_files_inverted),
+                [
+                    (
+                        filenames[file_index],
+                        bool(file_index == highlight_file_index),
+                    )
+                    for file_index in np.nonzero(
+                        ~out_of_target_file_distribution
+                        if out_of_target_files_inverted
+                        else out_of_target_file_distribution
+                    )[0]
+                ]
+            )
 
         partitions = []
         for partition in partitions_with_debug_lines.value:
@@ -200,7 +203,8 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 if highlight_file_index is not None
                                 else False
                             ),
-                            filenames_outside_target=out_of_target_files(dialect_index),
+                            filenames_outside_target=(out_of_target_info := out_of_target_files(dialect_index))[1],
+                            filenames_outside_target_inverted=out_of_target_info[0],
                         )
                         for dialect_index, (hero_feature_index, inverted) in enumerate(
                             zip(partition.hero_features, partition.inverted)
