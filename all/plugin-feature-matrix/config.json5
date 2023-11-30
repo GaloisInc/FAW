@@ -1,0 +1,20 @@
+{
+  decision_views: {
+    feature_matrix: {
+      label: 'Feature Matrix',
+      type: 'program',
+      exec: ['python3', 'main.py', '<outputHtml>'],
+      execStdin: '<statsbyfile>',
+    },
+  },
+  build: {
+    stages: {
+      final: {
+        commands: [
+          'COPY {dist}/requirements.txt {disttarg}/requirements.txt',
+          'RUN pip3 install -r {disttarg}/requirements.txt',
+        ],
+      },
+    },
+  },
+}

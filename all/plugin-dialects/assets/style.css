@@ -1,0 +1,20 @@
+.partitions-list > li + li,
+.implied-features-list > li + li,
+.dialects-list > li + li {
+    margin-top: 1em;
+}
+@counter-style conjunction {
+    system: cyclic;
+    symbols: "AND";
+    suffix: " ";
+}
+
+.target-list {
+    list-style-type: conjunction;
+}
+.target-list li::marker {
+    font-weight: bold;
+}
+.target-list li:first-child::marker {
+    color: transparent;
+}
