@@ -64,6 +64,7 @@ class Dialect(TypedDict):
     size_global: int
     highlight: bool
     filenames_outside_target: List[Tuple[str, bool]]
+    filenames_outside_target_inverted: bool
 
 
 class SlopFile(TypedDict):

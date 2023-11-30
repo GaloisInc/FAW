@@ -85,7 +85,7 @@ Vue.component('dialect-wizard', {
         <span v-if="targetedFeaturesCnf.length == 0">
             All {{numFiles}} files
         </span>
-        <ul v-else>
+        <ul v-else class="target-list">
             <li v-for="[featureIndex, included] in targetedFeaturesCnf" :key="featureIndex" >
                 {{featureLabel(featureIndex, included)}}
                 <button @click="untargetFeature(featureIndex);">
@@ -180,7 +180,7 @@ Vue.component('dialect-wizard', {
             <span v-if="isEmpty(dialectSettingsInit.targeted_features_cnf)">
                 All {{numFiles}} files
             </span>
-            <ul v-else>
+            <ul v-else class="target-list">
                 <li
                     v-for="(included, featureIndex) in dialectSettingsInit.targeted_features_cnf"
                     :key="featureIndex"
@@ -214,7 +214,12 @@ Vue.component('dialect-wizard', {
                             <button @click="targetFeature(dialect.hero_feature, false)">Target (AND NOT)</button>
                             <button @click="excludeFeature(dialect.hero_feature)">Exclude</button>
                             <details v-if="dialect.filenames_outside_target.length > 0">
-                                <summary>{{dialect.filenames_outside_target.length}} files outside target</summary>
+                                <summary v-if="dialect.filenames_outside_target_inverted">
+                                    {{dialect.filenames_outside_target.length}} outliers without feature outside target
+                                </summary>
+                                <summary v-else>
+                                    {{dialect.filenames_outside_target.length}} outliers with feature outside target
+                                </summary>
                                 <ul class="file-list">
                                     <li
                                         v-for="([filename, highlight], i) in dialect.filenames_outside_target"

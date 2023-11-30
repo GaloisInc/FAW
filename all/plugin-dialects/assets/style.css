@@ -3,6 +3,18 @@
 .dialects-list > li + li {
     margin-top: 1em;
 }
-/* .file-list > li:nth-child(2n) {
-    background-color: rgba(0,0,0,0.1);
-} */
+@counter-style conjunction {
+    system: cyclic;
+    symbols: "AND";
+    suffix: " ";
+}
+
+.target-list {
+    list-style-type: conjunction;
+}
+.target-list li::marker {
+    font-weight: bold;
+}
+.target-list li:first-child::marker {
+    color: transparent;
+}

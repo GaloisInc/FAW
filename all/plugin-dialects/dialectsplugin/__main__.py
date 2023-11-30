@@ -136,6 +136,35 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                 )
             return similar_features
 
+        def out_of_target_files(
+            dialect_index: int,
+        ) -> Tuple[bool, List[Tuple[str, bool]]]:
+            """Returns (Dialect.filenames_outside_target_inverted, Dialect.filenames_outside_target)"""
+            out_of_target_file_distribution = np.delete(
+                dialect_feature_files[dialect_index, :],
+                target_files,
+            )
+            if dialect_settings.target_restriction_mode == "ignore_outside":
+                return (False, [])
+            if dialect_settings.target_restriction_mode == "homogeneous_outside":
+                out_of_target_files_inverted = (
+                    2 * np.count_nonzero(out_of_target_file_distribution)
+                    > out_of_target_file_distribution.size
+                )
+            else:
+                out_of_target_files_inverted = False
+            return [
+                (
+                    filenames[file_index],
+                    bool(file_index == highlight_file_index),
+                )
+                for file_index in np.nonzero(
+                    ~out_of_target_file_distribution
+                    if out_of_target_files_inverted
+                    else out_of_target_file_distribution
+                )[0]
+            ]
+
         partitions = []
         for partition in partitions_with_debug_lines.value:
             dialect_feature_files = feature_files[partition.hero_features, :]
@@ -171,18 +200,7 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
                                 if highlight_file_index is not None
                                 else False
                             ),
-                            filenames_outside_target=[
-                                (
-                                    filenames[file_index],
-                                    bool(file_index == highlight_file_index),
-                                )
-                                for file_index in np.nonzero(
-                                    np.delete(
-                                        dialect_feature_files[dialect_index, :],
-                                        target_files,
-                                    )
-                                )[0]
-                            ],
+                            filenames_outside_target=out_of_target_files(dialect_index),
                         )
                         for dialect_index, (hero_feature_index, inverted) in enumerate(
                             zip(partition.hero_features, partition.inverted)
@@ -220,11 +238,13 @@ def main(workbench_api_url: str, json_arguments: str, output_html: str):
         debug_lines = []
         target_size = 0
 
-    with open(output_html, "w") as f, open("./assets/vue.js") as f_vue, open(
-        "./assets/main.js"
-    ) as f_main, open("./assets/style.css") as f_style, open(
-        "./assets/index.html.jinja"
-    ) as f_html_template:
+    with (
+        open(output_html, "w") as f,
+        open("./assets/vue.js") as f_vue,
+        open("./assets/main.js") as f_main,
+        open("./assets/style.css") as f_style,
+        open("./assets/index.html.jinja") as f_html_template,
+    ):
         data = {
             "api_url": workbench_api_url,
             "debug_str": "\n".join(debug_lines),
