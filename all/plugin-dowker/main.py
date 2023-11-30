@@ -13,7 +13,8 @@ import pypugjs
 import re
 import sys
 
-from errorMatrixToDowker import errorMatrixToDowker
+from errorMatrixToDowkerFAW2 import errorMatrixToDowker
+#from errorMatrixToDowker import errorMatrixToDowker
 _path = os.path.dirname(os.path.abspath(__file__))
 
 def main():
