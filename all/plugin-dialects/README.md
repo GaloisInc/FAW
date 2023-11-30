@@ -9,8 +9,7 @@ The dialects wizard is a tool for finding mutually disjoint features that cover
 the corpus, or a subset of it. Like the clustering plugin, it is intended for
 root cause analysis, i.e. finding the relationships between interesting
 features. Unlike the clustering plugin, which primarily deals only with pairs
-of features (making its name a misnomer), the dialect wizard facilitates dealing
-with groups of features.
+of features, the dialect wizard facilitates dealing with groups of features.
 
 The dialect wizard can answer questions like:
 * "What kinds of features are produced by running parsers on this corpus? Are
@@ -18,7 +17,7 @@ The dialect wizard can answer questions like:
   of files?"
 * "Are the files that produced this error all similar, or can we
   partition them?"
-* "What factors might have caused this feature?"
+* "What mutually exclusive factors might have caused this feature?"
 
 A few types of partitions that could emerge:
 
@@ -165,6 +164,14 @@ that the metric could be used as an objective. Even without this, though,
 metrics could be used to rank partitions after they're discovered--but this
 didn't perform any better than just ranking them in the order they were
 discovered by the greedy algorithm.
+
+### Mutually exclusive features only
+
+The dialect wizard is intended for root cause analysis, but it can only find
+root causes when they are mutually exclusive with each other. This is a scope
+limitation of the tool, and something that could potentially be relaxed in a
+future version, provided that the tractability of the search problem can be
+maintained.
 
 
 ## Usage
